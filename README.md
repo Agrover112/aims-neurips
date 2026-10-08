@@ -99,7 +99,7 @@ Competition rules can change. The supplied official starting kit and current com
 
 ## Collaboration
 
-The intended GitHub repository visibility is private until redistribution rights and competition disclosure requirements have been checked. Invite collaborators through GitHub's repository settings. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, pull requests, tests, and rules for private competition material.
+The intended GitHub repository visibility is private until redistribution rights and competition disclosure requirements have been checked. Follow the [collaboration setup](docs/collaboration-setup.md) to give each person separate GitHub, Modal, and WandB access without sharing tokens. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, pull requests, tests, and rules for private competition material.
 
 ## License
 
