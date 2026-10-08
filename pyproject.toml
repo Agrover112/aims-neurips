@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aims-neurips-starter"
+version = "0.1.0"
+description = "Reproducible experiments for the Predictive AI Evaluation Challenge"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+experiment = ["matplotlib>=3.8", "wandb>=0.17"]
+modal = ["modal>=0.64"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+

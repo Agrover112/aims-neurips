@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Build a competition ZIP and run checks that need no third-party packages."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import py_compile
+import shutil
+import tempfile
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, default=ROOT / "dist/submission.zip")
+    args = parser.parse_args()
+    source = ROOT / "submission"
+    required = source / "model.py"
+    if not required.is_file():
+        raise SystemExit("submission/model.py is missing")
+    with tempfile.TemporaryDirectory(prefix="aims-package-") as temporary:
+        staged = Path(temporary) / "submission"
+        shutil.copytree(source, staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        for path in staged.rglob("*.py"):
+            py_compile.compile(str(path), doraise=True)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(staged.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(staged))
+    print(args.output)
+
+
+if __name__ == "__main__":
+    main()
+
