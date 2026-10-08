@@ -9,4 +9,3 @@ __all__ = [
     "brier_score",
     "calibration_ece",
 ]
-

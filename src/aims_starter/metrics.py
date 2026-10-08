@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 import math
+from collections.abc import Iterable, Sequence
 
 DEFAULT_BUDGETS = (0, 1, 3, 7, 15, 31)
 DEFAULT_WEIGHTS = (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)
@@ -29,9 +29,7 @@ def brier_score(y_true: Iterable[float], y_prob: Iterable[float]) -> float:
     return sum((probability - outcome) ** 2 for outcome, probability in pairs) / len(pairs)
 
 
-def calibration_ece(
-    y_true: Iterable[float], y_prob: Iterable[float], bins: int = 10
-) -> float:
+def calibration_ece(y_true: Iterable[float], y_prob: Iterable[float], bins: int = 10) -> float:
     """Return count-weighted ECE using fixed equal-width bins.
 
     A prediction of exactly 1.0 belongs to the final bin.
@@ -46,7 +44,8 @@ def calibration_ece(
         grouped[index].append((outcome, probability))
     total = len(pairs)
     return sum(
-        len(group) / total
+        len(group)
+        / total
         * abs(
             sum(probability for _, probability in group) / len(group)
             - sum(outcome for outcome, _ in group) / len(group)
@@ -56,9 +55,7 @@ def calibration_ece(
     )
 
 
-def brier_alc(
-    scores: Sequence[float], weights: Sequence[float] = DEFAULT_WEIGHTS
-) -> float:
+def brier_alc(scores: Sequence[float], weights: Sequence[float] = DEFAULT_WEIGHTS) -> float:
     """Combine per-budget Brier scores using the official normalized log-area weights."""
 
     if len(scores) != len(weights) or not scores:
@@ -71,4 +68,3 @@ def brier_alc(
     if not math.isclose(weight_sum, 1.0, abs_tol=1e-12):
         raise ValueError("weights must sum to one")
     return sum(float(score) * float(weight) for score, weight in zip(scores, weights, strict=True))
-

@@ -3,4 +3,3 @@
 from .predictor import PredictorConfig, predict_probability
 
 __all__ = ["PredictorConfig", "predict_probability"]
-

@@ -1,0 +1,15 @@
+[experiment]
+name = "integration-smoke-test"
+seed = 2026
+
+[predictor]
+prior_mean = 0.5
+prior_strength = 4.0
+subject_strength = 8.0
+
+[evaluation]
+budgets = [0, 1, 3, 7, 15, 31]
+alc_weights = [0.1, 0.2, 0.2, 0.2, 0.2, 0.1]
+
+[tracking]
+wandb_mode = "online"

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ def predict_probability(
         raise ValueError("input must be [subject, item]")
     subject, item = input_pair
     if not isinstance(subject, dict) or not isinstance(item, dict):
-        raise ValueError("subject and item must be dictionaries")
+        raise TypeError("subject and item must be dictionaries")
 
     cfg = config or PredictorConfig()
     target_subject = _subject_key(subject)
@@ -87,11 +88,10 @@ def predict_probability(
             group_successes += outcome
             group_count += 1
 
-    subject_mean = (
-        cfg.prior_strength * cfg.prior_mean + subject_successes
-    ) / (cfg.prior_strength + subject_count)
-    estimate = (
-        cfg.subject_strength * subject_mean + group_successes
-    ) / (cfg.subject_strength + group_count)
+    subject_mean = (cfg.prior_strength * cfg.prior_mean + subject_successes) / (
+        cfg.prior_strength + subject_count
+    )
+    estimate = (cfg.subject_strength * subject_mean + group_successes) / (
+        cfg.subject_strength + group_count
+    )
     return float(min(1.0, max(0.0, estimate)))
-

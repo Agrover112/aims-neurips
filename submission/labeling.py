@@ -19,4 +19,3 @@ def acquisition_function(
     if remaining <= 0:
         return False
     return bool(candidates <= remaining or abs(float(prediction) - 0.5) <= 0.15)
-

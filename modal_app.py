@@ -23,7 +23,9 @@ def run_remote(predictions_text: str, config_text: str) -> str:
     scores = []
     for budget in config["evaluation"]["budgets"]:
         probabilities = record["probabilities"][str(budget)]
-        scores.append(sum((float(p) - float(y)) ** 2 for y, p in zip(truth, probabilities)) / len(truth))
+        scores.append(
+            sum((float(p) - float(y)) ** 2 for y, p in zip(truth, probabilities)) / len(truth)
+        )
     return json.dumps({"brier_alc": sum(score * weight for score, weight in zip(scores, weights))})
 
 

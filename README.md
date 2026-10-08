@@ -45,7 +45,7 @@ The generated archive has `model.py` and optional `labeling.py` at its root, as 
 
 ## Run an offline experiment
 
-Prepare a JSON file containing one truth array and one probability array per official label budget:
+Prepare a JSON file containing one truth array and one probability array per official label budget. A runnable file is included at `examples/predictions.json`:
 
 ```json
 {
@@ -68,12 +68,19 @@ python scripts/run_experiment.py predictions.json
 python scripts/plot_results.py results/latest/metrics.json
 ```
 
-WandB is disabled in the shared configuration. Copy `configs/default.toml`, change `wandb_mode` to `offline` or `online`, and pass the copy with `--config`. Use `.env.example` as a list of environment variables, not as a place to store a key in Git.
-
-For Modal, install the `modal` extra, authenticate, create the optional `aims-wandb` secret, and run:
+WandB is disabled in the shared configuration. After `wandb login`, use the included online example or copy it for a real experiment:
 
 ```bash
-modal run modal_app.py --predictions predictions.json
+WANDB_PROJECT=aims-predictive-evaluation python scripts/run_experiment.py \
+  examples/predictions.json --config configs/wandb-online.example.toml
+```
+
+Use `.env.example` as a list of environment variables, not as a place to store a key in Git.
+
+For Modal, install the `modal` extra, authenticate, and run:
+
+```bash
+modal run modal_app.py --predictions examples/predictions.json
 ```
 
 ## Scientific workflow

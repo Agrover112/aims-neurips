@@ -7,4 +7,3 @@ def predict(input: list, labeled: list | None = None) -> float:
     """Return the probability that the supplied subject answers the item correctly."""
 
     return predict_probability(input, labeled)
-

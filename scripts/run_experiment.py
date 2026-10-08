@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import tomllib
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -19,7 +19,9 @@ from aims_starter.metrics import brier_alc, brier_score, calibration_ece
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("predictions", type=Path, help="JSON with truth and per-budget probabilities")
+    parser.add_argument(
+        "predictions", type=Path, help="JSON with truth and per-budget probabilities"
+    )
     parser.add_argument("--config", type=Path, default=ROOT / "configs/default.toml")
     parser.add_argument("--output", type=Path, default=ROOT / "results/latest/metrics.json")
     return parser.parse_args()
@@ -67,4 +69,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import py_compile
 import shutil
 import tempfile
 import zipfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,4 +36,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
