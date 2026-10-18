@@ -13,6 +13,7 @@ dependencies = []
 dev = ["pytest>=8", "ruff>=0.6"]
 experiment = ["matplotlib>=3.8", "wandb>=0.17"]
 modal = ["modal>=0.64"]
+data = ["huggingface-hub>=1.0", "pandas>=2.2", "pyarrow>=17"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -21,4 +22,3 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

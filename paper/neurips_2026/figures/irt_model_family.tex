@@ -1,0 +1,151 @@
+% Include-ready TikZ body. In the paper preamble use:
+% \usepackage{tikz}
+% \usetikzlibrary{arrows.meta,positioning,fit,calc}
+% Recommended wrapper:
+% \begin{figure*}\centering
+% \resizebox{\textwidth}{!}{\input{figures/irt_model_family}}
+% \caption{...}\end{figure*}
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  latent/.style={circle,draw,minimum size=7mm,inner sep=1pt},
+  observed/.style={circle,draw,fill=gray!25,minimum size=7mm,inner sep=1pt},
+  det/.style={draw,rounded corners=1.5pt,fill=blue!7,minimum height=6mm,inner sep=2pt,align=center},
+  obsset/.style={draw,rounded corners=1.5pt,fill=gray!25,minimum height=6mm,inner sep=2pt,align=center},
+  func/.style={ellipse,draw,fill=violet!8,minimum height=6mm,inner sep=2pt,align=center},
+  pred/.style={-{Latex[length=1.8mm]},semithick},
+  infer/.style={-{Latex[length=1.8mm]},semithick,dashed},
+  panel/.style={draw=black!35,rounded corners=2pt,minimum width=5.0cm,minimum height=4.0cm},
+  note/.style={font=\sffamily\tiny,align=center,text=black!75}
+]
+
+% (a) IRT
+\begin{scope}[shift={(0,4.4)}]
+  \node[panel] (pa) at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(a) IRT};
+  \node[latent] (tha) at (1.0,2.25) {$\theta_s$};
+  \node[latent] (eta) at (2.5,1.15) {$\eta_j$};
+  \node[observed] (ya) at (4.0,2.25) {$y_{sj}$};
+  \draw[pred] (tha) -- (ya);
+  \draw[pred] (eta) -- (ya);
+  \node[note] at (2.5,.45) {$\eta_j=(a_j,b_j)$; item parameters are free};
+\end{scope}
+
+% (b) Amortized IRT
+\begin{scope}[shift={(5.35,4.4)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(b) Amortized IRT};
+  \node[observed] (xb) at (.55,1.35) {$x_j$};
+  \node[det] (encb) at (1.55,1.35) {$E_x$};
+  \node[det] (etab) at (2.75,1.35) {$(a_j,b_j)$};
+  \node[latent] (thb) at (2.75,2.65) {$\theta_s$};
+  \node[observed] (yb) at (4.35,2.05) {$y_{sj}$};
+  \draw[pred] (xb) -- (encb);
+  \draw[pred] (encb) -- (etab);
+  \draw[pred] (etab) -- (yb);
+  \draw[pred] (thb) -- (yb);
+  \node[note] at (2.5,.45) {content amortizes item parameters; $\theta_s$ is still inferred or learned};
+\end{scope}
+
+% (c) Published GPIRT
+\begin{scope}[shift={(10.70,4.4)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(c) Published GPIRT};
+  \node[latent] (thc) at (.75,2.15) {$\theta_s$};
+  \node[func] (fc) at (2.35,2.15) {$f_j\!\sim\!\mathcal{GP}(\mu,K)$};
+  \node[det] (evalc) at (3.40,1.15) {$f_j(\theta_s)$};
+  \node[observed] (yc) at (4.35,2.15) {$y_{sj}$};
+  \draw[pred] (thc) -- (evalc);
+  \draw[pred] (fc) -- (evalc);
+  \draw[pred] (evalc) -- (yc);
+  \node[note] at (2.5,.45) {GP over response curves indexed by ability; not an unseen-item adapter};
+\end{scope}
+
+% (d) CNP-AIRT
+\begin{scope}[shift={(0,0)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(d) CNP-AIRT (proposed)};
+  \node[obsset] (cd) at (.70,2.60) {$C$};
+  \node[det] (qd) at (2.15,2.60) {set encoder};
+  \node[det] (zd) at (3.40,2.60) {$r_C$};
+  \node[det] (baseD) at (1.10,1.20) {$\ell^0_{sj}$};
+  \node[det] (decD) at (2.75,1.20) {IRT decoder};
+  \node[latent] (yd) at (4.25,1.20) {$y_{sj}$};
+  \draw[pred] (cd) -- (qd);
+  \draw[pred] (qd) -- (zd);
+  \draw[pred] (zd) -- (decD);
+  \draw[pred] (baseD) -- (decD);
+  \draw[pred] (decD) -- (yd);
+  \node[note] at (2.5,.45) {deterministic context summary; target $y^*$ is hidden};
+\end{scope}
+
+% (e) NP-AIRT
+\begin{scope}[shift={(5.35,0)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(e) NP-AIRT (proposed)};
+  \node[obsset] (ce) at (.70,2.60) {$C$};
+  \node[det] (qe) at (2.0,2.60) {$q_\phi(z\mid s_C)$};
+  \node[latent] (ze) at (3.35,2.60) {$z$};
+  \node[det] (baseE) at (1.10,1.20) {$\ell^0_{sj}$};
+  \node[det] (decE) at (2.75,1.20) {IRT decoder};
+  \node[latent] (ye) at (4.25,1.20) {$y_{sj}$};
+  \draw[infer] (ce) -- (qe);
+  \draw[infer] (qe) -- (ze);
+  \draw[pred] (ze) -- (decE);
+  \draw[pred] (baseE) -- (decE);
+  \draw[pred] (decE) -- (ye);
+  \node[note] at (2.5,.45) {global stochastic state; target $y^*$ is hidden at prediction time};
+\end{scope}
+
+% (f) ANP-AIRT
+\begin{scope}[shift={(10.70,0)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(f) ANP-AIRT (proposed)};
+  \node[obsset] (cf) at (.55,2.65) {$C$};
+  \node[observed] (ef) at (.55,1.30) {$x_j$};
+  \node[det] (attf) at (2.05,1.85) {cross-attention};
+  \node[det] (rf) at (3.25,1.85) {$r_j^*$};
+  \node[latent] (zf) at (2.05,2.85) {$z$};
+  \node[det] (df) at (4.05,1.85) {IRT\,+\,$\delta$};
+  \node[latent] (yf) at (4.55,.75) {$y_{sj}$};
+  \draw[infer] (cf) -- (zf);
+  \draw[pred] (cf) -- (attf);
+  \draw[pred] (ef) -- (attf);
+  \draw[pred] (attf) -- (rf);
+  \draw[pred] (rf) -- (df);
+  \draw[pred] (zf) -- (df);
+  \draw[pred] (df) -- (yf);
+  \node[note] at (2.5,.40) {global latent path plus target-specific deterministic path};
+\end{scope}
+
+% (g) RAA-IRT
+\begin{scope}[shift={(5.35,-4.4)}]
+  \node[panel] at (2.5,2) {};
+  \node[font=\sffamily\bfseries] at (2.5,3.70) {(g) RAA-IRT (proposed)};
+  \node[obsset] (cg) at (.50,2.75) {$C$};
+  \node[observed] (eg) at (.50,1.60) {$x_j$};
+  \node[det] (rg) at (.70,.75) {$\rho_{ji}$};
+  \node[det] (attg) at (2.25,1.70) {relation-aware\\attention};
+  \node[latent] (zg) at (2.15,2.85) {$z$};
+  \node[det] (dg) at (3.70,1.70) {bounded $\delta_{sj}$\\+ IRT decoder};
+  \node[latent] (yg) at (4.55,.75) {$y_{sj}$};
+  \draw[infer] (cg) -- (zg);
+  \draw[pred] (cg) -- (attg);
+  \draw[pred] (cg) -- (rg);
+  \draw[pred] (eg) -- (rg);
+  \draw[pred] (rg) -- (attg);
+  \draw[pred] (attg) -- (dg);
+  \draw[pred] (zg) -- (dg);
+  \draw[pred] (dg) -- (yg);
+  \node[note] at (2.5,.30) {relations are deterministic; target $y^*$ is hidden};
+\end{scope}
+
+% Legend
+\node[observed] (lo) at (1.0,-5.00) {};
+\node[right=1mm of lo] {observed};
+\node[latent] (ll) at (3.10,-5.00) {};
+\node[right=1mm of ll] {stochastic / unobserved};
+\node[det] (ld) at (6.25,-5.00) {map};
+\node[right=1mm of ld] {deterministic};
+\draw[pred] (9.00,-5.00) -- +(1.0,0) node[right] {model dependency};
+\draw[infer] (12.40,-5.00) -- +(1.0,0) node[right] {conditioning / inference};
+\end{tikzpicture}
