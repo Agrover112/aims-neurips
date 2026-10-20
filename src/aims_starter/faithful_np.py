@@ -15,6 +15,16 @@ from torch.distributions import Independent, Normal, kl_divergence
 from .metrics import DEFAULT_BUDGETS, DEFAULT_WEIGHTS, calibration_ece
 
 
+def binary_auc(y_true: np.ndarray, probability: np.ndarray) -> float:
+    """Pairwise ROC-AUC without adding a sklearn dependency."""
+    positive = np.asarray(y_true) == 1
+    negative = np.asarray(y_true) == 0
+    if not positive.any() or not negative.any():
+        return float("nan")
+    pair = probability[positive, None] - probability[negative]
+    return float((pair > 0).mean() + 0.5 * (pair == 0).mean())
+
+
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -56,6 +66,11 @@ class FaithfulNPAIRT(nn.Module):
         d_z: int = 64,
         n_heads: int = 8,
         residual_scale: float = 0.0,
+        anchor_scale: float = 1.0,
+        label_scale: float = 1.0,
+        center_labels: bool = False,
+        subject_feature_slice: tuple[int, int] | None = None,
+        latent_item_parameters: bool = False,
     ):
         super().__init__()
         if variant not in {"np", "anp", "stacked_mhsa_anp"}:
@@ -64,6 +79,11 @@ class FaithfulNPAIRT(nn.Module):
         self.d_model = d_model
         self.d_z = d_z
         self.residual_scale = residual_scale
+        self.anchor_scale = anchor_scale
+        self.label_scale = label_scale
+        self.center_labels = center_labels
+        self.subject_feature_slice = subject_feature_slice
+        self.latent_item_parameters = latent_item_parameters
         self.x_encoder = nn.Sequential(
             nn.Linear(x_dim, d_model),
             nn.LayerNorm(d_model),
@@ -107,9 +127,14 @@ class FaithfulNPAIRT(nn.Module):
             )
             self.r_star_norm = nn.LayerNorm(d_model)
 
-        self.theta_from_z = nn.Sequential(
-            nn.Linear(d_z, d_model), nn.ReLU(), nn.Linear(d_model, 1)
-        )
+        self.theta_from_z = nn.Sequential(nn.Linear(d_z, d_model), nn.ReLU(), nn.Linear(d_model, 1))
+        self.latent_item_net = None
+        if latent_item_parameters:
+            self.latent_item_net = nn.Sequential(
+                nn.Linear(d_model + d_z, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, 2),
+            )
         d_r = d_model if variant != "np" else 0
         self.decoder_residual = None
         if residual_scale > 0.0:
@@ -122,9 +147,20 @@ class FaithfulNPAIRT(nn.Module):
             )
 
     def encode_x(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode NP inputs ``x`` before the latent and deterministic paths."""
+        """Encode item tokens without repeating subject identity in every token."""
 
-        return self.x_encoder(x)
+        return self.encode_item_x(x)
+
+    def encode_item_x(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode item inputs while excluding subject metadata from IRT parameters."""
+
+        if self.subject_feature_slice is None:
+            return self.x_encoder(x)
+        start, stop = self.subject_feature_slice
+        item_x = torch.cat(
+            [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]], dim=-1
+        )
+        return self.x_encoder(item_x)
 
     def q_z(
         self,
@@ -137,7 +173,8 @@ class FaithfulNPAIRT(nn.Module):
             mu_z = torch.zeros(self.d_z, device=x_encoded.device)
             sigma_z = torch.ones(self.d_z, device=x_encoded.device)
             return Independent(Normal(mu_z, sigma_z), 1)
-        xy = torch.cat([x_encoded, y[:, None]], dim=-1)[None, :, :]
+        label_value = 2.0 * y[:, None] - 1.0 if self.center_labels else y[:, None]
+        xy = torch.cat([x_encoded, self.label_scale * label_value], dim=-1)[None, :, :]
         s_i = self.s_encoder(xy)
         for layer in self.s_self_attention:
             s_i = layer(s_i)
@@ -157,10 +194,9 @@ class FaithfulNPAIRT(nn.Module):
         if self.variant == "np":
             return None
         if x_C_encoded.shape[0] == 0:
-            return torch.zeros(
-                x_T_encoded.shape[0], self.d_model, device=x_T_encoded.device
-            )
-        xy_C = torch.cat([x_C_encoded, y_C[:, None]], dim=-1)[None, :, :]
+            return torch.zeros(x_T_encoded.shape[0], self.d_model, device=x_T_encoded.device)
+        label_value = 2.0 * y_C[:, None] - 1.0 if self.center_labels else y_C[:, None]
+        xy_C = torch.cat([x_C_encoded, self.label_scale * label_value], dim=-1)[None, :, :]
         r_i = self.r_encoder(xy_C)
         for layer in self.r_self_attention:
             r_i = layer(r_i)
@@ -176,11 +212,39 @@ class FaithfulNPAIRT(nn.Module):
         r_star: torch.Tensor | None,
         theta_anchor: torch.Tensor,
     ) -> torch.Tensor:
+        """Decode target logits from the latent, item features, and context.
+
+        Channel structure, kept identical across the ladder:
+
+        - Base logit is always the item-level IRT form ``a(x)(theta - b(x))``
+          with item-only parameters, so subject identity cannot reach ``a`` or
+          ``b`` and the MAP anchor stays identified.
+        - ``r_star`` is ANP's per-target deterministic representation. It enters
+          only through ``decoder_residual``, which is built when
+          ``residual_scale > 0``. At scale 0 the ANP row degenerates to latent
+          attention in the encoder and is not an ANP decoder.
+        - The residual is a post-anchor correction. ``theta_anchor`` is fit on
+          the base logits, so it is not the mode of the corrected logits. Do
+          not include ``r_star`` in the anchor fit: for context items it
+          attends to its own label.
+        """
+
+        theta = self.anchor_scale * theta_anchor + self.theta_from_z(z).squeeze(-1)
         raw_irt_parameters = self.irt_parameter_net(x_T_encoded)
-        a = torch.nn.functional.softplus(raw_irt_parameters[:, 0]) + 0.05
-        b = raw_irt_parameters[:, 1]
-        theta = theta_anchor + self.theta_from_z(z).squeeze(-1)
-        irt_logit = a[None, :] * (theta[:, None] - b[None, :])
+        if self.latent_item_net is None:
+            a = torch.nn.functional.softplus(raw_irt_parameters[:, 0]) + 0.05
+            b = raw_irt_parameters[:, 1]
+            irt_logit = a[None, :] * (theta[:, None] - b[None, :])
+        else:
+            n_z_samples = z.shape[0]
+            n_T = x_T_encoded.shape[0]
+            z_T = z[:, None, :].expand(-1, n_T, -1)
+            x_T_batched = x_T_encoded[None, :, :].expand(n_z_samples, -1, -1)
+            adjustment = self.latent_item_net(torch.cat([x_T_batched, z_T], dim=-1))
+            raw_a = raw_irt_parameters[None, :, 0] + adjustment[..., 0]
+            b = raw_irt_parameters[None, :, 1] + adjustment[..., 1]
+            a = torch.nn.functional.softplus(raw_a) + 0.05
+            irt_logit = a * (theta[:, None] - b)
         if self.decoder_residual is None:
             return irt_logit
         n_z_samples = z.shape[0]
@@ -191,7 +255,26 @@ class FaithfulNPAIRT(nn.Module):
         if r_star is not None:
             decoder_inputs.append(r_star[None, :, :].expand(n_z_samples, -1, -1))
         residual = self.decoder_residual(torch.cat(decoder_inputs, dim=-1)).squeeze(-1)
+        # Preserve the MAP/IRT level: r* may reorder targets, but cannot
+        # shift the target-set mean logit.
+        residual = residual - residual.mean(dim=-1, keepdim=True)
         return irt_logit + self.residual_scale * residual
+
+    def decoder_jacobian_singular_values(self, x_T: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        """Return singular values of d logits(x_T, z) / d z for latent-rank audits."""
+
+        x_T_encoded = self.encode_item_x(x_T)
+
+        def logits(single_z: torch.Tensor) -> torch.Tensor:
+            return self.decode_logits(
+                single_z[None, :],
+                x_T_encoded,
+                None,
+                torch.zeros((), device=x_T.device),
+            ).squeeze(0)
+
+        jacobian = torch.autograd.functional.jacobian(logits, z)
+        return torch.linalg.svdvals(jacobian)
 
     @torch.no_grad()
     def map_theta(
@@ -199,12 +282,13 @@ class FaithfulNPAIRT(nn.Module):
         x_C_encoded: torch.Tensor,
         y_C: torch.Tensor,
         *,
+        prior_mean: float = 0.0,
         prior_variance: float = 4.0,
         steps: int = 12,
     ) -> torch.Tensor:
         """Regularized 2PL MAP anchor computed from the acquired context."""
 
-        theta = torch.zeros((), device=x_C_encoded.device)
+        theta = torch.as_tensor(float(prior_mean), device=x_C_encoded.device)
         if x_C_encoded.shape[0] == 0:
             return theta
         raw_irt_parameters = self.irt_parameter_net(x_C_encoded)
@@ -212,7 +296,7 @@ class FaithfulNPAIRT(nn.Module):
         b_C = raw_irt_parameters[:, 1]
         for _ in range(steps):
             p_C = torch.sigmoid(a_C * (theta - b_C))
-            gradient = torch.sum(a_C * (y_C - p_C)) - theta / prior_variance
+            gradient = torch.sum(a_C * (y_C - p_C)) - (theta - prior_mean) / prior_variance
             hessian = -torch.sum(a_C.square() * p_C * (1.0 - p_C)) - 1.0 / prior_variance
             theta = (theta - gradient / hessian).clamp(-4.0, 4.0)
         return theta
@@ -226,18 +310,21 @@ class FaithfulNPAIRT(nn.Module):
         *,
         n_z_samples: int = 4,
         kl_weight: float = 1.0,
+        ability_aux_weight: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         x_C_encoded = self.encode_x(x_C)
         x_T_encoded = self.encode_x(x_T)
+        x_C_item_encoded = self.encode_item_x(x_C)
+        x_T_item_encoded = self.encode_item_x(x_T)
         q_z_C = self.q_z(x_C_encoded, y_C)
         # Following NP/ANP training, C is a subset of T and q(z | s_T) is the target posterior.
         q_z_T = self.q_z(x_T_encoded, y_T)
         z_T = q_z_T.rsample((n_z_samples,))
         z_C = q_z_C.rsample((n_z_samples,))
         r_star = self.r_star(x_C_encoded, y_C, x_T_encoded)
-        theta_anchor = self.map_theta(x_C_encoded, y_C)
-        logits_T = self.decode_logits(z_T, x_T_encoded, r_star, theta_anchor)
-        logits_C = self.decode_logits(z_C, x_T_encoded, r_star, theta_anchor)
+        theta_anchor = self.map_theta(x_C_item_encoded, y_C)
+        logits_T = self.decode_logits(z_T, x_T_item_encoded, r_star, theta_anchor)
+        logits_C = self.decode_logits(z_C, x_T_item_encoded, r_star, theta_anchor)
         y_T_batched = y_T[None, :].expand_as(logits_T)
         nll_T = torch.nn.functional.binary_cross_entropy_with_logits(
             logits_T, y_T_batched, reduction="mean"
@@ -247,12 +334,22 @@ class FaithfulNPAIRT(nn.Module):
         )
         nll = 0.5 * (nll_T + nll_C)
         kl = kl_divergence(q_z_T, q_z_C)
-        loss = nll + kl_weight * kl
+        ability_aux = torch.zeros((), device=x_C.device)
+        if ability_aux_weight > 0.0:
+            mu_theta_C = self.theta_from_z(q_z_C.base_dist.loc).squeeze()
+            mu_theta_T = self.theta_from_z(q_z_T.base_dist.loc).squeeze()
+            if y_C.numel():
+                rate_C = (y_C.sum() + 2.0) / (y_C.numel() + 4.0)
+                ability_aux = ability_aux + (mu_theta_C - torch.logit(rate_C)) ** 2
+            rate_T = (y_T.sum() + 2.0) / (y_T.numel() + 4.0)
+            ability_aux = ability_aux + (mu_theta_T - torch.logit(rate_T)) ** 2
+        loss = nll + kl_weight * kl + ability_aux_weight * ability_aux
         return loss, {
             "nll": float(nll.detach()),
             "nll_C": float(nll_C.detach()),
             "nll_T": float(nll_T.detach()),
             "kl": float(kl.detach()),
+            "ability_aux": float(ability_aux.detach()),
         }
 
     @torch.no_grad()
@@ -263,22 +360,79 @@ class FaithfulNPAIRT(nn.Module):
         x_T: torch.Tensor,
         *,
         n_z_samples: int = 256,
+        prior_mean: float = 0.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_C_encoded = self.encode_x(x_C)
         x_T_encoded = self.encode_x(x_T)
+        x_C_item_encoded = self.encode_item_x(x_C)
+        x_T_item_encoded = self.encode_item_x(x_T)
         q_z_C = self.q_z(x_C_encoded, y_C)
         z = q_z_C.rsample((n_z_samples,))
         r_star = self.r_star(x_C_encoded, y_C, x_T_encoded)
-        theta_anchor = self.map_theta(x_C_encoded, y_C)
-        p_y_T = torch.sigmoid(self.decode_logits(z, x_T_encoded, r_star, theta_anchor))
+        theta_anchor = self.map_theta(x_C_item_encoded, y_C, prior_mean=prior_mean)
+        p_y_T = torch.sigmoid(self.decode_logits(z, x_T_item_encoded, r_star, theta_anchor))
         return p_y_T.mean(dim=0), p_y_T.var(dim=0, unbiased=False)
+
+
+class Amortized1PL(nn.Module):
+    """Semantic item network with unit discrimination and online MAP adaptation.
+
+    The only free item parameter is difficulty ``b(x)``. Task abilities are
+    learned offline for meta-training and replaced by the same penalized MAP
+    solve used by the 2PL model at prediction time.
+    """
+
+    def __init__(
+        self,
+        x_dim: int,
+        n_tasks: int,
+        d_model: int = 128,
+        subject_feature_slice: tuple[int, int] | None = None,
+    ):
+        super().__init__()
+        self.subject_feature_slice = subject_feature_slice
+        self.irt_parameter_net = nn.Sequential(
+            nn.Linear(x_dim, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, 1),
+        )
+        self.theta = nn.Parameter(torch.zeros(n_tasks))
+
+    def item_difficulty(self, x: torch.Tensor) -> torch.Tensor:
+        """Return the 1PL item difficulty ``b(x)``."""
+
+        if self.subject_feature_slice is not None:
+            start, stop = self.subject_feature_slice
+            x = torch.cat(
+                [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]], dim=-1
+            )
+        return self.irt_parameter_net(x).squeeze(-1)
+
+    def item_parameters(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return unit discrimination and item difficulty for shared scoring code."""
+
+        difficulty = self.item_difficulty(x)
+        return torch.ones_like(difficulty), difficulty
+
+    def logits(self, x: torch.Tensor, task_indices: torch.Tensor) -> torch.Tensor:
+        return self.theta[task_indices] - self.item_difficulty(x)
 
 
 class Amortized2PL(nn.Module):
     """Semantic item network with offline task abilities and online MAP adaptation."""
 
-    def __init__(self, x_dim: int, n_tasks: int, d_model: int = 128):
+    def __init__(
+        self,
+        x_dim: int,
+        n_tasks: int,
+        d_model: int = 128,
+        subject_feature_slice: tuple[int, int] | None = None,
+    ):
         super().__init__()
+        self.subject_feature_slice = subject_feature_slice
         self.irt_parameter_net = nn.Sequential(
             nn.Linear(x_dim, d_model),
             nn.LayerNorm(d_model),
@@ -292,6 +446,11 @@ class Amortized2PL(nn.Module):
     def item_parameters(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Return 2PL discrimination a(x) and difficulty b(x)."""
 
+        if self.subject_feature_slice is not None:
+            start, stop = self.subject_feature_slice
+            x = torch.cat(
+                [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]], dim=-1
+            )
         raw = self.irt_parameter_net(x)
         return torch.nn.functional.softplus(raw[:, 0]) + 0.05, raw[:, 1]
 
@@ -300,12 +459,15 @@ class Amortized2PL(nn.Module):
         return a * (self.theta[task_indices] - b)
 
 
-def train_amortized_2pl(
+def train_amortized_1pl(
     tasks: list[dict[str, np.ndarray]],
     *,
     seed: int,
     steps: int = 800,
-) -> tuple[Amortized2PL, list[dict[str, float]]]:
+    subject_feature_slice: tuple[int, int] | None = None,
+) -> tuple[Amortized1PL, list[dict[str, float]]]:
+    """Train a 1PL item network with one offline ability per training task."""
+
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     x = np.concatenate([task["x"] for task in tasks])
@@ -313,7 +475,9 @@ def train_amortized_2pl(
     task_indices = np.concatenate(
         [np.full(len(task["y"]), index) for index, task in enumerate(tasks)]
     )
-    model = Amortized2PL(x.shape[1], len(tasks)).to(device)
+    model = Amortized1PL(x.shape[1], len(tasks), subject_feature_slice=subject_feature_slice).to(
+        device
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     rng = np.random.default_rng(seed)
     history = []
@@ -336,9 +500,141 @@ def train_amortized_2pl(
     return model, history
 
 
+def train_amortized_2pl(
+    tasks: list[dict[str, np.ndarray]],
+    *,
+    seed: int,
+    steps: int = 800,
+    subject_feature_slice: tuple[int, int] | None = None,
+) -> tuple[Amortized2PL, list[dict[str, float]]]:
+    seed_everything(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    x = np.concatenate([task["x"] for task in tasks])
+    y = np.concatenate([task["y"] for task in tasks])
+    task_indices = np.concatenate(
+        [np.full(len(task["y"]), index) for index, task in enumerate(tasks)]
+    )
+    model = Amortized2PL(x.shape[1], len(tasks), subject_feature_slice=subject_feature_slice).to(
+        device
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    rng = np.random.default_rng(seed)
+    history = []
+    for step in range(steps):
+        indices = rng.integers(0, len(y), size=min(2048, len(y)))
+        x_batch = torch.as_tensor(x[indices], dtype=torch.float32, device=device)
+        y_batch = torch.as_tensor(y[indices], dtype=torch.float32, device=device)
+        batch_tasks = torch.as_tensor(task_indices[indices], dtype=torch.long, device=device)
+        logits = model.logits(x_batch, batch_tasks)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_batch)
+        loss = loss + 1e-3 * model.theta.square().mean()
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        with torch.no_grad():
+            model.theta -= model.theta.mean()
+        if step % 50 == 0 or step == steps - 1:
+            history.append({"step": step, "loss": float(loss.detach())})
+    return model, history
+
+
+def map_theta_2pl(
+    model: Amortized2PL,
+    x_C: torch.Tensor,
+    y_C: torch.Tensor,
+    *,
+    prior_mean: float = 0.0,
+    steps: int = 20,
+) -> torch.Tensor:
+    """Exact 1-D Newton solve of the penalized context likelihood.
+
+    Solves ``sum BCE(a_C (theta - b_C), y_C) + (theta - prior_mean)^2 / 8``.
+    The objective is convex in theta, so Newton with a capped step converges in
+    a handful of iterations. The earlier Adam loop overshot at budget 1, where a
+    single label moved theta far enough to saturate the sigmoid.
+    """
+
+    device = next(model.parameters()).device
+    theta = torch.as_tensor(float(prior_mean), dtype=torch.float32, device=device)
+    if x_C.shape[0] == 0:
+        return theta
+    a_C, b_C = model.item_parameters(x_C)
+    a_C = a_C.detach()
+    b_C = b_C.detach()
+    y_C = y_C.to(dtype=torch.float32)
+    for _ in range(steps):
+        probability = torch.sigmoid(a_C * (theta - b_C))
+        gradient = torch.sum(a_C * (probability - y_C)) + (theta - prior_mean) / 4.0
+        hessian = torch.sum(a_C.square() * probability * (1.0 - probability)) + 0.25
+        theta = theta - (gradient / hessian).clamp(-1.0, 1.0)
+    return theta.detach()
+
+
+def map_theta_1pl(
+    model: Amortized1PL,
+    x_C: torch.Tensor,
+    y_C: torch.Tensor,
+    *,
+    prior_mean: float = 0.0,
+    steps: int = 20,
+) -> torch.Tensor:
+    """Exact 1-D Newton MAP for a 1PL ability, with unit discrimination."""
+
+    device = next(model.parameters()).device
+    theta = torch.as_tensor(float(prior_mean), dtype=torch.float32, device=device)
+    if x_C.shape[0] == 0:
+        return theta
+    b_C = model.item_difficulty(x_C).detach()
+    y_C = y_C.to(dtype=torch.float32)
+    for _ in range(steps):
+        probability = torch.sigmoid(theta - b_C)
+        gradient = torch.sum(probability - y_C) + (theta - prior_mean) / 4.0
+        hessian = torch.sum(probability * (1.0 - probability)) + 0.25
+        theta = theta - (gradient / hessian).clamp(-1.0, 1.0)
+    return theta.detach()
+
+
+def score_amortized_1pl(
+    model: Amortized1PL,
+    task: dict[str, Any],
+    *,
+    prior_mean: float = 0.0,
+) -> dict[str, Any]:
+    """Score a 1PL item network with the same protocol as the 2PL model."""
+
+    device = next(model.parameters()).device
+    x_T = torch.as_tensor(task["x_T"], dtype=torch.float32, device=device)
+    y_T = np.asarray(task["y_T"], dtype=float)
+    b_T = model.item_difficulty(x_T)
+    result = {}
+    for budget in DEFAULT_BUDGETS:
+        x_C = torch.as_tensor(task["x_C_pool"][:budget], dtype=torch.float32, device=device)
+        y_C = torch.as_tensor(task["y_C_pool"][:budget], dtype=torch.float32, device=device)
+        theta = map_theta_1pl(model, x_C, y_C, prior_mean=prior_mean)
+        with torch.no_grad():
+            p_y_T = torch.sigmoid(theta - b_T).cpu().numpy()
+        result[str(budget)] = {
+            "brier": float(np.mean((p_y_T - y_T) ** 2)),
+            "ece": calibration_ece(y_T.tolist(), p_y_T.tolist()),
+            "auc": binary_auc(y_T, p_y_T),
+            "mean_probability": float(p_y_T.mean()),
+            "mean_epistemic_variance": 0.0,
+        }
+    result["brier_alc"] = float(
+        sum(
+            weight * result[str(budget)]["brier"]
+            for budget, weight in zip(DEFAULT_BUDGETS, DEFAULT_WEIGHTS, strict=True)
+        )
+    )
+    return result
+
+
 def score_amortized_2pl(
     model: Amortized2PL,
     task: dict[str, Any],
+    *,
+    prior_mean: float = 0.0,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
     x_T = torch.as_tensor(task["x_T"], dtype=torch.float32, device=device)
@@ -348,25 +644,13 @@ def score_amortized_2pl(
     for budget in DEFAULT_BUDGETS:
         x_C = torch.as_tensor(task["x_C_pool"][:budget], dtype=torch.float32, device=device)
         y_C = torch.as_tensor(task["y_C_pool"][:budget], dtype=torch.float32, device=device)
-        theta = torch.zeros(1, device=device, requires_grad=True)
-        if budget:
-            a_C, b_C = model.item_parameters(x_C)
-            a_C = a_C.detach()
-            b_C = b_C.detach()
-            optimizer = torch.optim.Adam([theta], lr=0.05)
-            for _ in range(200):
-                logits = a_C * (theta - b_C)
-                loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                    logits, y_C, reduction="sum"
-                ) + theta.square().sum() / 8.0
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+        theta = map_theta_2pl(model, x_C, y_C, prior_mean=prior_mean)
         with torch.no_grad():
-            p_y_T = torch.sigmoid(a_T * (theta.detach() - b_T)).cpu().numpy()
+            p_y_T = torch.sigmoid(a_T * (theta - b_T)).cpu().numpy()
         result[str(budget)] = {
             "brier": float(np.mean((p_y_T - y_T) ** 2)),
             "ece": calibration_ece(y_T.tolist(), p_y_T.tolist()),
+            "auc": binary_auc(y_T, p_y_T),
             "mean_probability": float(p_y_T.mean()),
             "mean_epistemic_variance": 0.0,
         }
@@ -382,11 +666,21 @@ def score_amortized_2pl(
 class CNPAIRT(nn.Module):
     """Deterministic CNP with a regularized 2PL MAP ability anchor."""
 
-    def __init__(self, x_dim: int, d_model: int = 128):
+    def __init__(
+        self,
+        x_dim: int,
+        d_model: int = 128,
+        subject_feature_slice: tuple[int, int] | None = None,
+        label_scale: float = 1.0,
+        center_labels: bool = False,
+        use_theta_delta: bool = True,
+    ):
         super().__init__()
-        self.x_encoder = nn.Sequential(
-            nn.Linear(x_dim, d_model), nn.LayerNorm(d_model), nn.ReLU()
-        )
+        self.subject_feature_slice = subject_feature_slice
+        self.label_scale = label_scale
+        self.center_labels = center_labels
+        self.use_theta_delta = use_theta_delta
+        self.x_encoder = nn.Sequential(nn.Linear(x_dim, d_model), nn.LayerNorm(d_model), nn.ReLU())
         self.r_encoder = nn.Sequential(
             nn.Linear(d_model + 1, d_model), nn.ReLU(), nn.Linear(d_model, d_model)
         )
@@ -397,9 +691,24 @@ class CNPAIRT(nn.Module):
             nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 2)
         )
 
+    def encode_item_x(self, x: torch.Tensor) -> torch.Tensor:
+        if self.subject_feature_slice is None:
+            return self.x_encoder(x)
+        start, stop = self.subject_feature_slice
+        item_x = torch.cat(
+            [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]], dim=-1
+        )
+        return self.x_encoder(item_x)
+
     @torch.no_grad()
-    def map_theta(self, x_C_encoded: torch.Tensor, y_C: torch.Tensor) -> torch.Tensor:
-        theta = torch.zeros((), device=x_C_encoded.device)
+    def map_theta(
+        self,
+        x_C_encoded: torch.Tensor,
+        y_C: torch.Tensor,
+        *,
+        prior_mean: float = 0.0,
+    ) -> torch.Tensor:
+        theta = torch.as_tensor(float(prior_mean), device=x_C_encoded.device)
         if x_C_encoded.shape[0] == 0:
             return theta
         raw = self.irt_parameter_net(x_C_encoded)
@@ -407,19 +716,35 @@ class CNPAIRT(nn.Module):
         b_C = raw[:, 1]
         for _ in range(12):
             p_C = torch.sigmoid(a_C * (theta - b_C))
-            gradient = torch.sum(a_C * (y_C - p_C)) - theta / 4.0
+            gradient = torch.sum(a_C * (y_C - p_C)) - (theta - prior_mean) / 4.0
             hessian = -torch.sum(a_C.square() * p_C * (1.0 - p_C)) - 0.25
             theta = (theta - gradient / hessian).clamp(-4.0, 4.0)
         return theta
 
-    def logits(self, x_C: torch.Tensor, y_C: torch.Tensor, x_T: torch.Tensor) -> torch.Tensor:
-        x_C_encoded = self.x_encoder(x_C)
-        x_T_encoded = self.x_encoder(x_T)
-        theta = self.map_theta(x_C_encoded, y_C)
-        if x_C_encoded.shape[0] > 0:
-            r_i = self.r_encoder(torch.cat([x_C_encoded, y_C[:, None]], dim=-1))
-            theta = theta + self.theta_delta(r_i.mean(dim=0)).squeeze(-1)
-        raw = self.irt_parameter_net(x_T_encoded)
+    def delta_theta(self, x_C_encoded: torch.Tensor, y_C: torch.Tensor) -> torch.Tensor:
+        """Return the label-conditioned ability correction, or zero when disabled."""
+
+        if not self.use_theta_delta or x_C_encoded.shape[0] == 0:
+            return torch.zeros((), device=x_C_encoded.device)
+        label_value = 2.0 * y_C[:, None] - 1.0 if self.center_labels else y_C[:, None]
+        r_i = self.r_encoder(torch.cat([x_C_encoded, self.label_scale * label_value], dim=-1))
+        return self.theta_delta(r_i.mean(dim=0)).squeeze(-1)
+
+    def logits(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+        *,
+        prior_mean: float = 0.0,
+        delta_scale: float = 1.0,
+    ) -> torch.Tensor:
+        x_C_encoded = self.encode_item_x(x_C)
+        x_T_item_encoded = self.encode_item_x(x_T)
+        theta = self.map_theta(x_C_encoded, y_C, prior_mean=prior_mean)
+        if delta_scale != 0.0:
+            theta = theta + delta_scale * self.delta_theta(x_C_encoded, y_C)
+        raw = self.irt_parameter_net(x_T_item_encoded)
         a_T = torch.nn.functional.softplus(raw[:, 0]) + 0.05
         b_T = raw[:, 1]
         return a_T * (theta - b_T)
@@ -427,28 +752,54 @@ class CNPAIRT(nn.Module):
     def training_loss(
         self, x_C: torch.Tensor, y_C: torch.Tensor, x_T: torch.Tensor, y_T: torch.Tensor
     ) -> torch.Tensor:
-        return torch.nn.functional.binary_cross_entropy_with_logits(
-            self.logits(x_C, y_C, x_T), y_T
-        )
+        return torch.nn.functional.binary_cross_entropy_with_logits(self.logits(x_C, y_C, x_T), y_T)
 
     @torch.no_grad()
-    def predict(self, x_C: torch.Tensor, y_C: torch.Tensor, x_T: torch.Tensor) -> torch.Tensor:
-        return torch.sigmoid(self.logits(x_C, y_C, x_T))
+    def predict(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+        *,
+        prior_mean: float = 0.0,
+        delta_scale: float = 1.0,
+    ) -> torch.Tensor:
+        return torch.sigmoid(
+            self.logits(x_C, y_C, x_T, prior_mean=prior_mean, delta_scale=delta_scale)
+        )
 
 
 def train_cnp(
-    tasks: list[dict[str, np.ndarray]], *, seed: int, steps: int = 800, episodes_per_step: int = 4
+    tasks: list[dict[str, np.ndarray]],
+    *,
+    seed: int,
+    steps: int = 800,
+    episodes_per_step: int = 4,
+    subject_feature_slice: tuple[int, int] | None = None,
+    disjoint_context_target: bool = False,
+    use_theta_delta: bool = True,
 ) -> tuple[CNPAIRT, list[dict[str, float]]]:
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CNPAIRT(tasks[0]["x"].shape[1]).to(device)
+    model = CNPAIRT(
+        tasks[0]["x"].shape[1],
+        subject_feature_slice=subject_feature_slice,
+        use_theta_delta=use_theta_delta,
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
     rng = np.random.default_rng(seed)
     history = []
     for step in range(steps):
         loss = torch.stack(
             [
-                model.training_loss(*_episode(tasks[int(rng.integers(len(tasks)))], rng, device))
+                model.training_loss(
+                    *_episode(
+                        tasks[int(rng.integers(len(tasks)))],
+                        rng,
+                        device,
+                        disjoint_context_target=disjoint_context_target,
+                    )
+                )
                 for _ in range(episodes_per_step)
             ]
         ).mean()
@@ -461,7 +812,12 @@ def train_cnp(
     return model, history
 
 
-def score_cnp(model: CNPAIRT, task: dict[str, Any]) -> dict[str, Any]:
+def score_cnp(
+    model: CNPAIRT,
+    task: dict[str, Any],
+    *,
+    prior_mean: float = 0.0,
+) -> dict[str, Any]:
     device = next(model.parameters()).device
     x_T = torch.as_tensor(task["x_T"], dtype=torch.float32, device=device)
     y_T = np.asarray(task["y_T"], dtype=float)
@@ -469,10 +825,11 @@ def score_cnp(model: CNPAIRT, task: dict[str, Any]) -> dict[str, Any]:
     for budget in DEFAULT_BUDGETS:
         x_C = torch.as_tensor(task["x_C_pool"][:budget], dtype=torch.float32, device=device)
         y_C = torch.as_tensor(task["y_C_pool"][:budget], dtype=torch.float32, device=device)
-        p_y_T = model.predict(x_C, y_C, x_T).cpu().numpy()
+        p_y_T = model.predict(x_C, y_C, x_T, prior_mean=prior_mean).cpu().numpy()
         result[str(budget)] = {
             "brier": float(np.mean((p_y_T - y_T) ** 2)),
             "ece": calibration_ece(y_T.tolist(), p_y_T.tolist()),
+            "auc": binary_auc(y_T, p_y_T),
         }
     result["brier_alc"] = float(
         sum(
@@ -494,13 +851,13 @@ class TNPDAIRT(nn.Module):
         n_heads: int = 8,
         n_layers: int = 6,
         theta_delta_scale: float = 0.1,
+        subject_feature_slice: tuple[int, int] | None = None,
     ):
         super().__init__()
         self.d_model = d_model
         self.theta_delta_scale = theta_delta_scale
-        self.x_encoder = nn.Sequential(
-            nn.Linear(x_dim, d_model), nn.LayerNorm(d_model), nn.ReLU()
-        )
+        self.subject_feature_slice = subject_feature_slice
+        self.x_encoder = nn.Sequential(nn.Linear(x_dim, d_model), nn.LayerNorm(d_model), nn.ReLU())
         self.xy_encoder = nn.Sequential(
             nn.Linear(d_model + 1, d_model),
             nn.ReLU(),
@@ -523,16 +880,26 @@ class TNPDAIRT(nn.Module):
         )
         self.theta_head = nn.Linear(d_model, 1)
 
+    def encode_item_x(self, x: torch.Tensor) -> torch.Tensor:
+        if self.subject_feature_slice is None:
+            return self.x_encoder(x)
+        start, stop = self.subject_feature_slice
+        item_x = torch.cat(
+            [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]], dim=-1
+        )
+        return self.x_encoder(item_x)
+
     @torch.no_grad()
     def map_theta(
         self,
         x_C_encoded: torch.Tensor,
         y_C: torch.Tensor,
         *,
+        prior_mean: float = 0.0,
         prior_variance: float = 4.0,
         steps: int = 12,
     ) -> torch.Tensor:
-        theta = torch.zeros((), device=x_C_encoded.device)
+        theta = torch.as_tensor(float(prior_mean), device=x_C_encoded.device)
         if x_C_encoded.shape[0] == 0:
             return theta
         raw_irt_parameters = self.irt_parameter_net(x_C_encoded)
@@ -540,7 +907,7 @@ class TNPDAIRT(nn.Module):
         b_C = raw_irt_parameters[:, 1]
         for _ in range(steps):
             p_C = torch.sigmoid(a_C * (theta - b_C))
-            gradient = torch.sum(a_C * (y_C - p_C)) - theta / prior_variance
+            gradient = torch.sum(a_C * (y_C - p_C)) - (theta - prior_mean) / prior_variance
             hessian = -torch.sum(a_C.square() * p_C * (1.0 - p_C)) - 1.0 / prior_variance
             theta = (theta - gradient / hessian).clamp(-4.0, 4.0)
         return theta
@@ -550,12 +917,12 @@ class TNPDAIRT(nn.Module):
         x_C: torch.Tensor,
         y_C: torch.Tensor,
         x_T: torch.Tensor,
+        *,
+        prior_mean: float = 0.0,
     ) -> torch.Tensor:
-        x_C_encoded = self.x_encoder(x_C)
-        x_T_encoded = self.x_encoder(x_T)
-        C_tokens = self.xy_encoder(
-            torch.cat([x_C_encoded, y_C[:, None]], dim=-1)
-        )
+        x_C_encoded = self.encode_item_x(x_C)
+        x_T_encoded = self.encode_item_x(x_T)
+        C_tokens = self.xy_encoder(torch.cat([x_C_encoded, y_C[:, None]], dim=-1))
         T_tokens = self.xy_encoder(
             torch.cat(
                 [x_T_encoded, torch.zeros(len(x_T_encoded), 1, device=x_T_encoded.device)],
@@ -568,16 +935,14 @@ class TNPDAIRT(nn.Module):
         )
         n_C_with_prior = len(C_tokens) + 1
         n_tokens = tokens.shape[1]
-        mask = torch.full(
-            (n_tokens, n_tokens), float("-inf"), device=x_T_encoded.device
-        )
+        mask = torch.full((n_tokens, n_tokens), float("-inf"), device=x_T_encoded.device)
         mask[:, :n_C_with_prior] = 0.0
         encoded = self.transformer(tokens, mask=mask)
         h_T = encoded[:, -len(x_T_encoded) :].squeeze(0)
         raw_irt_parameters = self.irt_parameter_net(x_T_encoded)
         a_T = torch.nn.functional.softplus(raw_irt_parameters[:, 0]) + 0.05
         b_T = raw_irt_parameters[:, 1]
-        theta_anchor = self.map_theta(x_C_encoded, y_C)
+        theta_anchor = self.map_theta(x_C_encoded, y_C, prior_mean=prior_mean)
         theta_T = theta_anchor + self.theta_delta_scale * self.theta_head(h_T).squeeze(-1)
         irt_logit_T = a_T * (theta_T - b_T)
         return irt_logit_T
@@ -589,9 +954,7 @@ class TNPDAIRT(nn.Module):
         x_T: torch.Tensor,
         y_T: torch.Tensor,
     ) -> torch.Tensor:
-        return torch.nn.functional.binary_cross_entropy_with_logits(
-            self.logits(x_C, y_C, x_T), y_T
-        )
+        return torch.nn.functional.binary_cross_entropy_with_logits(self.logits(x_C, y_C, x_T), y_T)
 
     @torch.no_grad()
     def predict(
@@ -599,8 +962,10 @@ class TNPDAIRT(nn.Module):
         x_C: torch.Tensor,
         y_C: torch.Tensor,
         x_T: torch.Tensor,
+        *,
+        prior_mean: float = 0.0,
     ) -> torch.Tensor:
-        return torch.sigmoid(self.logits(x_C, y_C, x_T))
+        return torch.sigmoid(self.logits(x_C, y_C, x_T, prior_mean=prior_mean))
 
 
 def train_tnpd(
@@ -609,10 +974,11 @@ def train_tnpd(
     seed: int,
     steps: int = 800,
     episodes_per_step: int = 4,
+    subject_feature_slice: tuple[int, int] | None = None,
 ) -> tuple[TNPDAIRT, list[dict[str, float]]]:
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = TNPDAIRT(tasks[0]["x"].shape[1]).to(device)
+    model = TNPDAIRT(tasks[0]["x"].shape[1], subject_feature_slice=subject_feature_slice).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)
     rng = np.random.default_rng(seed)
@@ -633,7 +999,12 @@ def train_tnpd(
     return model, history
 
 
-def score_tnpd(model: TNPDAIRT, task: dict[str, Any]) -> dict[str, Any]:
+def score_tnpd(
+    model: TNPDAIRT,
+    task: dict[str, Any],
+    *,
+    prior_mean: float = 0.0,
+) -> dict[str, Any]:
     device = next(model.parameters()).device
     x_T = torch.as_tensor(task["x_T"], dtype=torch.float32, device=device)
     y_T = np.asarray(task["y_T"], dtype=float)
@@ -641,10 +1012,11 @@ def score_tnpd(model: TNPDAIRT, task: dict[str, Any]) -> dict[str, Any]:
     for budget in DEFAULT_BUDGETS:
         x_C = torch.as_tensor(task["x_C_pool"][:budget], dtype=torch.float32, device=device)
         y_C = torch.as_tensor(task["y_C_pool"][:budget], dtype=torch.float32, device=device)
-        p_y_T = model.predict(x_C, y_C, x_T).cpu().numpy()
+        p_y_T = model.predict(x_C, y_C, x_T, prior_mean=prior_mean).cpu().numpy()
         result[str(budget)] = {
             "brier": float(np.mean((p_y_T - y_T) ** 2)),
             "ece": calibration_ece(y_T.tolist(), p_y_T.tolist()),
+            "auc": binary_auc(y_T, p_y_T),
             "mean_probability": float(p_y_T.mean()),
             "mean_epistemic_variance": 0.0,
             "mean_bernoulli_variance": float(np.mean(p_y_T * (1.0 - p_y_T))),
@@ -658,13 +1030,21 @@ def score_tnpd(model: TNPDAIRT, task: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _episode(task: dict[str, np.ndarray], rng: np.random.Generator, device: torch.device):
+def _episode(
+    task: dict[str, np.ndarray],
+    rng: np.random.Generator,
+    device: torch.device,
+    *,
+    disjoint_context_target: bool = False,
+):
     n = len(task["y"])
     order = rng.permutation(n)
     n_C = min(int(rng.choice(DEFAULT_BUDGETS)), n - 1)
     n_T = min(n, max(64, n_C + 32))
     indices_C = order[:n_C]
-    indices_T = np.concatenate([indices_C, order[n_C:n_T]])
+    indices_T = (
+        order[n_C:n_T] if disjoint_context_target else np.concatenate([indices_C, order[n_C:n_T]])
+    )
     x = torch.as_tensor(task["x"], dtype=torch.float32, device=device)
     y = torch.as_tensor(task["y"], dtype=torch.float32, device=device)
     return (
@@ -682,10 +1062,16 @@ def train_model(
     seed: int,
     steps: int = 800,
     episodes_per_step: int = 4,
+    kl_weight: float = 1.0,
+    ability_aux_weight: float = 0.0,
+    model_kwargs: dict[str, Any] | None = None,
+    disjoint_context_target: bool = False,
 ) -> tuple[FaithfulNPAIRT, list[dict[str, float]]]:
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = FaithfulNPAIRT(tasks[0]["x"].shape[1], variant=variant).to(device)
+    model = FaithfulNPAIRT(tasks[0]["x"].shape[1], variant=variant, **(model_kwargs or {})).to(
+        device
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)
     rng = np.random.default_rng(seed)
@@ -695,8 +1081,12 @@ def train_model(
         diagnostics = []
         for _ in range(episodes_per_step):
             task = tasks[int(rng.integers(len(tasks)))]
-            episode = _episode(task, rng, device)
-            loss, diagnostic = model.training_loss(*episode)
+            episode = _episode(task, rng, device, disjoint_context_target=disjoint_context_target)
+            loss, diagnostic = model.training_loss(
+                *episode,
+                kl_weight=kl_weight,
+                ability_aux_weight=ability_aux_weight,
+            )
             losses.append(loss)
             diagnostics.append(diagnostic)
         batch_loss = torch.stack(losses).mean()
@@ -714,6 +1104,7 @@ def train_model(
                     "nll_C": float(np.mean([value["nll_C"] for value in diagnostics])),
                     "nll_T": float(np.mean([value["nll_T"] for value in diagnostics])),
                     "kl": float(np.mean([value["kl"] for value in diagnostics])),
+                    "ability_aux": float(np.mean([value["ability_aux"] for value in diagnostics])),
                 }
             )
     return model, history
@@ -724,6 +1115,7 @@ def score_model(
     task: dict[str, Any],
     *,
     seed: int,
+    prior_mean: float = 0.0,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
     x_T = torch.as_tensor(task["x_T"], dtype=torch.float32, device=device)
@@ -733,11 +1125,12 @@ def score_model(
         seed_everything(seed + budget)
         x_C = torch.as_tensor(task["x_C_pool"][:budget], dtype=torch.float32, device=device)
         y_C = torch.as_tensor(task["y_C_pool"][:budget], dtype=torch.float32, device=device)
-        p_y_T, var_p_y_T = model.predict(x_C, y_C, x_T)
+        p_y_T, var_p_y_T = model.predict(x_C, y_C, x_T, prior_mean=prior_mean)
         p_y_T_numpy = p_y_T.cpu().numpy()
         result[str(budget)] = {
             "brier": float(np.mean((p_y_T_numpy - y_T) ** 2)),
             "ece": calibration_ece(y_T.tolist(), p_y_T_numpy.tolist()),
+            "auc": binary_auc(y_T, p_y_T_numpy),
             "mean_probability": float(p_y_T_numpy.mean()),
             "mean_epistemic_variance": float(var_p_y_T.mean().cpu()),
         }

@@ -102,10 +102,16 @@ with the trace directory absent.
 
 ## Implementation ladder
 
-1. Frozen amortized 2PL base.
-2. Regularized online MAP update of \(\theta_s\).
-3. Deterministic CNP-AIRT.
-4. Latent NP-AIRT with \(q(z\mid s_C)\).
-5. ANP-AIRT with target-specific \(r_j^*\).
-6. Stacked self-attention in the \(s\) and \(r\) paths.
-7. Relation-aware attention only after the simpler controls are sound.
+1. Frozen amortized 1PL base (difficulty only, unit discrimination).
+2. Frozen amortized 2PL base.
+3. Regularized online MAP update of \(\theta_s\).
+4. Deterministic CNP-AIRT.
+5. Latent NP-AIRT with \(q(z\mid s_C)\).
+6. ANP-AIRT with target-specific \(r_j^*\).
+7. Stacked self-attention in the \(s\) and \(r\) paths.
+8. Relation-aware attention only after the simpler controls are sound.
+
+The encoder-contribution ladder in `modal_cnp_ladder.py` follows rungs 1, 2,
+3, and 4, then removes the CNP correction \(\Delta\theta(C)\) at inference and
+retrains a correction-free CNP item head. The point is to test whether the set
+encoder contributes anything beyond an item head plus MAP ability.

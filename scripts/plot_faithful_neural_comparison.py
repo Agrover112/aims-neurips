@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from aims_starter.model_names import display_name
 
-RUN = ROOT / "results" / (sys.argv[1] if len(sys.argv) > 1 else "faithful-np-beavertails-3seed-v1")
+RUN = ROOT / "results" / (sys.argv[1] if len(sys.argv) > 1 else "faithful-np-beavertails-3seed-v3-residual")
 BUDGETS = np.array([0, 1, 3, 7, 15, 31])
 MODELS = [
     "online_airt_2pl",
@@ -25,6 +25,7 @@ MODELS = [
     "stacked_mhsa_anp",
     "tnpd_airt",
     "np",
+    "tabpfn_v2",
 ]
 LABELS = {model: display_name(model) for model in MODELS}
 COLORS = {
@@ -35,6 +36,7 @@ COLORS = {
     "anp": "#009E73",
     "stacked_mhsa_anp": "#CC79A7",
     "tnpd_airt": "#E69F00",
+    "tabpfn_v2": "#8C564B",
 }
 
 
@@ -43,11 +45,18 @@ def main() -> None:
     metrics_path = RUN / "metrics-calibration.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     aggregate = metrics["aggregate"]
-    cnp_path = ROOT / "results" / "cnp-airt-beavertails-3seed-v1" / "metrics.json"
+    # CNP is retrained into its own root for this cycle; mix it in when it exists.
+    cnp_path = ROOT / "results" / "cnp-airt-beavertails-3seed-v2-residual" / "metrics.json"
     if cnp_path.exists():
         aggregate.update(json.loads(cnp_path.read_text(encoding="utf-8"))["aggregate"])
+    # The TabPFN baseline still comes from the older root; keep it out of residual runs.
+    tabpfn_path = ROOT / "results" / "tabpfn-v2-beavertails-3seed-v1" / "metrics.json"
+    if "residual" not in RUN.name and tabpfn_path.exists():
+        aggregate.update(json.loads(tabpfn_path.read_text(encoding="utf-8"))["aggregate"])
     available = [model for model in MODELS if model in aggregate]
-    figure, axes = plt.subplots(1, 3, figsize=(18, 5.2), gridspec_kw={"width_ratios": [1.35, 1.35, 1]})
+    figure, axes = plt.subplots(
+        1, 3, figsize=(18, 5.2), gridspec_kw={"width_ratios": [1.35, 1.35, 1]}
+    )
 
     for model in available:
         curve = aggregate[model]["by_budget"]
@@ -75,12 +84,21 @@ def main() -> None:
             ece = np.array([row["ece"] for row in ece_rows])
             ece_se = np.array([row.get("ece_se", 0.0) for row in ece_rows])
             axes[1].plot(
-                BUDGETS, ece, marker="o", linewidth=1.8, markersize=5,
-                label=LABELS[model], color=COLORS[model],
+                BUDGETS,
+                ece,
+                marker="o",
+                linewidth=1.8,
+                markersize=5,
+                label=LABELS[model],
+                color=COLORS[model],
             )
             axes[1].fill_between(
-                BUDGETS, ece - 1.96 * ece_se, ece + 1.96 * ece_se,
-                color=COLORS[model], alpha=0.075, linewidth=0,
+                BUDGETS,
+                ece - 1.96 * ece_se,
+                ece + 1.96 * ece_se,
+                color=COLORS[model],
+                alpha=0.075,
+                linewidth=0,
             )
 
     ordered = sorted(available, key=lambda name: aggregate[name]["brier_alc"])
@@ -144,7 +162,7 @@ def main() -> None:
         0.012,
         "MEASURED RESULTS · 3 seeds · 4 leave-one-subject-out folds/seed · "
         "100 meta-training tasks from 39 benchmarks · "
-        "dual-likelihood NP training + IRT MAP anchor, v2-fixed",
+        "dual-likelihood NP training + IRT MAP anchor, subject-masked features",
         ha="center",
         fontsize=8.8,
         color="#8A2D2D",

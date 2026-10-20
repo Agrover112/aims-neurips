@@ -137,9 +137,7 @@ def evaluate_beta_binomial(
     observations = pd.read_parquet(
         observations_path,
         filters=(
-            [("split_by_benchmark", "==", benchmark_split)]
-            if benchmark_split != "all"
-            else None
+            [("split_by_benchmark", "==", benchmark_split)] if benchmark_split != "all" else None
         ),
     )
     episode_path = REMOTE_ROOT / "datasets" / dataset_name / "episodes" / "episode_items.parquet"
@@ -156,8 +154,7 @@ def evaluate_beta_binomial(
         episode_index=episode_index,
     )
     run_name = _safe_name(
-        f"beta-binomial-{dataset_name}-{benchmark_split}-episodes-v1-"
-        f"min{minimum_items}-seed{seed}"
+        f"beta-binomial-{dataset_name}-{benchmark_split}-episodes-v1-min{minimum_items}-seed{seed}"
     )
     output = REMOTE_ROOT / "results" / run_name / "metrics.json"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +229,77 @@ def prepare_episodes(
         volume.commit()
     print("Committed episode index to the Modal Volume", flush=True)
     return {"status": "created", **prepared.manifest, "output": str(destination)}
+
+
+@app.function(
+    image=image,
+    volumes={str(REMOTE_ROOT): volume},
+    cpu=16,
+    memory=32_768,
+    timeout=2 * 60 * 60,
+)
+def prepare_all_benchmark_protocol(dataset_name: str = "full") -> dict[str, Any]:
+    """Freeze benchmark splits and ten shared acquisition orders; run no models."""
+
+    import pandas as pd
+
+    from aims_starter.data import build_acquisition_order_index
+
+    dataset_name = _safe_name(dataset_name)
+    root = REMOTE_ROOT / "datasets" / dataset_name
+    destination = root / "evaluation-protocol-v2"
+    existing = _read_json(destination / "manifest.json")
+    if existing is not None:
+        return {"status": "reused", **existing, "output": str(destination)}
+    tasks = pd.read_parquet(root / "processed" / "tasks.parquet")
+    episode_items = pd.read_parquet(root / "episodes" / "episode_items.parquet")
+    episode_tasks = pd.read_parquet(root / "episodes" / "episode_tasks.parquet")
+    split_map = tasks[["benchmark_id", "split_by_benchmark"]].drop_duplicates()
+    if split_map["benchmark_id"].duplicated().any():
+        raise RuntimeError("benchmark leakage: a benchmark occurs in multiple splits")
+    eligible = episode_tasks[
+        (episode_tasks["n_items"] >= 80)
+        & (episode_tasks["n_acquisition_items"] >= 31)
+        & (episode_tasks["n_evaluation_items"] > 0)
+    ].copy()
+    eligible_ids = set(eligible["task_id"].astype(str))
+    eligible_items = episode_items[episode_items["task_id"].astype(str).isin(eligible_ids)]
+    order_seeds = tuple(range(10))
+    orders = build_acquisition_order_index(eligible_items, order_seeds=order_seeds)
+    destination.mkdir(parents=True, exist_ok=False)
+    eligible.to_parquet(destination / "eligible_tasks.parquet", index=False)
+    split_map.to_parquet(destination / "benchmark_splits.parquet", index=False)
+    orders.to_parquet(destination / "acquisition_orders.parquet", index=False)
+    benchmark_counts = {
+        split: int((split_map["split_by_benchmark"] == split).sum())
+        for split in ("train", "validation", "test")
+    }
+    task_counts = {
+        split: int((eligible["split_by_benchmark"] == split).sum())
+        for split in ("train", "validation", "test")
+    }
+    manifest = {
+        "format_version": 2,
+        "benchmark_split_policy": "existing deterministic 80/10/10 split_by_benchmark",
+        "minimum_distinct_items_per_task": 80,
+        "budgets": [0, 1, 3, 7, 15, 31],
+        "order_seeds": list(order_seeds),
+        "shared_orders_across_models": True,
+        "retraining_per_order": False,
+        "selection_rule": "tune on validation benchmarks; report test benchmarks once",
+        "benchmark_counts": benchmark_counts,
+        "eligible_task_counts": task_counts,
+        "rows": {
+            "eligible_tasks": len(eligible),
+            "benchmark_splits": len(split_map),
+            "acquisition_orders": len(orders),
+        },
+    }
+    (destination / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    volume.commit()
+    return {"status": "created", **manifest, "output": str(destination)}
 
 
 @app.function(
@@ -452,11 +520,7 @@ def score_prediction_record(predictions_text: str, config_text: str) -> str:
             / len(truth)
         )
     return json.dumps(
-        {
-            "brier_alc": sum(
-                score * weight for score, weight in zip(scores, weights, strict=True)
-            )
-        }
+        {"brier_alc": sum(score * weight for score, weight in zip(scores, weights, strict=True))}
     )
 
 
@@ -478,6 +542,8 @@ def main(
         result = evaluate_beta_binomial.remote(dataset_name="full", benchmark_split="test")
     elif action == "prepare-episodes":
         result = prepare_episodes.remote(dataset_name="full")
+    elif action == "prepare-all-benchmark-protocol":
+        result = prepare_all_benchmark_protocol.remote(dataset_name="full")
     elif action == "benchmark-duckdb":
         result = benchmark_duckdb.remote(dataset_name="full")
     elif action == "smoke-one":
@@ -491,7 +557,7 @@ def main(
         )
     else:
         raise ValueError(
-            "action must be health, inspect, prepare-episodes, benchmark-duckdb, "
+            "action must be health, inspect, prepare-episodes, prepare-all-benchmark-protocol, benchmark-duckdb, "
             "smoke-one, neural-pilot, evaluate-pilot, evaluate-full, or score"
         )
     print(json.dumps(result, indent=2, sort_keys=True) if not isinstance(result, str) else result)

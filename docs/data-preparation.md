@@ -118,6 +118,17 @@ modal run modal_ingest.py --dataset-name full --limit 0
 modal run modal_app.py --action evaluate-full
 ```
 
+Prepare the final all-benchmark protocol without training any model:
+
+```bash
+modal run modal_app.py --action prepare-all-benchmark-protocol
+```
+
+This freezes the benchmark-level 80/10/10 train/validation/test split, every
+eligible subject--benchmark task, and ten shared deterministic label-reveal
+orders. Tune only on validation benchmarks; inspect the test split once for
+the final comparison. Every model must use identical item pools and orders.
+
 Alternatively, the existing PAIEC utility also builds its retrieval payload,
 including traces:
 

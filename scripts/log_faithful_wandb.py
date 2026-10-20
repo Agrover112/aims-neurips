@@ -8,7 +8,7 @@ from pathlib import Path
 import wandb
 
 ROOT = Path(__file__).resolve().parents[1]
-RUN_DIR = ROOT / "results" / "faithful-np-beavertails-3seed-v1"
+RUN_DIR = ROOT / "results" / "faithful-np-beavertails-3seed-v3-residual"
 BUDGETS = (0, 1, 3, 7, 15, 31)
 
 
@@ -17,7 +17,7 @@ def main() -> None:
     with wandb.init(
         entity="agrgnn-kth-royal-institute-of-technology",
         project="aims-predictive-evaluation",
-        name="beavertails-faithful-np-family-3seed-v1",
+        name="beavertails-faithful-np-family-3seed-v3-residual",
         job_type="faithful-neural-comparison",
         config={
             "seeds": metrics["seeds"],

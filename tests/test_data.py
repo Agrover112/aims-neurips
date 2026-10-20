@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aims_starter.data import iter_episodes, prepare_measurement_data
+from aims_starter.data import (
+    build_acquisition_order_index,
+    iter_episodes,
+    prepare_measurement_data,
+)
 
 
 def test_prepare_and_episode_generation(tmp_path):
@@ -48,3 +52,21 @@ def test_prepare_and_episode_generation(tmp_path):
     episodes = list(iter_episodes(observations, budgets=(0, 1)))
     assert {episode["budget"] for episode in episodes} == {0, 1}
     assert all(set(ep["context"].index).isdisjoint(ep["target"].index) for ep in episodes)
+
+
+def test_acquisition_orders_are_shared_reproducible_permutations():
+    items = pd.DataFrame(
+        {
+            "task_id": ["a"] * 4 + ["b"] * 4,
+            "item_uid": [f"i{x}" for x in range(4)] * 2,
+            "pool": ["acquisition"] * 3 + ["evaluation"] + ["acquisition"] * 3 + ["evaluation"],
+            "split_by_benchmark": ["test"] * 8,
+        }
+    )
+    first = build_acquisition_order_index(items, order_seeds=(0, 1))
+    second = build_acquisition_order_index(items, order_seeds=(0, 1))
+    pd.testing.assert_frame_equal(first, second)
+    assert len(first) == 12
+    assert set(first["item_uid"]) == {"i0", "i1", "i2"}
+    ranks = first.groupby(["task_id", "order_seed"])["acquisition_rank"].apply(list)
+    assert all(value == [1, 2, 3] for value in ranks)

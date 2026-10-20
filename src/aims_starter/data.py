@@ -151,15 +151,14 @@ def build_episode_index(
 
     # Collapse response rows once. This keeps the large-corpus path linear in
     # the number of source rows instead of repeatedly filtering each task.
-    result = (
-        observations.groupby(["task_id", "item_uid"], as_index=False, sort=True, observed=True)
-        .agg(
-            subject_uid=("subject_uid", "first"),
-            benchmark_id=("benchmark_id", "first"),
-            label_observation_id=("observation_id", "min"),
-            n_response_rows=("observation_id", "size"),
-            split_by_benchmark=("split_by_benchmark", "first"),
-        )
+    result = observations.groupby(
+        ["task_id", "item_uid"], as_index=False, sort=True, observed=True
+    ).agg(
+        subject_uid=("subject_uid", "first"),
+        benchmark_id=("benchmark_id", "first"),
+        label_observation_id=("observation_id", "min"),
+        n_response_rows=("observation_id", "size"),
+        split_by_benchmark=("split_by_benchmark", "first"),
     )
     eligible_tasks = (
         result.groupby("task_id", sort=False, observed=True)["item_uid"]
@@ -188,9 +187,7 @@ def build_episode_index(
         acquisition_items = set(pool_order[:acquisition_count])
         acquisition_order = sorted(
             acquisition_items,
-            key=lambda item_uid: _episode_order(
-                task_id, item_uid, "acquisition", seed=seed
-            ),
+            key=lambda item_uid: _episode_order(task_id, item_uid, "acquisition", seed=seed),
         )
         acquisition_rank = {
             item_uid: rank for rank, item_uid in enumerate(acquisition_order, start=1)
@@ -271,8 +268,7 @@ def prepare_episode_index(
             "episode_tasks": len(task_summary),
         },
         "pool_counts": {
-            str(pool): int(count)
-            for pool, count in assignments["pool"].value_counts().items()
+            str(pool): int(count) for pool, count in assignments["pool"].value_counts().items()
         },
         "split_task_counts": {
             str(split): int(count)
@@ -283,6 +279,37 @@ def prepare_episode_index(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return PreparedEpisodes(output=output_root, manifest=manifest)
+
+
+def build_acquisition_order_index(
+    episode_items,
+    *,
+    order_seeds: Sequence[int] = tuple(range(10)),
+):
+    """Create shared deterministic reveal orders without changing item pools."""
+
+    pd = _pandas()
+    required = {"task_id", "item_uid", "pool", "split_by_benchmark"}
+    missing = sorted(required - set(episode_items.columns))
+    if missing:
+        raise ValueError(f"episode_items missing order columns: {missing}")
+    acquisition = episode_items[episode_items["pool"] == "acquisition"].copy()
+    parts = []
+    for order_seed in order_seeds:
+        ordered = acquisition[["task_id", "item_uid", "split_by_benchmark"]].copy()
+        ordered["order_seed"] = int(order_seed)
+        ordered["order_key"] = [
+            _stable_hash(task_id, item_uid, "acquisition-order", seed=int(order_seed))
+            for task_id, item_uid in zip(ordered["task_id"], ordered["item_uid"], strict=True)
+        ]
+        ordered = ordered.sort_values(["task_id", "order_key", "item_uid"])
+        ordered["acquisition_rank"] = ordered.groupby("task_id", sort=False).cumcount() + 1
+        parts.append(ordered.drop(columns="order_key"))
+    if not parts:
+        return pd.DataFrame(
+            columns=["task_id", "item_uid", "split_by_benchmark", "order_seed", "acquisition_rank"]
+        )
+    return pd.concat(parts, ignore_index=True)
 
 
 def prepare_measurement_data(
@@ -565,7 +592,11 @@ def iter_episodes(
         label_ids = acquisition["label_observation_id"].astype(str).tolist()
         for budget in budgets:
             selected_ids = label_ids[: min(int(budget), len(label_ids))]
-            context = observation_lookup.loc[selected_ids].copy() if selected_ids else observations.iloc[0:0]
+            context = (
+                observation_lookup.loc[selected_ids].copy()
+                if selected_ids
+                else observations.iloc[0:0]
+            )
             if not context.empty and getattr(context, "ndim", 2) == 1:
                 context = context.to_frame().T
             yield {

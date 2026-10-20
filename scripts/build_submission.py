@@ -29,8 +29,11 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staged.rglob("*")):
-                if path.is_file():
-                    archive.write(path, path.relative_to(staged))
+                if not path.is_file():
+                    continue
+                if "__pycache__" in path.parts or path.suffix == ".pyc":
+                    continue
+                archive.write(path, path.relative_to(staged))
     print(args.output)
 
 
