@@ -1,0 +1,62 @@
+{
+  "architecture": "cnp_airt",
+  "calibration": [
+    {
+      "anchor": 0.0,
+      "bias": -0.061761971152435,
+      "budget": 0,
+      "fitted": true,
+      "samples": 166626,
+      "scale": -1.550943130177212
+    },
+    {
+      "anchor": 0.55,
+      "bias": 0.22458758790023656,
+      "budget": 1,
+      "fitted": true,
+      "samples": 166215,
+      "scale": 0.3068187284693924
+    },
+    {
+      "anchor": 0.6000000000000001,
+      "bias": 0.263052527809213,
+      "budget": 3,
+      "fitted": true,
+      "samples": 166772,
+      "scale": 0.7140060731753329
+    },
+    {
+      "anchor": 0.6000000000000001,
+      "bias": 0.19756004522619672,
+      "budget": 7,
+      "fitted": true,
+      "samples": 166770,
+      "scale": 0.8534040661605411
+    },
+    {
+      "anchor": 0.75,
+      "bias": 0.16787408379410493,
+      "budget": 15,
+      "fitted": true,
+      "samples": 167257,
+      "scale": 0.8851156273323745
+    },
+    {
+      "anchor": 0.9,
+      "bias": 0.1222751094597516,
+      "budget": 31,
+      "fitted": true,
+      "samples": 166360,
+      "scale": 0.9253691623187166
+    }
+  ],
+  "checkpoint": "cnp_airt.pt",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "mode": "masked",
+  "source_checkpoint": "cnp_airt.pt",
+  "subject_slice": [
+    384,
+    768
+  ],
+  "x_dim": 768
+}

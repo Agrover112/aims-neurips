@@ -1,0 +1,290 @@
+<!-- ================= PART III ================= -->
+<section class="part" id="part3">
+  <div class="part-kicker">Part III</div>
+  <h1 class="part-title" data-part="Part III">Item response theory</h1>
+  <p class="part-intro">IRT is the skeleton of the whole competition: one number for the subject, two numbers per item, and a logistic link. Amortized IRT replaces the per-item table with a network that reads item content.</p>
+  <ul class="part-list">
+    <li>12 · The 2PL model</li>
+    <li>13 · Fitting ability with MAP</li>
+    <li>14 · Amortized IRT</li>
+    <li>15 · Identifiability and leakage</li>
+  </ul>
+</section>
+
+<section id="s12">
+  <h2 class="sec" id="s12-h"><span class="num">12</span>The 2PL model: ability meets difficulty</h2>
+  <p class="lede">Every prediction in this repo is a logistic comparison between how able the subject is and how hard the item is, optionally sharpened by how well the item discriminates.</p>
+
+  <p>For subject \(s\) and item \(j\), the two-parameter logistic model is</p>
+
+  <div class="eq">\[ p_{sj}=P(y_{sj}=1)=\sigma\bigl(a_j(\theta_s-b_j)\bigr), \]</div>
+
+  <p>with three interpretable quantities:</p>
+  <ul>
+    <li>\(\theta_s\in\mathbb{R}\): the subject’s <b>ability</b>. Higher is better. It is a position on the same scale as difficulty.</li>
+    <li>\(b_j\in\mathbb{R}\): the item’s <b>difficulty</b>. The curve crosses 0.5 at \(\theta_s=b_j\); a harder item sits to the right.</li>
+    <li>\(a_j>0\): the item’s <b>discrimination</b>. It controls steepness. A large \(a_j\) means the item separates nearby ability levels sharply; \(a_j\to0\) makes it a coin flip.</li>
+  </ul>
+
+  <figure>
+    <img src="figures/irt.svg" alt="Three item characteristic curves">
+    <figcaption><b>Item characteristic curves.</b> Increasing \(b\) shifts the curve right (harder at every ability). Increasing \(a\) makes it steeper (more informative near the threshold). The dashed curve is the same \(a\) as the green one, just harder.</figcaption>
+  </figure>
+
+  <p>The relatives are worth knowing. <b>1PL</b> (Rasch) sets every \(a_j=1\) and learns only difficulties. <b>3PL</b> adds a guessing floor \(c_j\):</p>
+
+  <div class="eq">\[ p_{sj}=c_j+(1-c_j)\,\sigma\bigl(a_j(\theta_s-b_j)\bigr). \]</div>
+
+  <p>This repo uses 2PL only. There is no guessing mechanism on free-form harm labels, and \((a,b,c)\) is not identifiable from 31 labels. That is a modelling decision, not an omission.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Picture a ruler. Ability and difficulty are both measured on it. An item is a hurdle at position \(b_j\); a subject at \(\theta_s\) clears it with probability given by the gap \(\theta_s-b_j\). Discrimination \(a_j\) is how sharply the hurdle decides: a low-discrimination item is a fuzzy hurdle that lets almost anyone through with middling probability; a high-discrimination item is a razor edge.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Take \(\theta=1\), \(b=0.5\), \(a=1.5\): logit \(=1.5(0.5)=0.75\), so \(p=\sigma(0.75)=0.679\).</p>
+    <p>Make the item harder, \(b=1.5\): logit \(=1.5(-0.5)=-0.75\), \(p=0.321\). Same subject, different hurdle.</p>
+    <p>Keep \(b=0.5\) but lower discrimination to \(a=0.5\): logit \(=0.25\), \(p=0.562\). Raise it to \(a=3\): logit \(=1.5\), \(p=0.818\).</p>
+    <p><b>Read this:</b> difficulty moves the midpoint; discrimination changes how fast the curve rises around it.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>The sign convention is easy to flip. Here, larger \(b\) means <i>harder</i> because it is subtracted. If you see \(a(\theta+b)\) somewhere, difficulty has the opposite sign. Check the formula before comparing numbers across papers.</p>
+  </div>
+</section>
+
+<section id="s13">
+  <h2 class="sec" id="s13-h"><span class="num">13</span>Fitting ability: MAP and Newton in five lines</h2>
+  <p class="lede">With item parameters fixed, estimating a subject’s ability is a one-dimensional concave problem — which is why the repo can afford an exact Newton solve inside a neural model.</p>
+
+  <p>Given acquired labels \(C=\{(a_i,b_i,y_i)\}\), the penalized log-posterior for \(\theta\) is</p>
+
+  <div class="eq">\[ \log p(\theta\mid C)= \sum_{i\in C}\Bigl[y_i\log\sigma\bigl(a_i(\theta-b_i)\bigr)+(1-y_i)\log\bigl(1-\sigma(a_i(\theta-b_i))\bigr)\Bigr]-\frac{(\theta-\mu_0)^2}{2\sigma_0^2}+\text{const}. \]</div>
+
+  <p>Its first two derivatives are clean:</p>
+
+  <div class="eq">\[ g(\theta)=\sum_{i\in C}a_i(y_i-p_i)-\frac{\theta-\mu_0}{\sigma_0^2},\qquad h(\theta)=-\sum_{i\in C}a_i^2\,p_i(1-p_i)-\frac{1}{\sigma_0^2}. \]</div>
+
+  <p>Newton’s method jumps to the top of the local quadratic:</p>
+
+  <div class="eq">\[ \theta\leftarrow\theta-\frac{g(\theta)}{h(\theta)}. \]</div>
+
+  <p>Because the logistic log-likelihood is concave in \(\theta\) and the prior is Gaussian, the posterior is log-concave: there is one optimum, and Newton converges quickly. The repo runs 12 steps, clamps to \([-4,4]\), and uses \(\mu_0=0,\sigma_0^2=4\).</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Without a prior, one success on one item is “proof” that the subject never fails, so the maximum-likelihood ability runs off to infinity. The prior says “abilities are usually within a couple of units of zero”, and pulls the estimate back. This is not a hack; it is the only way to get a finite answer from separated data. The price is a little bias, paid gladly for a lot of variance reduction.</p>
+  </div>
+
+  <figure>
+    <img src="figures/shrink.svg" alt="Prior and posterior for ability after one success">
+    <figcaption><b>One success is not infinite ability.</b> The prior keeps the estimate at 1.04 instead of running to infinity. The posterior is the prior multiplied by the likelihood, then renormalized; the MAP is its peak.</figcaption>
+  </figure>
+
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>One item, \(a=1\), \(b=0\), observed \(y=1\). Prior \(\mathcal{N}(0,4)\), start \(\theta_0=0\).</p>
+    <p>At \(\theta=0\): \(p=0.5\), \(g=1(0.5)-0=0.5\), \(h=-1(0.25)-0.25=-0.5\). Step \(= -0.5/(-0.5)=1\), so \(\theta=1\).</p>
+    <p>At \(\theta=1\): \(p=0.731\), \(g=0.269-0.25=0.019\), \(h=-0.197-0.25=-0.447\). Step \(=0.042\), so \(\theta=1.042\).</p>
+    <p>Next step: 1.0426. The MLE, with no prior, would keep going: \(\theta\to\infty\).</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>map_ability</code> in <code>src/aims_starter/adaptation.py</code> is exactly this update, vectorized over context items. The neural models never output \(\theta_s\); they output item parameters and corrections, and the analytic MAP owns the ability level. That keeps the latent variable interpretable and prevents the network from hiding the level in an unconstrained scalar.</p>
+  </div>
+</section>
+
+<section id="s14">
+  <h2 class="sec" id="s14-h"><span class="num">14</span>Amortized IRT: difficulty from content, not a lookup table</h2>
+  <p class="lede">Classical IRT stores one difficulty per item. Amortized IRT learns a function from item content to difficulty, so an unseen item gets a sensible prior instead of a blank.</p>
+
+  <p>The item network \(f_\phi\) reads the item input \(x_j\) (text embedding, metadata, interactors) and outputs the 2PL parameters:</p>
+
+  <div class="eq">\[ (\tilde a_j,\;b_j)=f_\phi(x_j),\qquad a_j=\operatorname{softplus}(\tilde a_j)+\epsilon. \]</div>
+
+  <p>The softplus keeps discrimination positive; \(\epsilon\) is a small floor for numerical stability. Ability is then fitted by the MAP of §13, and the prediction is \(\sigma(a_j(\theta_s-b_j))\). Training minimizes binary cross-entropy over observed cells of the response matrix. Gradients flow into \(f_\phi\), not into a per-item table.</p>
+
+  <h3>Why “amortized” is the important word</h3>
+  <p>Amortization means paying a one-time cost to learn an inference function, then reusing it. Here the “inference” is item-parameter prediction: instead of fitting \(b_j\) for every new item at test time, the network predicts it in one forward pass. This is what makes cold-start evaluation possible. The alternative — fit a new IRT model per benchmark — cannot score items whose outcomes were never observed.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A human test designer can guess that a long, multi-step coding task is harder than a one-line syntax question, before seeing anyone attempt either. Amortized IRT learns exactly that guess from data: item text goes in, a difficulty and a discrimination come out. The subject’s ability then calibrates the guess against the few labels you have.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Toy item network: \(b=1.2x-0.3\), \(a=\operatorname{softplus}(0.4)\). Item \(x=0.5\), so \(b=0.3\), \(a=\log(1+e^{0.4})=0.913\). Subject \(\theta=0.6\).</p>
+    <p>Logit \(=0.913(0.6-0.3)=0.274\); \(p=\sigma(0.274)=0.568\).</p>
+    <p>If the observed outcome is \(y=1\), the BCE gradient with respect to the logit is \(p-y=-0.432\). Through the item net:</p>
+    <p>\(\partial L/\partial b=a(y-p)=0.913(0.432)=0.394\), and \(\partial L/\partial w=0.394\cdot x=0.197\).</p>
+    <p>Gradient descent lowers \(w\), which lowers \(b\), which raises the predicted probability. The chain rule is doing all the work.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The item encoder reads a 1,157-dimensional vector: 384-d MiniLM item embedding, five numeric item features, 384-d subject embedding, 384-d benchmark embedding. The subject slice is <b>masked</b> on the item-parameter path, so \(a_j,b_j\) cannot become subject-conditioned. Without that mask, “item difficulty” silently becomes “difficulty for this subject”, and the IRT interpretation collapses.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Amortization does not eliminate the need for held-out <i>items</i>. If the same item appears in training and test, the network can memorize its difficulty through the embedding, and the cold-start claim is false. Split by item (and by benchmark), not by random response rows.</p>
+  </div>
+</section>
+
+<section id="s15" class="page-break">
+  <h2 class="sec" id="s15-h"><span class="num">15</span>Identifiability, conventions, and leakage</h2>
+  <p class="lede">IRT is identifiable only up to a shift and a scale, and the competition’s real risk is not math — it is information that quietly crosses the train/test boundary.</p>
+
+  <h3>The shift and scale invariances</h3>
+  <p>For any constants \(c\) and \(k>0\), the 1PL model is unchanged by</p>
+
+  <div class="eq">\[ \theta_s\mapsto \theta_s+c,\quad b_j\mapsto b_j+c, \qquad\text{or}\qquad \theta_s\mapsto k\theta_s,\quad b_j\mapsto kb_j,\quad a_j\mapsto a_j/k. \]</div>
+
+  <p>Only <i>relative</i> positions are identified. Fix a convention: \(\theta\) has mean zero and a fixed prior variance, and \(a_j>0\). The repo uses \(\theta\sim\mathcal{N}(0,4)\) and clamps to \([-4,4]\). Without a convention, two fits can look different but predict identically.</p>
+
+  <h3>Leakage is broader than “using the test labels”</h3>
+  <ul>
+    <li><b>Direct:</b> target outcomes enter the posterior, the calibration fit, or early stopping.</li>
+    <li><b>Identity:</b> a subject or benchmark embedding lets the item path memorize that task’s base rate.</li>
+    <li><b>Duplicates:</b> the same item (or a paraphrase) appears in train and test; the embedding is a fingerprint.</li>
+    <li><b>Order:</b> the acquisition order was chosen using evaluation outcomes, even if the labels themselves are legal.</li>
+    <li><b>Selection:</b> the checkpoint was chosen by its test ALC. That is leakage at the experiment level, not the code level.</li>
+  </ul>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two parameter sets for the same item:</p>
+    <p>\(\theta=1,b=0,a=1\): logit \(=1(1-0)=1\).</p>
+    <p>\(\theta=2,b=1,a=1\): logit \(=1(2-1)=1\). Same probability, different “ability” and “difficulty”.</p>
+    <p>Scale: \(a=2,\theta=0.5,b=0\) gives logit 1; \(a=1,\theta=1,b=0\) also gives logit 1. The data cannot distinguish them without a convention.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Identifiability is “can the data tell these two stories apart?”. If every prediction is identical under both, the answer is no, and any claim about the absolute value of \(\theta\) is a claim about your convention, not about the world. This is why papers standardize ability and why the repo fixes a prior instead of reporting a raw MLE.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>At 31 labels, a 3PL guessing parameter is not identified: many \((a,b,c)\) triples fit the same six or seven outcomes equally well. The repo skips 3PL for this reason. Adding parameters that the data cannot constrain does not make the model more scientific; it makes the error bars dishonest.</p>
+  </div>
+</section>
+
+<!-- ================= PART IV ================= -->
+<section class="part" id="part4">
+  <div class="part-kicker">Part IV</div>
+  <h1 class="part-title" data-part="Part IV">Adaptation with almost no labels</h1>
+  <p class="part-intro">Thirty-one labels is not a training set; it is a handful of hints. The methods that work here are the ones that know how little they know: conjugate updates, partial pooling, and calibration fitted somewhere else.</p>
+  <ul class="part-list">
+    <li>16 · The Beta-Binomial control</li>
+    <li>17 · Hierarchical shrinkage</li>
+    <li>18 · Calibration in practice</li>
+  </ul>
+</section>
+
+<section id="s16">
+  <h2 class="sec" id="s16-h"><span class="num">16</span>The Beta-Binomial control that is hard to beat</h2>
+  <p class="lede">Before any neural network, there is a one-line predictor that updates a single probability with every revealed label. It is the bar every model must clear.</p>
+
+  <p>Start with \(\pi\sim\mathrm{Beta}(2,2)\), whose mean is 0.5. After \(n\) labels with \(k\) successes, the posterior is \(\mathrm{Beta}(2+k,\,2+n-k)\), and the predictive probability for the next item is the posterior mean:</p>
+
+  <div class="eq">\[ \hat p_n=\frac{2+k}{4+n}. \]</div>
+
+  <p>This is exactly the formula in the repo. It ignores item content entirely: every evaluation item gets the same probability. That sounds naive, and it is — but it is also robust, impossible to overfit, and surprisingly strong when the item signal is weak or the benchmark is new.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>The Beta-Binomial is a thermostat. It starts at 50%, and each label nudges the setting. One success moves it to 60%; three successes in seven moves it to 45% if failures dominate. It never panics, never claims certainty, and never needs a GPU. A neural model that loses to it at \(B=0\) or \(B=1\) is not adding value where value is scarcest.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Labels arrive in order \(1,0,1,\dots\).</p>
+    <p>\(B=0\): \(\hat p=2/4=0.500\).</p>
+    <p>\(B=1\) (one success): \(\hat p=3/5=0.600\).</p>
+    <p>\(B=3\) (two successes, one failure): \(\hat p=4/7=0.571\).</p>
+    <p>\(B=7\) (three successes, four failures): \(\hat p=5/11=0.455\).</p>
+    <p>Notice that adding labels can move the prediction either way. “More data” does not guarantee a better Brier score on a single task; it guarantees a better estimate of the task’s base rate.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>The control is not a straw man to be dismissed in the related-work section. If your model’s ALC is 0.27 and the control is 0.25, the correct conclusion is that your model is worse than a constant, not that the control is “too simple to compare against”.</p>
+  </div>
+</section>
+
+<section id="s17">
+  <h2 class="sec" id="s17-h"><span class="num">17</span>Hierarchical shrinkage and empirical Bayes</h2>
+  <p class="lede">When many small groups each have a noisy estimate, the best estimate for each group is usually a compromise between its own data and the pooled data.</p>
+
+  <p>Suppose task \(g\) has \(n_g\) labels and \(k_g\) successes. A hierarchical model gives each task its own rate \(\pi_g\), but lets those rates come from a common Beta prior:</p>
+
+  <div class="eq">\[ \pi_g\sim\mathrm{Beta}(\kappa\mu,\;\kappa(1-\mu)),\qquad k_g\mid\pi_g\sim\mathrm{Binomial}(n_g,\pi_g). \]</div>
+
+  <p>The posterior mean for task \(g\) is a shrinkage estimate:</p>
+
+  <div class="eq">\[ \hat\pi_g=\frac{k_g+\kappa\mu}{n_g+\kappa}=\underbrace{\frac{n_g}{n_g+\kappa}}_{\text{trust the data}}\cdot\frac{k_g}{n_g}\;+\;\underbrace{\frac{\kappa}{n_g+\kappa}}_{\text{trust the pool}}\cdot\mu. \]</div>
+
+  <p>\(\mu\) is the pooled rate and \(\kappa\) is the prior strength in pseudo-observations. <b>Empirical Bayes</b> estimates \(\mu\) and \(\kappa\) from the training tasks instead of fixing them by hand. With \(\kappa=0\) you get separate per-task rates; with \(\kappa\to\infty\) you get one pooled rate. Partial pooling is the interesting middle.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Task A: \(1/1\). Task B: \(3/9\). Pooled rate \(\mu=4/10=0.4\). Choose \(\kappa=4\).</p>
+    <p>Separate: \(1.00\) and \(0.333\). Pooled: \(0.400\) for both.</p>
+    <p>Shrunk: A \(=(1+4\cdot0.4)/(1+4)=2.6/5=0.520\); B \(=(3+1.6)/(9+4)=4.6/13=0.354\).</p>
+    <p>Task A’s perfect record is pulled down hard because one observation is weak evidence; Task B barely moves because nine observations already pin it down. That asymmetry is the point.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>If a benchmark with three items shows 100% success, you do not believe it is literally infallible. If a benchmark with 3,000 items shows 99.9%, you do. Shrinkage encodes that instinct: small groups borrow strength; large groups stand on their own. The prior strength \(\kappa\) says how many observations a new group needs before you stop borrowing.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>AbilityPrior</code> in <code>adaptation.py</code> is a two-level model: a benchmark-level mean ability plus a subject deviation regressed on the subject embedding, with the ridge penalty chosen by leave-one-out error over a grid \(\alpha\in\{1,\dots,1000\}\). It is empirical Bayes in spirit: the amount of shrinkage is estimated, not asserted.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Estimate \(\mu\) and \(\kappa\) on training benchmarks only. If you estimate them on the evaluation tasks, you have used the test distribution to set the prior — a subtle form of leakage that is easy to miss because no individual label is touched.</p>
+  </div>
+</section>
+
+<section id="s18" class="page-break">
+  <h2 class="sec" id="s18-h"><span class="num">18</span>Post-hoc calibration in practice</h2>
+  <p class="lede">Calibration is fitted on data that looks like deployment but is not deployment: meta-calibration folds from training benchmarks, separately at each budget.</p>
+
+  <p>The repo’s <code>AnchorCalibrator</code> combines two corrections per budget \(B\):</p>
+
+  <div class="eq">\[ p'=(1-\lambda_B)\,\sigma\!\bigl(s_B z+b_B\bigr)+\lambda_B\,\hat\pi_C, \]</div>
+
+  <p>where \(z\) is the model logit, \(s_B\) and \(b_B\) are a scale and bias fitted by logistic regression, \(\hat\pi_C=(1+\sum_{i\in C}y_i)/(2+|C|)\) is the smoothed context base rate, and \(\lambda_B\in[0,1]\) is a blending weight chosen on meta-calibration data. At \(B=0\), \(\hat\pi_C=0.5\) and the anchor is uninformative; as labels arrive, it becomes a useful level correction.</p>
+
+  <p>Why per budget? The miscalibration is not constant: at \(B=0\) the model is often underconfident because it has no subject evidence; at \(B=15\) it may be overconfident because it has fitted the context too closely. One global temperature cannot fix both.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Calibration is a post-processing step, like adjusting a scale that reads two pounds heavy. It does not improve what the scale measures; it makes the number readable. Temperature fixes “too extreme / too flat”. The anchor fixes “the whole task is easier or harder than the pool”. Both are cheap, both are monotone (so ranking is preserved), and both must be fitted on data you are allowed to see.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Fitted values: \(s=0.5\), \(b=0.1\), \(\lambda=0.3\), context rate \(0.6\). Logits \(z=-1,0,1\).</p>
+    <p>\(z=1\): \(\sigma(0.6)=0.646\); \(p'=0.7(0.646)+0.3(0.6)=0.632\).</p>
+    <p>\(z=0\): \(\sigma(0.1)=0.525\); \(p'=0.7(0.525)+0.18=0.547\).</p>
+    <p>\(z=-1\): \(\sigma(-0.4)=0.401\); \(p'=0.7(0.401)+0.18=0.461\).</p>
+    <p>The spread shrank from \((0.269,0.5,0.731)\) to \((0.461,0.547,0.632)\) and the whole range was pulled toward 0.6. Ordering is unchanged.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Fitting the calibrator on the evaluation pool’s outcomes is leakage; fitting it on the same fold used to choose the model is optimistic selection. The repo fits on meta-calibration samples from training benchmarks and applies the frozen parameters to held-out tasks. Keep that boundary visible in every experiment.</p>
+  </div>
+</section>

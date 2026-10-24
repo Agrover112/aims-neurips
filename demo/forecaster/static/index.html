@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Budgeted evaluation forecasting with real CNP-AIRT checkpoints." />
+    <title>Amortized Forecaster</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Amortized Forecaster home">
+        <span class="brand-mark">AF</span>
+        <span class="brand-copy">
+          <strong>Amortized Forecaster</strong>
+          <small>evaluation under budget</small>
+        </span>
+      </a>
+      <nav class="topnav" aria-label="Views">
+        <button class="navlink active" data-view="benchmark">Benchmark</button>
+        <button class="navlink" data-view="custom">Custom probe</button>
+        <a class="navlink" href="#method">Method</a>
+      </nav>
+      <div class="status"><span class="status-dot"></span> real checkpoints · no training</div>
+    </header>
+
+    <main>
+      <section class="hero" id="benchmark-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">PAIEC / VALIDATION DEMO</p>
+          <h1>Know the score<br /><em>before</em> you spend the budget.</h1>
+          <p class="hero-sub">
+            Reveal a handful of outcomes. Forecast the rest. Compare a transparent
+            Beta baseline, Online-AIRT, and the calibrated CNP-AIRT on real held-out tasks.
+          </p>
+          <div class="hero-meta">
+            <span><b>5</b> held-out benchmarks</span>
+            <span><b>31</b> acquisition labels</span>
+            <span><b>60</b> evaluation items</span>
+          </div>
+        </div>
+        <aside class="hero-metric" aria-label="Validation metrics">
+          <div class="metric-head"><span>Validation Brier ALC</span><span class="metric-tag">lower is better</span></div>
+          <div class="metric-row"><span>CNP-AIRT</span><b class="accent-text">0.2226</b></div>
+          <div class="metric-row"><span>Beta–Binomial</span><b>0.2228</b></div>
+          <div class="metric-row"><span>Online-AIRT</span><b>0.2233</b></div>
+          <p class="metric-note">104 validation tasks · 5-fold out-of-fold calibration</p>
+        </aside>
+      </section>
+
+      <div class="workspace" id="benchmark-view">
+        <aside class="rail task-rail">
+          <div class="rail-head">
+            <div><p class="section-label">Tasks</p><h2>Evaluation set</h2></div>
+            <span class="count-pill" id="task-count">5</span>
+          </div>
+          <p class="rail-sub">Real validation tasks. Real labels. Nothing synthetic.</p>
+          <div class="task-list" id="task-list" aria-live="polite"></div>
+          <button class="custom-cta" id="custom-cta">
+            <span><b>Custom probe</b><small>out-of-distribution input</small></span>
+            <span class="arrow">→</span>
+          </button>
+          <div class="rail-note">
+            <span class="mini-mark">i</span>
+            <p>Each task is a subject–benchmark pair. The model never sees the 60 evaluation labels.</p>
+          </div>
+        </aside>
+
+        <section class="main-column">
+          <section class="card forecast-card">
+            <div class="card-top">
+              <div>
+                <p class="section-label">Forecast</p>
+                <h2>Held-out success</h2>
+              </div>
+              <div class="budget-stepper" id="budget-stepper" aria-label="Acquisition budget"></div>
+            </div>
+
+            <div class="forecast-main">
+              <div class="primary-forecast">
+                <div class="big-number" id="cnp-value">–</div>
+                <div class="big-caption"><span class="swatch cnp"></span> CNP-AIRT · calibrated</div>
+                <div class="delta" id="cnp-delta">waiting for model</div>
+              </div>
+              <div class="compare-list">
+                <div class="compare-row">
+                  <span class="swatch beta"></span><span>Beta–Binomial</span><b id="beta-value">–</b>
+                </div>
+                <div class="compare-row">
+                  <span class="swatch airt"></span><span>Online-AIRT</span><b id="airt-value">–</b>
+                </div>
+                <div class="compare-row muted">
+                  <span class="swatch eval"></span><span>Evaluation items</span><b id="eval-count">60</b>
+                </div>
+              </div>
+              <div class="budget-ring" id="budget-ring" style="--progress: 0">
+                <div class="budget-ring-inner"><b id="budget-ring-value">0</b><span>/ 31</span></div>
+              </div>
+            </div>
+
+            <div class="chart-wrap">
+              <div class="chart-legend">
+                <span><i class="legend-line cnp"></i> CNP-AIRT</span>
+                <span><i class="legend-line airt"></i> Online-AIRT</span>
+                <span><i class="legend-line beta"></i> Beta</span>
+              </div>
+              <div class="chart" id="chart" role="img" aria-label="Forecast trajectory chart"></div>
+            </div>
+            <p class="chart-caption" id="chart-caption">
+              Mean predicted probability over the <b>60</b> held-out items.
+              Hover the chart to inspect a budget.
+            </p>
+          </section>
+
+          <div class="two-col">
+            <section class="card next-card">
+              <div class="card-top compact">
+                <div><p class="section-label">Next acquisition</p><h2>Buy one label</h2></div>
+                <label class="policy-wrap"><span class="sr-only">Acquisition policy</span>
+                  <select class="pill policy-select" id="policy-select">
+                    <option value="uncertainty">Uncertainty</option>
+                    <option value="hardest">Hardest</option>
+                    <option value="random">Random</option>
+                  </select>
+                  <span class="policy-caret">⌄</span>
+                </label>
+              </div>
+              <div class="next-body">
+                <div class="next-number" id="next-rank">#—</div>
+                <p class="next-content" id="next-content">Select a task to begin.</p>
+                <div class="next-stats">
+                  <div><span>CNP-AIRT</span><b id="next-cnp">–</b></div>
+                  <div><span>Online-AIRT</span><b id="next-airt">–</b></div>
+                </div>
+                <button class="primary-btn" id="reveal-btn" disabled>
+                  Reveal outcome <span class="key">↵</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="card history-card">
+              <div class="card-top compact">
+                <div><p class="section-label">Acquisition log</p><h2>Revealed labels</h2></div>
+                <span class="mono" id="history-count">0 / 31</span>
+              </div>
+              <div class="history-list" id="history-list">
+                <div class="empty-state">No labels revealed yet. The forecast starts from the task prior.</div>
+              </div>
+              <div class="history-footer">
+                <button class="ghost-btn" id="reset-btn">Reset run</button>
+                <button class="score-btn" id="score-btn" disabled>Score held-out run</button>
+              </div>
+            </section>
+          </div>
+
+          <section class="card score-card" id="score-card">
+            <div class="card-top compact">
+              <div><p class="section-label">Held-out score</p><h2>The part you did not pay for</h2></div>
+              <span class="mono" id="score-items">60 items</span>
+            </div>
+            <div id="score-empty" class="score-empty">
+              Reveal at least one label, then score the run against the hidden evaluation set.
+            </div>
+            <div id="score-results" class="score-results hidden">
+              <div class="score-summary">
+                <div class="score-big"><span id="actual-success">–</span><small>actual success</small></div>
+                <p>Brier score on the 60 held-out items. Lower is better.</p>
+              </div>
+              <div class="score-bars" id="score-bars"></div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="rail insight-rail" id="method">
+          <section class="card method-card">
+            <p class="section-label">Method</p>
+            <h2>Three views,<br />one budget.</h2>
+            <div class="method-item">
+              <span class="swatch beta"></span>
+              <div><b>Beta–Binomial</b><p>Laplace-smoothed base rate. The transparent baseline.</p></div>
+            </div>
+            <div class="method-item">
+              <span class="swatch airt"></span>
+              <div><b>Online-AIRT</b><p>2PL item network with a MAP ability update from revealed labels.</p></div>
+            </div>
+            <div class="method-item">
+              <span class="swatch cnp"></span>
+              <div><b>CNP-AIRT</b><p>Neural process with an IRT head, then full-BCE post-hoc calibration.</p></div>
+            </div>
+            <button class="text-btn" id="protocol-btn">Read the protocol <span>↗</span></button>
+          </section>
+
+          <section class="card checkpoint-card">
+            <div class="card-top compact"><p class="section-label">Loaded weights</p><span class="live-pill">live</span></div>
+            <div id="checkpoint-list" class="checkpoint-list"></div>
+            <p class="checkpoint-note">Frozen MiniLM embeddings. No benchmark-ID input. No training inside the app. Calibration is prefit on training benchmarks.</p>
+          </section>
+
+          <section class="card validation-card">
+            <p class="section-label">Validation readout</p>
+            <div id="validation-list" class="validation-list"></div>
+            <p class="checkpoint-note">Brier ALC across 104 validation tasks. Descriptive, not a leaderboard.</p>
+          </section>
+        </aside>
+      </div>
+
+      <section class="custom-view hidden" id="custom-view">
+        <div class="custom-head">
+          <p class="eyebrow">CUSTOM PROBE</p>
+          <h1>Test a prompt<br /><em>outside</em> the benchmark.</h1>
+          <p class="hero-sub">
+            The checkpoints were trained on 41 benchmarks. A custom prompt is an
+            out-of-distribution probe, not a validated evaluation.
+          </p>
+        </div>
+        <div class="ood-warning">
+          <span class="warning-icon">!</span>
+          <div>
+            <b>Out-of-distribution warning</b>
+            <p>Custom text is not part of the validation set. Subject features are masked in this checkpoint, so the score is driven by item content and the label-free prior. Use it as a directional probe only.</p>
+          </div>
+        </div>
+        <div class="custom-grid">
+          <section class="card custom-form">
+            <div class="card-top compact"><div><p class="section-label">Input</p><h2>Describe the probe</h2></div><span class="pill ghost">predictions only</span></div>
+            <label class="field">
+              <span>Subject / model <small>masked in this checkpoint</small></span>
+              <textarea id="custom-subject" rows="4" placeholder="e.g. A small open-weight chat model evaluated zero-shot.">A small open-weight chat model, evaluated zero-shot.</textarea>
+            </label>
+            <label class="field">
+              <span>Item / prompt</span>
+              <textarea id="custom-item" rows="7" placeholder="Paste the item text here…">A train travels 120 km in 2 hours. What is its average speed in km/h? Answer with the number only.</textarea>
+            </label>
+            <button class="primary-btn" id="custom-run">Run probe <span class="key">↵</span></button>
+            <p class="form-note">Predictions only. No outcomes are purchased or invented.</p>
+          </section>
+          <section class="card custom-result" id="custom-result">
+            <div class="empty-state">Results appear here. The probe never reveals or fabricates an outcome.</div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>AI Evaluation Forecaster</span>
+      <span class="footer-dot">·</span>
+      <span>real CNP-AIRT + Online-AIRT checkpoints</span>
+      <span class="footer-dot">·</span>
+      <span>validation-only demo</span>
+    </footer>
+
+    <dialog class="protocol-dialog" id="protocol-dialog">
+      <button class="dialog-close" id="dialog-close" aria-label="Close">×</button>
+      <p class="eyebrow">PROTOCOL</p>
+      <h2>What this demo holds fixed</h2>
+      <div class="protocol-grid">
+        <div><b>104</b><span>validation tasks</span></div>
+        <div><b>10</b><span>orders</span></div>
+        <div><b>6</b><span>budgets</span></div>
+        <div><b>5-fold</b><span>out-of-fold calibration</span></div>
+      </div>
+      <p>The three forecasters see exactly the same acquisition labels, the same 60 evaluation items, and the same budget grid: 0, 1, 3, 7, 15, 31. This interface uses one frozen acquisition order per task; the 10-order grid is evaluated offline.</p>
+      <p>Beta is the transparent baseline. Online-AIRT and CNP-AIRT load frozen checkpoints; the app does not train or fine-tune. CNP-AIRT is calibrated with the prefit full-BCE anchor calibrator; the diagnostic Brier calibrator is not used. The hidden leaderboard is not used anywhere in this interface.</p>
+      <p class="dialog-fine">Brier ALC is the weighted average of Brier scores across the budget grid. Lower is better.</p>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

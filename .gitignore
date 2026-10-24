@@ -17,6 +17,7 @@ submission/submission_config.json
 wandb/
 
 # Data and generated artifacts
+demo/.demo-runtime/
 data/
 artifacts/
 results/

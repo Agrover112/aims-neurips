@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><base href="file:///home/agrov/aims-neurips/docs/guide/">
+<meta charset="utf-8">
+<title>From Statistics to Neural Processes — AIMS PAIEC field guide</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    processEscapes: true
+  },
+  chtml: { fontURL: 'assets/mathjax/output/chtml/fonts/woff-v2' },
+  options: { enableMenu: false }
+};
+</script>
+<script defer src="assets/mathjax/tex-chtml-full.js"></script>
+<style>
+  :root {
+    --ink: #14231d;
+    --green: #1d6b50;
+    --green-soft: #7dab97;
+    --amber: #a86a1b;
+    --red: #9c3a2c;
+    --blue: #3c5f78;
+    --muted: #6b7873;
+    --rule: #d9d4c6;
+    --paper: #fdfcf7;
+    --tint-green: #edf3ee;
+    --tint-amber: #f8f0e1;
+    --tint-red: #f7eae6;
+    --tint-blue: #edf1f4;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 10.6pt; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    line-height: 1.52;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  p { margin: 0 0 0.62em; text-align: justify; hyphens: auto; orphans: 2; widows: 2; }
+  strong { font-weight: 620; }
+  em { font-style: italic; }
+  a { color: var(--green); text-decoration: none; }
+  h1, h2, h3, h4, .sans { font-family: Inter, "Source Serif 4", sans-serif; }
+  h2.sec {
+    font-size: 15.4pt;
+    font-weight: 640;
+    line-height: 1.18;
+    letter-spacing: -0.012em;
+    margin: 24pt 0 5pt;
+    padding-top: 8pt;
+    border-top: 0.6pt solid var(--rule);
+    break-after: avoid;
+  }
+  h2.sec .num {
+    color: var(--green);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    margin-right: 0.55em;
+    letter-spacing: 0;
+  }
+  h2.sec .sub { color: var(--muted); font-weight: 400; }
+  .lede {
+    font-size: 10.9pt;
+    font-style: italic;
+    color: #45554e;
+    margin: 0 0 11pt;
+    text-align: left;
+    hyphens: none;
+  }
+  h3 {
+    font-size: 8.2pt;
+    font-weight: 680;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin: 14pt 0 4pt;
+    break-after: avoid;
+  }
+  .box {
+    break-inside: avoid;
+    margin: 7pt 0 9pt;
+    padding: 7pt 10pt 6pt;
+    background: var(--tint-green);
+    border-left: 2.6pt solid var(--green);
+    font-size: 9.55pt;
+    line-height: 1.5;
+  }
+  .box .tag {
+    display: block;
+    font-family: Inter, sans-serif;
+    font-size: 7pt;
+    font-weight: 720;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 3pt;
+  }
+  .box p { margin-bottom: 0.4em; }
+  .box p:last-child { margin-bottom: 0; }
+  .box ul, .box ol { margin: 3pt 0 0 0; padding-left: 14pt; }
+  .box li { margin-bottom: 2pt; }
+  .box.intuition { background: var(--tint-green); border-color: var(--green); }
+  .box.solved { background: var(--tint-amber); border-color: var(--amber); }
+  .box.solved .tag { color: var(--amber); }
+  .box.trap { background: var(--tint-red); border-color: var(--red); }
+  .box.trap .tag { color: var(--red); }
+  .box.repo { background: var(--tint-blue); border-color: var(--blue); }
+  .box.repo .tag { color: var(--blue); }
+  .box.plain { background: #f4f1e7; border-color: #b9b3a1; }
+  .box.plain .tag { color: #6d6653; }
+
+  figure { margin: 12pt 0 14pt; break-inside: avoid; }
+  figure img { display: block; width: 100%; height: auto; }
+  figure.narrow img { width: 88%; margin: 0 auto; }
+  figcaption {
+    font-family: Inter, sans-serif;
+    font-size: 7.7pt;
+    line-height: 1.42;
+    color: var(--muted);
+    margin-top: 5pt;
+    text-align: left;
+  }
+  figcaption b { color: var(--ink); font-weight: 620; }
+  .fig-wide { margin-left: -8mm; margin-right: -8mm; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 8.9pt; line-height: 1.4; margin: 8pt 0 12pt; break-inside: avoid; }
+  th {
+    font-family: Inter, sans-serif;
+    font-size: 7.2pt;
+    font-weight: 680;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    text-align: left;
+    color: #3d4c45;
+    border-bottom: 0.9pt solid var(--ink);
+    padding: 4pt 6pt;
+  }
+  td { padding: 4pt 6pt; border-bottom: 0.5pt solid var(--rule); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.striped tr:nth-child(even) td { background: #f6f3e9; }
+  .compact td { padding: 2.6pt 5pt; }
+  .compact th { padding: 3pt 5pt; }
+
+  code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8em;
+    background: #f1eee3;
+    padding: 0.4pt 2.4pt;
+    border-radius: 1.5pt;
+  }
+  pre {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 8.1pt;
+    line-height: 1.45;
+    background: #f6f3e9;
+    border: 0.5pt solid var(--rule);
+    padding: 7pt 9pt;
+    margin: 9pt 0 12pt;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    break-inside: avoid;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .eq { margin: 8pt 0 10pt; text-align: center; break-inside: avoid; }
+  .eq.left { text-align: left; }
+  mjx-container { font-size: 1.02em !important; }
+  mjx-container[display="true"] { margin: 0.3em 0 !important; }
+  mjx-container[display="true"] svg { max-width: 100%; }
+
+  .small { font-size: 8.9pt; }
+  .tiny { font-size: 8pt; }
+  .muted { color: var(--muted); }
+  .green { color: var(--green); }
+  .amber { color: var(--amber); }
+  .red { color: var(--red); }
+  .center { text-align: center; }
+  .nowrap { white-space: nowrap; }
+  .rule { border: 0; border-top: 0.5pt solid var(--rule); margin: 13pt 0; }
+
+  ul, ol { margin: 0 0 0.7em 0; padding-left: 16pt; }
+  li { margin-bottom: 0.28em; }
+  li > ul, li > ol { margin-top: 0.25em; }
+  .tight li { margin-bottom: 0.12em; }
+
+  /* ---------- part opener ---------- */
+  .part { break-before: page; padding-top: 9mm; }
+  .part-kicker {
+    font-family: Inter, sans-serif;
+    font-size: 7.8pt;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+  .part-title {
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 27pt;
+    font-weight: 620;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 5pt 0 8pt;
+  }
+  .part-intro { font-size: 11pt; line-height: 1.55; color: #3f4e48; max-width: 150mm; text-align: left; }
+  .part-list {
+    columns: 2;
+    column-gap: 10mm;
+    font-family: Inter, sans-serif;
+    font-size: 8.2pt;
+    line-height: 1.45;
+    color: #40504a;
+    margin: 9pt 0 4pt;
+    padding-left: 13pt;
+  }
+  .part-list li { margin-bottom: 2.5pt; break-inside: avoid; }
+
+  /* ---------- contents ---------- */
+  .toc { break-after: page; }
+  .toc h1 { font-size: 23pt; font-weight: 620; letter-spacing: -0.02em; margin: 0 0 3pt; }
+  .toc .kicker {
+    font-family: Inter, sans-serif; font-size: 7.6pt; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber);
+  }
+  .toc-part {
+    font-family: Inter, sans-serif;
+    font-size: 7.9pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin: 7.5pt 0 2pt;
+  }
+  .toc-row { display: flex; align-items: baseline; font-size: 8.75pt; line-height: 1.28; margin: 1.45pt 0; }
+  .toc-row .n { font-family: Inter, sans-serif; font-size: 8.1pt; color: var(--green); width: 8mm; flex: none; }
+  .toc-row .t { flex: none; max-width: 128mm; }
+  .toc-row .dots { flex: 1; border-bottom: 0.5pt dotted #bcb6a7; margin: 0 5pt; transform: translateY(-2.5pt); }
+  .toc-row .pg { font-family: Inter, sans-serif; font-size: 8pt; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .toc-row.lead { font-weight: 600; }
+  .toc-note { font-family: Inter, sans-serif; font-size: 7.6pt; color: var(--muted); margin-top: 12pt; }
+
+  /* ---------- cover ---------- */
+  .cover {
+    width: 210mm; height: 297mm;
+    background: #0f201a;
+    color: #f4f1e4;
+    padding: 22mm 20mm 18mm;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 82% 12%, rgba(94, 150, 125, 0.30), transparent 45%),
+      radial-gradient(circle at 8% 88%, rgba(168, 106, 27, 0.16), transparent 42%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.028) 0 0.4pt, transparent 0.4pt 11mm),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.022) 0 0.4pt, transparent 0.4pt 11mm);
+  }
+  .cover > * { position: relative; }
+  .cover-top { display: flex; justify-content: space-between; font-family: Inter, sans-serif; font-size: 7.6pt; letter-spacing: 0.16em; text-transform: uppercase; color: #a9c3b5; }
+  .cover-top .right { color: #d8c39e; }
+  .cover-main { margin-top: 44mm; }
+  .cover-eyebrow { font-family: Inter, sans-serif; font-size: 8.4pt; letter-spacing: 0.18em; text-transform: uppercase; color: #8fb9a4; margin-bottom: 7mm; }
+  .cover h1 {
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 41pt; line-height: 1.02; font-weight: 600; letter-spacing: -0.025em;
+    margin: 0 0 6mm; color: #fbf8ec;
+  }
+  .cover h1 em { color: #b9d6c6; font-style: italic; }
+  .cover-sub { font-size: 13pt; line-height: 1.45; color: #c9d6cf; max-width: 135mm; }
+  .cover-rule { width: 34mm; height: 1.4pt; background: #c08a3d; margin: 10mm 0 8mm; }
+  .cover-meta { font-family: Inter, sans-serif; font-size: 8.6pt; line-height: 1.65; color: #9fb5a7; }
+  .cover-meta b { color: #efe9d6; font-weight: 600; }
+  .cover-foot {
+    position: absolute; left: 20mm; right: 20mm; bottom: 16mm;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-family: Inter, sans-serif; font-size: 7.8pt; color: #8ea99a;
+    border-top: 0.5pt solid rgba(255,255,255,0.14); padding-top: 4mm;
+  }
+  .cover-foot .big { font-family: "Source Serif 4", serif; font-size: 10pt; color: #d9e3dc; }
+  .cover-curve { position: absolute; right: -18mm; top: 33mm; width: 120mm; opacity: 0.9; }
+
+  /* ---------- misc ---------- */
+  .lead-in { font-size: 11pt; }
+  .kicker-line { font-family: Inter, sans-serif; font-size: 7.4pt; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--amber); margin-bottom: 3pt; }
+  .two-col { columns: 2; column-gap: 9mm; line-height: 1.4; }
+  .two-col p { break-inside: avoid; margin-bottom: 0.18em; }
+  .keep { break-inside: avoid; }
+  .page-break { break-before: page; }
+  .footnote { font-size: 8.1pt; color: var(--muted); line-height: 1.4; }
+  .pill {
+    display: inline-block; font-family: Inter, sans-serif; font-size: 7pt; font-weight: 650;
+    letter-spacing: 0.05em; text-transform: uppercase; padding: 1pt 4pt;
+    border: 0.5pt solid var(--rule); border-radius: 8pt; color: var(--muted); vertical-align: 1pt;
+  }
+  .diagram { width: 100%; margin: 10pt 0 4pt; }
+  .diagram text { font-family: Inter, sans-serif; }
+</style>
+</head>
+<body>
+
+<!-- ================= CONTENTS (filled by build.py) ================= -->
+<nav class="toc" id="toc"><div class="kicker">AIMS · PAIEC 2026</div>
+<h1>Contents</h1>
+<div class="toc-part">Start here</div>
+<div class="toc-row"><span class="n"></span><span class="t">How to use this guide</span><span class="dots"></span><span class="pg" data-target="howto-h">2</span></div>
+<div class="toc-row"><span class="n"></span><span class="t">Math survival kit</span><span class="dots"></span><span class="pg" data-target="mathkit-h">3</span></div>
+<div class="toc-part">Part I · The statistics you actually need</div>
+<div class="toc-row"><span class="n">1</span><span class="t">One picture of the whole problem</span><span class="dots"></span><span class="pg" data-target="s1-h">5</span></div>
+<div class="toc-row"><span class="n">2</span><span class="t">Probability, odds, and logits</span><span class="dots"></span><span class="pg" data-target="s2-h">6</span></div>
+<div class="toc-row"><span class="n">3</span><span class="t">Likelihood and log loss</span><span class="dots"></span><span class="pg" data-target="s3-h">7</span></div>
+<div class="toc-row"><span class="n">4</span><span class="t">Bayes, priors, and shrinkage</span><span class="dots"></span><span class="pg" data-target="s4-h">8</span></div>
+<div class="toc-row"><span class="n">5</span><span class="t">Uncertainty, paired tests, and honest error bars</span><span class="dots"></span><span class="pg" data-target="s5-h">9</span></div>
+<div class="toc-row"><span class="n">6</span><span class="t">Entropy, KL, and the value of a label</span><span class="dots"></span><span class="pg" data-target="s6-h">10</span></div>
+<div class="toc-part">Part II · Scoring a probabilistic predictor</div>
+<div class="toc-row"><span class="n">7</span><span class="t">Brier score: the only number you are paid on</span><span class="dots"></span><span class="pg" data-target="s7-h">11</span></div>
+<div class="toc-row"><span class="n">8</span><span class="t">Calibration: are your probabilities honest?</span><span class="dots"></span><span class="pg" data-target="s8-h">12</span></div>
+<div class="toc-row"><span class="n">9</span><span class="t">Discrimination and AUC: can you tell items apart?</span><span class="dots"></span><span class="pg" data-target="s9-h">12</span></div>
+<div class="toc-row"><span class="n">10</span><span class="t">The learning curve and Brier ALC</span><span class="dots"></span><span class="pg" data-target="s10-h">13</span></div>
+<div class="toc-row"><span class="n">11</span><span class="t">Who gets weight? Aggregation and the leaderboard</span><span class="dots"></span><span class="pg" data-target="s11-h">14</span></div>
+<div class="toc-part">Part III · Item response theory</div>
+<div class="toc-row"><span class="n">12</span><span class="t">The 2PL model: ability meets difficulty</span><span class="dots"></span><span class="pg" data-target="s12-h">15</span></div>
+<div class="toc-row"><span class="n">13</span><span class="t">Fitting ability: MAP and Newton in five lines</span><span class="dots"></span><span class="pg" data-target="s13-h">16</span></div>
+<div class="toc-row"><span class="n">14</span><span class="t">Amortized IRT: difficulty from content, not a lookup table</span><span class="dots"></span><span class="pg" data-target="s14-h">17</span></div>
+<div class="toc-row"><span class="n">15</span><span class="t">Identifiability, conventions, and leakage</span><span class="dots"></span><span class="pg" data-target="s15-h">19</span></div>
+<div class="toc-part">Part IV · Adaptation with almost no labels</div>
+<div class="toc-row"><span class="n">16</span><span class="t">The Beta-Binomial control that is hard to beat</span><span class="dots"></span><span class="pg" data-target="s16-h">20</span></div>
+<div class="toc-row"><span class="n">17</span><span class="t">Hierarchical shrinkage and empirical Bayes</span><span class="dots"></span><span class="pg" data-target="s17-h">20</span></div>
+<div class="toc-row"><span class="n">18</span><span class="t">Post-hoc calibration in practice</span><span class="dots"></span><span class="pg" data-target="s18-h">22</span></div>
+<div class="toc-part">Part V · Neural Processes</div>
+<div class="toc-row"><span class="n">19</span><span class="t">A distribution over functions, not a single function</span><span class="dots"></span><span class="pg" data-target="s19-h">23</span></div>
+<div class="toc-row"><span class="n">20</span><span class="t">Sets, pooling, and permutation invariance</span><span class="dots"></span><span class="pg" data-target="s20-h">23</span></div>
+<div class="toc-row"><span class="n">21</span><span class="t">CNP: one deterministic summary</span><span class="dots"></span><span class="pg" data-target="s21-h">24</span></div>
+<div class="toc-row"><span class="n">22</span><span class="t">NP: the latent variable and the ELBO</span><span class="dots"></span><span class="pg" data-target="s22-h">25</span></div>
+<div class="toc-row"><span class="n">23</span><span class="t">ANP: attention makes the summary target-specific</span><span class="dots"></span><span class="pg" data-target="s23-h">26</span></div>
+<div class="toc-row"><span class="n">24</span><span class="t">NP-AIRT in this repo: where the anchor lives</span><span class="dots"></span><span class="pg" data-target="s24-h">27</span></div>
+<div class="toc-row"><span class="n">25</span><span class="t">Training an episodic model without fooling yourself</span><span class="dots"></span><span class="pg" data-target="s25-h">28</span></div>
+<div class="toc-row"><span class="n">26</span><span class="t">Reading the diagnostics: signal, scale, or noise?</span><span class="dots"></span><span class="pg" data-target="s26-h">28</span></div>
+<div class="toc-part">Part VI · The competition playbook</div>
+<div class="toc-row"><span class="n">27</span><span class="t">The model ladder: what each rung actually tests</span><span class="dots"></span><span class="pg" data-target="s27-h">30</span></div>
+<div class="toc-row"><span class="n">28</span><span class="t">Ablations that survive review</span><span class="dots"></span><span class="pg" data-target="s28-h">31</span></div>
+<div class="toc-row"><span class="n">29</span><span class="t">Failure-mode checklist</span><span class="dots"></span><span class="pg" data-target="s29-h">31</span></div>
+<div class="toc-row"><span class="n">30</span><span class="t">Cram sheet</span><span class="dots"></span><span class="pg" data-target="s30-h">32</span></div>
+<div class="toc-part">Appendix · Glossary and map</div>
+<div class="toc-row"><span class="n">A</span><span class="t">Glossary</span><span class="dots"></span><span class="pg" data-target="glossary-h">33</span></div>
+<div class="toc-row"><span class="n">B</span><span class="t">Where things live in the repo</span><span class="dots"></span><span class="pg" data-target="map-h">33</span></div>
+<div class="toc-row"><span class="n">C</span><span class="t">Reading list</span><span class="dots"></span><span class="pg" data-target="reading-h">34</span></div>
+<p class="toc-note">Boxes: <b>Intuition</b> gives the picture, <b>Solved</b> is a 60-second numeric check, <b>Trap</b> is the mistake, <b>In this repo</b> points at the code.</p></nav>
+
+<!-- ================= HOW TO USE ================= -->
+<section id="howto">
+  <div class="kicker-line">Before you start</div>
+  <h2 class="sec" id="howto-h" style="border-top:none;padding-top:0;margin-top:2pt;">How to use this guide</h2>
+  <p class="lede">You do not need to read this cover to cover. Pick a path, keep the cram sheet open, and come back when a specific symbol stops making sense.</p>
+
+  <h3>Three ways in</h3>
+  <table class="striped">
+    <thead>
+      <tr><th style="width:22%">Path</th><th style="width:38%">Read</th><th>Afterwards you can</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>45 minutes</b><br><span class="tiny muted">the survival path</span></td>
+        <td>§1, §7, §10, §12, §19, §21, then §30 (the cram sheet)</td>
+        <td>Explain the competition at a whiteboard, read a Brier curve, and say what a CNP is without hand-waving.</td>
+      </tr>
+      <tr>
+        <td><b>Half a day</b><br><span class="tiny muted">the working path</span></td>
+        <td>Parts I–III, then §16–18 and §19–24</td>
+        <td>Follow the paper, read the training code, and debug a model that has good AUC but bad Brier.</td>
+      </tr>
+      <tr>
+        <td><b>Reference</b><br><span class="tiny muted">the “why is this weird?” path</span></td>
+        <td>Any section, Appendix A (the glossary), and the formula sheet</td>
+        <td>Recover one specific idea in five minutes without re-reading the whole guide.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The competition in one paragraph</h3>
+  <p>
+    A <b>subject</b> (an AI system) is evaluated on a <b>benchmark</b> of <b>items</b> (tasks).
+    For each subject–benchmark pair, some item outcomes are hidden. You may reveal a small number
+    of outcomes from a separate <b>acquisition pool</b>; the budgets are \(B \in \{0,1,3,7,15,31\}\).
+    At every budget you must output a probability \(p_{sj}\) that subject \(s\) succeeds on evaluation
+    item \(j\). The scorer compares those probabilities with the hidden binary outcomes using the
+    <b>Brier score</b>, then averages across budgets with fixed weights. Nothing else is scored.
+    Your job is to turn <i>content</i> (item text, metadata, subject metadata) plus a few revealed
+    labels into <i>honest probabilities</i> for items you have never seen the outcome of.
+  </p>
+
+  <svg class="diagram" viewBox="0 0 740 118" role="img" aria-label="Evaluation pipeline">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#a9a293"/>
+      </marker>
+    </defs>
+    <g font-size="12" fill="#14231d">
+      <rect x="1" y="12" width="132" height="56" rx="3" fill="#edf3ee" stroke="#9dbcaa" stroke-width="1"/>
+      <text x="12" y="31" font-weight="600">1 · Reveal</text>
+      <text x="12" y="48" font-size="10.5" fill="#5d6b65">budget B labels</text>
+      <text x="12" y="61" font-size="10.5" fill="#5d6b65">from acquisition pool</text>
+
+      <rect x="153" y="12" width="132" height="56" rx="3" fill="#edf3ee" stroke="#9dbcaa" stroke-width="1"/>
+      <text x="164" y="31" font-weight="600">2 · Condition</text>
+      <text x="164" y="48" font-size="10.5" fill="#5d6b65">update θ, or q(z | C)</text>
+      <text x="164" y="61" font-size="10.5" fill="#5d6b65">weights stay frozen</text>
+
+      <rect x="305" y="12" width="132" height="56" rx="3" fill="#edf3ee" stroke="#9dbcaa" stroke-width="1"/>
+      <text x="316" y="31" font-weight="600">3 · Predict</text>
+      <text x="316" y="48" font-size="10.5" fill="#5d6b65">p for every evaluation</text>
+      <text x="316" y="61" font-size="10.5" fill="#5d6b65">item (never y)</text>
+
+      <rect x="457" y="12" width="132" height="56" rx="3" fill="#f8f0e1" stroke="#d0a568" stroke-width="1"/>
+      <text x="468" y="31" font-weight="600">4 · Score</text>
+      <text x="468" y="48" font-size="10.5" fill="#6d5a3d">Brier = mean (p − y)²</text>
+      <text x="468" y="61" font-size="10.5" fill="#6d5a3d">lower is better</text>
+
+      <rect x="609" y="12" width="130" height="56" rx="3" fill="#f8f0e1" stroke="#d0a568" stroke-width="1"/>
+      <text x="620" y="31" font-weight="600">5 · Aggregate</text>
+      <text x="620" y="48" font-size="10.5" fill="#6d5a3d">weighted over budgets</text>
+      <text x="620" y="61" font-size="10.5" fill="#6d5a3d">→ Brier ALC</text>
+
+      <line x1="135" y1="40" x2="150" y2="40" stroke="#a9a293" stroke-width="1.2" marker-end="url(#ar)"/>
+      <line x1="287" y1="40" x2="302" y2="40" stroke="#a9a293" stroke-width="1.2" marker-end="url(#ar)"/>
+      <line x1="439" y1="40" x2="454" y2="40" stroke="#a9a293" stroke-width="1.2" marker-end="url(#ar)"/>
+      <line x1="591" y1="40" x2="606" y2="40" stroke="#a9a293" stroke-width="1.2" marker-end="url(#ar)"/>
+
+      <text x="1" y="94" font-size="10.5" fill="#6b7873">Nested prefixes:</text>
+      <text x="92" y="94" font-size="10.5" fill="#6b7873">the 1-label context is contained in the 3-label context, and so on. At B = 0 the model must stand on content alone.</text>
+      <line x1="1" y1="105" x2="739" y2="105" stroke="#d9d4c6" stroke-width="0.7"/>
+    </g>
+  </svg>
+  <div class="footnote" style="margin-top:2pt;">The official flow. Anything that uses the hidden evaluation outcomes, directly or indirectly, is leakage — even if it “only” tunes a calibration constant.</div>
+
+  <h3>Five objects, one sentence each</h3>
+  <table class="compact striped">
+    <tbody>
+      <tr><td style="width:26%"><b>Subject</b></td><td>the AI system being evaluated — a model, an agent, or a model plus tooling.</td></tr>
+      <tr><td><b>Item</b></td><td>one task presented to the subject (a coding issue, a math problem, a web task).</td></tr>
+      <tr><td><b>Outcome</b></td><td>what actually happened, encoded as \(y \in \{0,1\}\).</td></tr>
+      <tr><td><b>Predictor</b></td><td>your submitted program; it estimates outcomes without running the subject.</td></tr>
+      <tr><td><b>Prediction</b></td><td>a probability \(p \in [0,1]\); not a label, not a decision, not a ranking.</td></tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="margin-top:-4pt;">The subject is not your predictor. Your predictor predicts how the subject will perform.</p>
+
+  <h3>Three questions every method must answer</h3>
+  <ol class="tight">
+    <li><b>Item side:</b> where do difficulty and discrimination come from? A learned table, item text, metadata, or an amortized network \(f_\phi(x_j)\)?</li>
+    <li><b>Subject side:</b> where does ability come from? A learned table, subject metadata, or the revealed labels?</li>
+    <li><b>Update rule:</b> exactly how do the revealed labels change the prediction? A posterior, a MAP fit, a learned set encoder, or nothing?</li>
+  </ol>
+  <p>If you can answer those three for any model in the repo, you understand it. The rest is bookkeeping.</p>
+
+  <h3>How to read the boxes</h3>
+  <div class="box intuition"><span class="tag">Intuition</span><p>The plain-language picture. If you only read one thing per section, read this.</p></div>
+  <div class="box solved"><span class="tag">Solved in 60 seconds</span><p>A tiny numeric example you can redo on paper. Do redo it — reading arithmetic is not the same as doing it.</p></div>
+  <div class="box trap"><span class="tag">Trap</span><p>A mistake that is easy to make and expensive to debug.</p></div>
+  <div class="box repo"><span class="tag">In this repo</span><p>Where the idea appears in the code or docs, and what the current implementation actually does.</p></div>
+
+  <h3>Notation, once</h3>
+  <table class="compact">
+    <thead><tr><th style="width:18%">Symbol</th><th style="width:38%">Means</th><th>First used</th></tr></thead>
+    <tbody>
+      <tr><td>\(C\), \(T\)</td><td>acquired context set; target set</td><td>§1</td></tr>
+      <tr><td>\(x_i\), \(y_i\)</td><td>item input (no outcome); binary outcome</td><td>§1</td></tr>
+      <tr><td>\(\theta_s\)</td><td>ability of subject \(s\)</td><td>§12</td></tr>
+      <tr><td>\(a_j\), \(b_j\)</td><td>item discrimination; item difficulty</td><td>§12</td></tr>
+      <tr><td>\(z\)</td><td>global latent variable in a Neural Process</td><td>§22</td></tr>
+      <tr><td>\(r_i\), \(s_i\)</td><td>deterministic path encoding; latent path encoding</td><td>§21–23</td></tr>
+      <tr><td>\(\phi\), \(\psi\), \(\omega\)</td><td>learned network parameters</td><td>§14</td></tr>
+      <tr><td>\(\sigma(\cdot)\)</td><td>sigmoid, \(\sigma(z)=1/(1+e^{-z})\)</td><td>§2</td></tr>
+      <tr><td>\(\mathcal{N}(\mu,\sigma^2)\)</td><td>Gaussian distribution</td><td>§4</td></tr>
+      <tr><td>\(\mathrm{KL}(q\,\|\,p)\)</td><td>Kullback–Leibler divergence</td><td>§6</td></tr>
+    </tbody>
+  </table>
+  <p class="small muted">Logs are natural unless stated. “Nats” are the unit; 1 nat = 1.4427 bits. The competition works in probabilities, so most formulas here end in a probability, not a logit.</p>
+</section>
+
+<!-- ================= MATH KIT ================= -->
+<section id="mathkit">
+  <div class="kicker-line">Reference · five minutes</div>
+  <h2 class="sec" id="mathkit-h" style="border-top:none;padding-top:0;margin-top:2pt;">Math survival kit</h2>
+  <p class="lede">Nine things from high-school math that the rest of this guide assumes. Each comes with the smallest possible example.</p>
+
+  <h3>1 · Sums, products, and the two Greek letters</h3>
+  <p>\(\sum_{i=1}^{n} x_i = x_1+x_2+\cdots+x_n\) adds; \(\prod_{i=1}^{n} p_i = p_1p_2\cdots p_n\) multiplies.
+  A likelihood over independent observations is a product, which is why we take logs immediately.</p>
+  <div class="box solved"><span class="tag">Solved</span><p>For \(x=(1,2,3)\): \(\sum x_i = 6\), \(\prod x_i = 6\), and \(\sum x_i^2 = 14\). The mean is \(6/3=2\).</p></div>
+
+  <h3>2 · Exponentials and logarithms</h3>
+  <p>\(\log\) undoes \(e^{(\cdot)}\). The three rules you will use constantly:</p>
+  <div class="eq">\[ \log(ab)=\log a+\log b,\qquad \log(a/b)=\log a-\log b,\qquad \log(a^b)=b\log a. \]</div>
+  <p>Probability lives in \((0,1)\); log-probability lives in \((-\infty,0]\). That unbounded scale is why we model <i>logits</i> instead of probabilities.</p>
+  <div class="box solved"><span class="tag">Solved</span><p>\(\log(0.8\cdot 0.3)=\log 0.8+\log 0.3=-0.223-1.204=-1.427\). And \(e^{-1.427}=0.24=0.8\cdot0.3\).</p></div>
+
+  <h3>3 · Derivatives and the chain rule</h3>
+  <p>\(\frac{d}{dx}x^2=2x\), \(\frac{d}{dx}\log x=1/x\), \(\frac{d}{dx}e^x=e^x\).
+  The chain rule: if \(L=L(f(x))\), then \(dL/dx=(dL/df)(df/dx)\). Every “gradient through the network” is only this, repeated.</p>
+  <p>The sigmoid has a derivative worth memorizing:</p>
+  <div class="eq">\[ \sigma'(z)=\sigma(z)\bigl(1-\sigma(z)\bigr). \]</div>
+  <div class="box solved"><span class="tag">Solved</span><p>At \(z=0\), \(\sigma=0.5\), so \(\sigma'=0.25\). At \(z=2\), \(\sigma=0.881\), so \(\sigma'=0.881\cdot0.119=0.105\). The curve is steepest at zero.</p></div>
+
+  <h3>4 · Probability rules</h3>
+  <p>For events \(A,B\): \(P(A,B)=P(A\mid B)P(B)\). If independent, \(P(A,B)=P(A)P(B)\).
+  Bayes flips the conditioning:</p>
+  <div class="eq">\[ P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}. \]</div>
+  <p>In this guide, \(A\) is “the parameters” and \(B\) is “the labels we saw”. The denominator is a normalizing constant; the interesting part is \(P(B\mid A)P(A)\).</p>
+
+  <h3>5 · Expectation and variance</h3>
+  <p>For a discrete random variable \(X\): \(\mathbb{E}[X]=\sum_x x\,P(X=x)\), and
+  \(\operatorname{Var}(X)=\mathbb{E}[(X-\mathbb{E}X)^2]=\mathbb{E}[X^2]-(\mathbb{E}X)^2\).</p>
+  <p>For a Bernoulli outcome with success probability \(p\): \(\mathbb{E}[Y]=p\) and \(\operatorname{Var}(Y)=p(1-p)\). The variance is largest at \(p=0.5\) and zero at the extremes.</p>
+  <div class="box solved"><span class="tag">Solved</span><p>Six outcomes \((1,0,1,1,0,1)\): mean \(4/6=0.667\). Sample variance \(=0.267\), which equals \(p(1-p)\cdot n/(n-1)=0.222\cdot1.2\).</p></div>
+
+  <h3>6 · The Gaussian</h3>
+  <p>\(\mathcal{N}(\mu,\sigma^2)\) has density \(\frac{1}{\sqrt{2\pi\sigma^2}}\exp\!\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)\).
+  About 68% of mass lies within one standard deviation, 95% within two. A variance of 4 means a standard deviation of 2 — the units matter.</p>
+
+  <h3>7 · Vectors, dot products, matrices</h3>
+  <p>A dot product \(w^\top x=\sum_i w_ix_i\) is a weighted sum; it is also a similarity score when both vectors are normalized.
+  A weight matrix \(W\in\mathbb{R}^{m\times n}\) maps an \(n\)-vector to an \(m\)-vector: \(y=Wx+b\).
+  Neural networks are stacks of these with a nonlinearity between them.</p>
+
+  <h3>8 · Softmax, argmax, and “max”</h3>
+  <p>Softmax turns arbitrary scores \(s_i\) into positive numbers that sum to one:
+  \(\operatorname{softmax}(s)_i=e^{s_i}/\sum_k e^{s_k}\). Argmax returns the index of the largest value; \(\max\) returns the value.</p>
+  <div class="box solved"><span class="tag">Solved</span><p>Scores \((0,1,2)\): softmax \(=(0.090,\,0.245,\,0.665)\). The argmax is index 3; the max is 2. Attention is a softmax over context items.</p></div>
+
+  <h3>9 · Reading an equation without panic</h3>
+  <ol class="tight">
+    <li><b>Name every symbol.</b> If one is unnamed, the equation is not yet understood.</li>
+    <li><b>Check the output type.</b> Probability? Real number? Vector? Distribution?</li>
+    <li><b>Plug in extremes.</b> Set \(p=0\), \(p=1\), \(\theta=0\), \(n=0\). Does the formula still make sense?</li>
+    <li><b>Check monotonicity.</b> If ability rises, should the probability rise? Does the formula do that?</li>
+    <li><b>Find the units.</b> A logit is dimensionless; a Brier score is squared probability; a KL is in nats.</li>
+  </ol>
+  <div class="box intuition"><span class="tag">Intuition</span><p>Almost every model in this competition is the same sentence in different clothing: <i>a subject’s ability, compared with an item’s difficulty, squashed into a probability</i>. The Neural Process changes only where ability and difficulty come from, and how labels update them.</p></div>
+</section>
+
+<!-- ================= PART I ================= -->
+<section class="part" id="part1">
+  <div class="part-kicker">Part I</div>
+  <h1 class="part-title" data-part="Part I">The statistics you actually need</h1>
+  <p class="part-intro">Six ideas carry almost all of the weight: a probability is a prediction, a logit makes it linear, a likelihood scores it, a prior stabilizes it, a standard error tells you whether a difference is real, and entropy tells you what a label is worth.</p>
+  <ul class="part-list">
+    <li>1 · One picture of the problem</li>
+    <li>2 · Probability, odds, logits</li>
+    <li>3 · Likelihood and log loss</li>
+    <li>4 · Bayes, priors, shrinkage</li>
+    <li>5 · Uncertainty and paired tests</li>
+    <li>6 · Entropy, KL, information</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2 class="sec" id="s1-h"><span class="num">1</span>One picture of the whole problem</h2>
+  <p class="lede">You are filling in a mostly empty subject × item table, and you are paid for the honesty of each filled-in probability, not for the label you would guess.</p>
+
+  <p>Imagine a giant table. Each row is a <b>subject</b> — one AI system. Each column is an <b>item</b> — one task. Each cell would contain a binary outcome \(y_{sj}\in\{0,1\}\): did subject \(s\) succeed on item \(j\)? In the real data, almost every cell is missing, because running every subject on every item is exactly what evaluation is trying to avoid.</p>
+
+  <p>The competition hands you one row-slice at a time: a subject, a benchmark, a set of item descriptions, and two disjoint pools of items. The <b>acquisition pool</b> can reveal outcomes, up to the current budget. The <b>evaluation pool</b> is where you are scored; its outcomes stay hidden. Your predictor is a function</p>
+
+  <div class="eq">\[ p_{sj}=P\bigl(y_{sj}=1\mid x_j,\; m_s,\; C_s^{(B)}\bigr), \]</div>
+
+  <p>where \(x_j\) is everything known about item \(j\) before its outcome, \(m_s\) is subject metadata, and \(C_s^{(B)}=\{(x_i,y_{si})\}_{i=1}^{B}\) is the set of acquired labels. The output must be a probability for <i>every</i> evaluation item.</p>
+
+  <figure>
+    <img src="figures/alc.svg" alt="Two Brier learning curves, adaptive model and constant predictor">
+    <figcaption><b>The object you are optimizing.</b> Brier score at each budget, joined into one weighted number. The shaded area is the part of the curve the adaptive model wins; the dashed line is the “no information” predictor \(p=0.5\). Lower is better.</figcaption>
+  </figure>
+
+  <h3>Why this is hard in three different ways</h3>
+  <ul>
+    <li><b>Cold items.</b> Evaluation items were never seen. Memorizing an item’s difficulty is useless; you need difficulty to be a function of item content.</li>
+    <li><b>Cold subject at \(B=0\).</b> With no labels, you know only metadata. A subject-level prior has to do all the work.</li>
+    <li><b>Tiny budgets.</b> At \(B=1\), one binary outcome is one bit of evidence — and a noisy bit. The model must update without overreacting.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Think of the table as a light-cone problem. The item column tells you how hard the task is; the subject row tells you how capable the system is; the revealed cells are the only place the two meet. A good model is a principled interpolation between “what the content suggests” and “what the few labels prove”.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Four evaluation items have hidden outcomes \(y=(1,0,1,0)\).</p>
+    <p>Predict \(p=0.5\) for all four. Brier \(=\frac{1}{4}\left[(0.5)^2+(0.5)^2+(0.5)^2+(0.5)^2\right]=0.25\).</p>
+    <p>Now predict \(p=(0.9,0.2,0.6,0.4)\). Brier \(=\frac{1}{4}(0.01+0.04+0.16+0.16)=0.0925\).</p>
+    <p><b>Read this:</b> 0.25 is not “average”, it is the score of a predictor that knows nothing. A model at 0.27 is <i>worse than admitting ignorance</i>. This single fact explains most of the debugging in Part VI.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“Accuracy” is not the metric. A model can be 80% accurate and badly calibrated; Brier punishes the probability, not the thresholded decision. Never tune a classifier’s accuracy and expect the Brier score to follow.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2 class="sec" id="s2-h"><span class="num">2</span>Probability, odds, and logits</h2>
+  <p class="lede">The logit is the model’s native language: it turns “probability” into a number that can be added to, compared, and modeled linearly.</p>
+
+  <p>A probability \(p\in[0,1]\) is what you report. The <b>odds</b> are \(p/(1-p)\) — “four to one” means \(p=0.8\). The <b>logit</b> is the log of the odds:</p>
+
+  <div class="eq">\[ z=\operatorname{logit}(p)=\log\frac{p}{1-p},\qquad p=\sigma(z)=\frac{1}{1+e^{-z}}. \]</div>
+
+  <p>The two functions are inverses. \(p=0.5\) maps to \(z=0\); \(p\to1\) maps to \(z\to+\infty\); \(p\to0\) maps to \(z\to-\infty\). The sigmoid derivative is \(\sigma'(z)=\sigma(z)(1-\sigma(z))\), which is why a logit change near zero moves the probability much more than the same change in the tail.</p>
+
+  <figure>
+    <img src="figures/sigmoid.svg" alt="Sigmoid curve with annotated probabilities">
+    <figcaption><b>One curve, two scales.</b> The same fitted value is a logit on the horizontal axis and a probability on the vertical axis. Models add evidence in logit space; the scorer sees probability space.</figcaption>
+  </figure>
+
+  <h3>Why model logits instead of probabilities</h3>
+  <ul>
+    <li><b>No boundaries.</b> A linear model \(w^\top x\) can output any real number; the sigmoid keeps the result inside \([0,1]\).</li>
+    <li><b>Additive evidence.</b> Independent pieces of evidence multiply in odds, so they add in log-odds. Naive Bayes is literally a sum of logits.</li>
+    <li><b>IRT is linear in the logit.</b> \(a_j(\theta_s-b_j)\) is a straight line in ability. Difficulty shifts it; discrimination scales it.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A logit is a “score” in a game with no upper limit. Zero means a coin flip; \(+2\) means roughly 88% — confident but not certain; \(+6\) means 99.75%. Adding one unit of logit multiplies the odds by \(e\approx2.72\). This is why a model can be “confident” at logit 4 and still be wrong: 98% is not 100%.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Take \(p=0.8\). Odds \(=0.8/0.2=4\); logit \(=\log 4=1.386\).</p>
+    <p>Now subtract 0.7 of evidence: \(z=1.386-0.7=0.686\), so \(p=\sigma(0.686)=0.665\).</p>
+    <p>Check the derivative at \(z=0\): \(\sigma'(0)=0.25\). A small step \(\Delta z=0.1\) changes \(p\) by about \(0.025\) near the middle, but only by about \(0.002\) at \(z=4\).</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>Every model outputs a logit and calls <code>sigmoid</code> once at the end; calibration (<code>src/aims_starter/calibration.py</code>) operates on that logit, not on the probability. Temperature scaling divides the logit by \(T\) — a one-line change in logit space that is messy in probability space.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2 class="sec" id="s3-h"><span class="num">3</span>Likelihood and log loss</h2>
+  <p class="lede">A likelihood asks “how plausible are these labels under this probability?”, and its negative log is the loss the network minimizes.</p>
+
+  <p>For one binary outcome, the probability of what actually happened can be written in one line:</p>
+
+  <div class="eq">\[ P(y\mid p)=p^{y}(1-p)^{1-y}= \begin{cases} p, & y=1,\\ 1-p, & y=0.\end{cases} \]</div>
+
+  <p>For \(n\) independent outcomes, the likelihood is the product \(\prod_i p_i^{y_i}(1-p_i)^{1-y_i}\). Products underflow and have awkward derivatives, so we take the log. Maximizing the log-likelihood is the same as minimizing the <b>negative log-likelihood</b> (NLL):</p>
+
+  <div class="eq">\[ \mathrm{NLL}(p)=-\frac{1}{n}\sum_{i=1}^{n}\left[y_i\log p_i+(1-y_i)\log(1-p_i)\right]. \]</div>
+
+  <p>This is exactly binary cross-entropy. With a sigmoid, PyTorch’s <code>binary_cross_entropy_with_logits</code> computes it stably in one step.</p>
+
+  <figure>
+    <img src="figures/nll.svg" alt="Negative log likelihood for y=1 and y=0">
+    <figcaption><b>The loss is asymmetric in a useful way.</b> Predicting \(0.9\) when \(y=1\) costs 0.105 nats; predicting \(0.1\) when \(y=1\) costs 2.303. Being confidently wrong is punished without bound, while being uncertain is cheap.</figcaption>
+  </figure>
+
+  <h3>The MLE of a Bernoulli is just the base rate</h3>
+  <p>Set the derivative of the total log-likelihood to zero: \(\sum_i (y_i-p)/[p(1-p)]=0\), so \(\hat p=\frac{1}{n}\sum_i y_i\). With no prior, the best constant probability is the observed frequency. That is the “empirical mean” baseline, and it is already hard to beat when there is no item information.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Log loss is a penalty measured in “surprise”. If you say an event has probability 0.9 and it happens, you are only mildly surprised (\(-\log 0.9=0.105\)). If you say 0.1 and it happens, you are very surprised (\(-\log 0.1=2.303\)). The average surprise is the loss. A model that is never surprised is either perfect or cheating.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Three outcomes \(y=(1,0,1)\).</p>
+    <p>Predict \(p=0.7\) everywhere: \(\mathrm{NLL}=-[2\log 0.7+\log 0.3]/3=(0.713+1.204)/3=0.639\).</p>
+    <p>Predict \(p=0.9\): \(\mathrm{NLL}=-[2\log 0.9+\log 0.1]/3=(0.211+2.303)/3=0.838\).</p>
+    <p>The base rate is \(2/3=0.667\), with NLL \(0.6365\). So 0.7 is close to optimal; 0.9 is much worse. <b>More confidence is not more skill.</b></p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Cross-entropy is not calibrated by construction. A network can drive NLL down by becoming confident on easy training items and still output badly scaled probabilities on a new benchmark. That is a distribution-shift problem, not an optimization bug — see §8 and §18.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2 class="sec" id="s4-h"><span class="num">4</span>Bayes, priors, and shrinkage</h2>
+  <p class="lede">A prior is a small, honest lie that keeps an estimate sane when the data are scarce — and the posterior is the corrected version of that lie.</p>
+
+  <p>Bayes’ rule for parameters \(\pi\) and observed labels \(y\):</p>
+
+  <div class="eq">\[ \underbrace{p(\pi\mid y)}_{\text{posterior}}\;\propto\;\underbrace{p(y\mid\pi)}_{\text{likelihood}}\;\underbrace{p(\pi)}_{\text{prior}}. \]</div>
+
+  <p>The missing denominator is a constant with respect to \(\pi\), so it does not affect the shape or the argmax. With a Bernoulli likelihood and a Beta prior, the posterior is Beta again — <b>conjugacy</b>:</p>
+
+  <div class="eq">\[ \pi\sim\mathrm{Beta}(\alpha,\beta),\quad y_i\sim\mathrm{Bernoulli}(\pi) \;\Longrightarrow\; \pi\mid y\sim\mathrm{Beta}\!\left(\alpha+\sum_i y_i,\;\beta+n-\sum_i y_i\right). \]</div>
+
+  <p>The posterior mean is a weighted average of the prior mean and the data mean:</p>
+
+  <div class="eq">\[ \mathbb{E}[\pi\mid y]=\frac{\alpha+k}{\alpha+\beta+n} =\frac{\alpha+\beta}{\alpha+\beta+n}\,\frac{\alpha}{\alpha+\beta}\;+\;\frac{n}{\alpha+\beta+n}\,\frac{k}{n}. \]</div>
+
+  <p>The prior acts like \(\alpha+\beta\) pseudo-observations. That is the entire idea of <b>shrinkage</b>: with little data, trust the prior; with a lot, trust the data.</p>
+
+  <figure>
+    <img src="figures/beta.svg" alt="Beta prior and posterior after three successes in four trials">
+    <figcaption><b>Three successes in four trials, starting from Beta(2, 2).</b> The posterior is Beta(5, 3); its mean moves from 0.50 to 0.625, not all the way to the data mean 0.75. The prior is still pulling.</figcaption>
+  </figure>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>You have seen a coin land heads once. Is \(P(\text{heads})=1\)? Common sense says no. A prior of Beta(2, 2) says “start at half, with the weight of four imaginary flips”, so one head gives \(3/5=0.6\), not 1.0. The prior is not a claim about the world; it is a variance-control device. Its strength is a dial you can defend and ablate.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Prior \(\mathrm{Beta}(2,2)\); observe \(k=3\) successes in \(n=4\) trials.</p>
+    <p>Posterior: \(\mathrm{Beta}(2+3,\,2+1)=\mathrm{Beta}(5,3)\).</p>
+    <p>Posterior mean: \(5/8=0.625\). Posterior mode: \((5-1)/(8-2)=4/6=0.667\). Data mean: \(0.75\). Prior mean: \(0.5\).</p>
+    <p>The posterior mean sits between prior and data, closer to the prior because the prior has weight 4 and the data have weight 4 — hence exactly halfway between 0.5 and 0.75.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The Beta-Binomial control uses \(p=(2+\sum y_i)/(4+n)\), i.e. \(\mathrm{Beta}(2,2)\) updated online. It is deliberately simple: any neural model that cannot beat it at low budgets is not earning its complexity. The MAP ability fit in <code>adaptation.py</code> is the same idea in logit space, with prior \(\mathcal{N}(0,4)\).</p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2 class="sec" id="s5-h"><span class="num">5</span>Uncertainty, paired tests, and honest error bars</h2>
+  <p class="lede">A difference of 0.003 in Brier ALC is not a result until you know how much the number would move if you reran the experiment.</p>
+
+  <p>An estimator has a <b>standard error</b>: the standard deviation of its sampling distribution. For a mean \(\bar x\) of \(n\) independent observations, \(\mathrm{SE}=\hat\sigma/\sqrt n\). A 95% interval is roughly \(\bar x\pm1.96\,\mathrm{SE}\) for large \(n\), and wider for small \(n\) (use the \(t\) distribution).</p>
+
+  <p>But evaluation data are not independent items. Items cluster inside benchmarks, and repeated trials cluster inside subject–item pairs. The right unit of resampling is the <b>cluster</b> — usually the subject–benchmark task. Two consequences:</p>
+  <ul>
+    <li>Average within a task first, then across tasks (macro-average). Do not let a benchmark with 5,000 items outvote one with 50.</li>
+    <li>Bootstrap <i>tasks</i>, not rows, to get intervals that reflect benchmark-to-benchmark variation.</li>
+  </ul>
+
+  <p>For comparing two models, use <b>paired</b> differences: compute \(d_t=\mathrm{Brier}_A(t)-\mathrm{Brier}_B(t)\) on the same task \(t\). The shared difficulty of the task cancels, and the standard error of \(\bar d\) is usually much smaller than the standard error of either score alone.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Five tasks, Brier differences \(A-B=(-0.02,-0.01,-0.02,-0.01,-0.01)\).</p>
+    <p>Mean \(=-0.014\). Sample SD \(=0.00548\). \(\mathrm{SE}=0.00548/\sqrt5=0.00245\).</p>
+    <p>\(t=-0.014/0.00245=-5.72\) on 4 degrees of freedom. A 95% interval is about \(-0.014\pm2.78(0.00245)=[-0.021,-0.007]\).</p>
+    <p><b>Read this:</b> the effect is consistent in sign, but five tasks is five tasks. Report the interval, not just the p-value, and do not extrapolate to “all benchmarks”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Treating 10,000 item predictions as 10,000 independent samples gives absurdly narrow error bars. The effective sample size is closer to the number of independent <i>tasks</i>, which may be 20. This is the most common statistical mistake in benchmark papers.</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2 class="sec" id="s6-h"><span class="num">6</span>Entropy, KL, and the value of a label</h2>
+  <p class="lede">Entropy measures how unsure you are; KL measures how wrong your distribution is; their difference tells you what one more label could buy.</p>
+
+  <p>For a Bernoulli outcome with success probability \(p\), the entropy in nats is</p>
+
+  <div class="eq">\[ H(p)=-p\log p-(1-p)\log(1-p). \]</div>
+
+  <p>It is 0 at \(p=0\) and \(p=1\), and maximal at \(p=0.5\) with \(H=0.693\) nats. Entropy is the average surprise of the <i>true</i> distribution; cross-entropy is the average surprise when you predict \(q\) but the truth is \(p\):</p>
+
+  <div class="eq">\[ H(p,q)=-\sum_y p(y)\log q(y)=H(p)+\mathrm{KL}(p\,\|\,q). \]</div>
+
+  <p>So minimizing log loss is minimizing cross-entropy, and the extra cost over the irreducible entropy is the KL divergence. KL is non-negative, zero only when the distributions match, and <b>asymmetric</b>: \(\mathrm{KL}(p\|q)\neq\mathrm{KL}(q\|p)\) in general.</p>
+
+  <p>For two univariate Gaussians, the formula you will see in the NP objective is</p>
+
+  <div class="eq">\[ \mathrm{KL}\bigl(\mathcal{N}(\mu_1,\sigma_1^2)\,\|\,\mathcal{N}(\mu_2,\sigma_2^2)\bigr) =\log\frac{\sigma_2}{\sigma_1}+\frac{\sigma_1^2+(\mu_1-\mu_2)^2}{2\sigma_2^2}-\frac12. \]</div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Entropy is how wide your uncertainty is. KL is the price of betting on the wrong distribution. Information gain is the amount by which a label is expected to narrow the width. An item that is always answered correctly by everyone carries almost no information: its outcome is already predictable. An item near 50/50 carries one full bit. This is why acquisition policies prefer uncertain items — but only if the uncertainty is real, not ignorance.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>\(H(0.9)=-0.9\log0.9-0.1\log0.1=0.105+0.230=0.325\) nats.</p>
+    <p>\(\mathrm{KL}(\mathrm{Bern}(0.9)\,\|\,\mathrm{Bern}(0.5))=0.9\log(0.9/0.5)+0.1\log(0.1/0.5)=0.529-0.161=0.368\) nats.</p>
+    <p>If a label moves your belief from 0.5 to 0.8, the entropy drops from 0.693 to 0.500, an information gain of 0.193 nats.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The acquisition ablations compare random, entropy, and Fisher-information orderings. Under 1PL, entropy-greedy and Fisher-greedy rank items identically; under 2PL they diverge only through \(a_j^2\). The predictor is held fixed while the order changes, so the experiment isolates the value of the label stream, not the model.</p>
+  </div>
+</section>
+
+<!-- ================= PART II ================= -->
+<section class="part" id="part2">
+  <div class="part-kicker">Part II</div>
+  <h1 class="part-title" data-part="Part II">Scoring a probabilistic predictor</h1>
+  <p class="part-intro">The competition pays in Brier score, averaged over budgets. Calibration and discrimination are the two ways that score can fail, and they need different fixes.</p>
+  <ul class="part-list">
+    <li>7 · Brier score</li>
+    <li>8 · Calibration</li>
+    <li>9 · Discrimination and AUC</li>
+    <li>10 · The learning curve and ALC</li>
+    <li>11 · Who gets weight?</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2 class="sec" id="s7-h"><span class="num">7</span>Brier score: the only number you are paid on</h2>
+  <p class="lede">Brier is mean squared error applied to probabilities. It rewards being right and honest at the same time.</p>
+
+  <p>For \(n\) predictions \(p_i\) and outcomes \(y_i\in\{0,1\}\):</p>
+
+  <div class="eq">\[ \mathrm{BS}=\frac{1}{n}\sum_{i=1}^{n}(p_i-y_i)^2. \]</div>
+
+  <p>Each term is small when the probability is close to the outcome. Predicting 0.9 on a success costs \(0.01\); predicting 0.9 on a failure costs \(0.81\). The score is in squared-probability units, bounded in \([0,1]\), lower is better.</p>
+
+  <h3>It is a proper scoring rule</h3>
+  <p>Suppose the true success probability is \(\pi\). The expected Brier score of a forecast \(p\) is</p>
+
+  <div class="eq">\[ \mathbb{E}[(p-Y)^2]=(p-\pi)^2+\pi(1-\pi). \]</div>
+
+  <p>The second term does not depend on \(p\); the first is minimized uniquely at \(p=\pi\). So the best expected score is achieved by reporting your true belief. No other probability can do better in expectation. This property — <b>strict propriety</b> — is why the competition can use Brier without worrying that competitors will game it by scattering predictions.</p>
+
+  <h3>The decomposition worth remembering</h3>
+  <p>Group predictions into bins \(k\) with mean forecast \(\bar p_k\) and observed frequency \(\bar y_k\):</p>
+
+  <div class="eq">\[ \mathrm{BS}=\underbrace{\frac{1}{n}\sum_k n_k(\bar p_k-\bar y_k)^2}_{\text{reliability}}\;-\;\underbrace{\frac{1}{n}\sum_k n_k(\bar y_k-\bar y)^2}_{\text{resolution}}\;+\;\underbrace{\bar y(1-\bar y)}_{\text{uncertainty}}. \]</div>
+
+  <ul>
+    <li><b>Reliability</b>: how far bin averages are from observed frequencies. Calibration error. Lower is better.</li>
+    <li><b>Resolution</b>: how much the bins differ from the overall base rate. Higher is better — it is the model’s ability to separate easy from hard cases.</li>
+    <li><b>Uncertainty</b>: the irreducible variance of the outcomes. It depends on the dataset, not the model.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Brier rewards two different skills. <b>Resolution</b> is “can you tell which items are harder?”. <b>Reliability</b> is “when you say 70%, is it really 70%?”. A model can be excellent at ranking items and still get a bad Brier score if its probabilities are on the wrong scale. That is not a contradiction; it is the most common failure in this repo.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>\(y=(1,0,1,0)\), \(p=(0.9,0.2,0.6,0.4)\).</p>
+    <p>Squared errors: \(0.01,\,0.04,\,0.16,\,0.16\). Brier \(=0.37/4=0.0925\).</p>
+    <p>Constant-0.5 baseline: 0.25. Skill score \(=1-0.0925/0.25=0.63\), i.e. 63% of the baseline’s error removed.</p>
+    <p>Now move one prediction from 0.9 to 0.99 on the success: error falls from 0.01 to 0.0001 — but move it to 0.99 on a failure and the error explodes from 0.81 to 0.9801. Asymmetric risk in one line.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Do not compare raw Brier scores across benchmarks with different base rates. The floor is \(\bar y(1-\bar y)\), not zero: a benchmark with 10% successes has a much lower floor than one with 50%. Use a skill score, or compare only on identical tasks.</p>
+  </div>
+</section>
+
+<section id="s8">
+  <h2 class="sec" id="s8-h"><span class="num">8</span>Calibration: are your probabilities honest?</h2>
+  <p class="lede">Calibration is the agreement between the number you say and the frequency that happens. It is separate from being able to tell items apart.</p>
+
+  <p>Among all cases where you predicted about 0.7, roughly 70% should succeed. If only 50% succeed, you are <b>overconfident</b>. If 85% succeed, you are <b>underconfident</b>. A reliability diagram plots observed frequency against predicted probability; perfect calibration is the diagonal.</p>
+
+  <p>The scalar summary used here is the <b>expected calibration error</b> over \(K\) equal-width bins:</p>
+
+  <div class="eq">\[ \mathrm{ECE}=\sum_{k=1}^{K}\frac{n_k}{n}\,\bigl|\,\bar p_k-\bar y_k\,\bigr|. \]</div>
+
+  <p>ECE is a diagnostic, not the competition metric. It depends on the number of bins, it ignores ordering within a bin, and it is not a proper scoring rule — you can reduce ECE by throwing away resolution. Report it alongside Brier, never instead of it.</p>
+
+  <h3>The two standard fixes</h3>
+  <ul>
+    <li><b>Temperature scaling.</b> \(p'=\sigma(z/T)\). One parameter, fitted on held-out data. \(T>1\) softens overconfidence; \(T<1\) sharpens underconfidence. It is monotone, so AUC does not change.</li>
+    <li><b>Platt scaling.</b> \(p'=\sigma(az+b)\). Two parameters; can fix both scale and bias. Again monotone if \(a>0\).</li>
+  </ul>
+
+  <p>Neither fix creates resolution. If the model cannot tell easy items from hard ones, no monotone rescaling will help; it only moves the probability scale.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Imagine a weather forecaster who says “70% chance of rain” on 100 days, and it rains on 70 of them. Calibration is that match. Now imagine a forecaster who always says 70% and one who says 20% on dry days and 90% on wet days. Both can be calibrated; the second is more useful. Brier rewards both calibration and usefulness; ECE only checks the first.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two bins of five predictions each.</p>
+    <p>Bin 1: mean prediction 0.84, observed 3/5 = 0.60. Gap 0.24.</p>
+    <p>Bin 2: mean prediction 0.44, observed 3/5 = 0.60. Gap 0.16.</p>
+    <p>\(\mathrm{ECE}=0.5(0.24)+0.5(0.16)=0.20\). The model is overconfident in the first bin and underconfident in the second. A single temperature may not fix both; that is a signal of a shape problem, not just a scale problem.</p>
+    <p>Apply \(T=2\) to logits \((-1,0,1)\): they become \((-0.5,0,0.5)\), probabilities \((0.378,0.5,0.622)\). Ordering is preserved; only the spread changes.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>AnchorCalibrator</code> fits a scale, a bias, and a weight on the context base rate, separately per budget, on meta-calibration folds from training benchmarks. The context-rate anchor is the only task-specific quantity available at low budgets, so it is blended in rather than trusted outright.</p>
+  </div>
+</section>
+
+<section id="s9">
+  <h2 class="sec" id="s9-h"><span class="num">9</span>Discrimination and AUC: can you tell items apart?</h2>
+  <p class="lede">AUC measures ranking, not probability. It answers “is a random success scored above a random failure?”, and it is blind to whether the scores are calibrated.</p>
+
+  <p>For every positive–negative pair, count a win if the positive has the higher score, a tie as half. That fraction is the area under the ROC curve:</p>
+
+  <div class="eq">\[ \mathrm{AUC}=P\bigl(s_{+}>s_{-}\bigr)+\tfrac12P\bigl(s_{+}=s_{-}\bigr). \]</div>
+
+  <p>0.5 is chance, 1.0 is perfect ordering. AUC is invariant to any strictly increasing transformation of the scores: adding 3, multiplying by 10, or applying a sigmoid all leave it unchanged. It is therefore the right diagnostic for “does the model have signal?” and the wrong metric for “are the probabilities usable?”.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>AUC is a <i>ranking</i> score, like a leaderboard that only cares about order. Brier is a <i>probability</i> score, like a weather forecast that must state the number. A model can rank perfectly and still say “99%” for everything — AUC 1.0, terrible Brier. Conversely, a model can be perfectly calibrated at the base rate and have AUC 0.5: it says 30% to everyone, and 30% is right on average, but it cannot distinguish anything.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Scores \(s=(0.9,0.8,0.4,0.3)\), outcomes \(y=(1,0,1,0)\). Positives: 0.9, 0.4. Negatives: 0.8, 0.3.</p>
+    <p>Pairs: \(0.9>0.8\) ✓, \(0.9>0.3\) ✓, \(0.4>0.8\) ✗, \(0.4>0.3\) ✓. Three wins out of four: \(\mathrm{AUC}=0.75\).</p>
+    <p>Now transform every score by \(s\mapsto 10s+2\): the same three pairs win, AUC stays 0.75. The Brier score, however, changes dramatically because the probabilities are no longer in \([0,1]\).</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“AUC went up” is not evidence that the submission improved. The leaderboard is Brier ALC. Optimize a proper score; use AUC only to diagnose whether the model has resolution.</p>
+  </div>
+</section>
+
+<section id="s10">
+  <h2 class="sec" id="s10-h"><span class="num">10</span>The learning curve and Brier ALC</h2>
+  <p class="lede">The competition does not score one budget. It scores the whole path from zero labels to thirty-one, with the middle of the path weighted most.</p>
+
+  <p>At each budget \(B\in\{0,1,3,7,15,31\}\), reveal the first \(B\) outcomes of the acquisition pool (the prefixes are nested), recompute predictions for the untouched evaluation pool, and compute Brier. That gives six numbers \(B_0,\dots,B_{31}\). The official aggregate is</p>
+
+  <div class="eq">\[ \mathrm{ALC}=0.1B_0+0.2B_1+0.2B_3+0.2B_7+0.2B_{15}+0.1B_{31}. \]</div>
+
+  <p>The weights sum to one, so ALC is on the same scale as Brier. The endpoints get half weight. That is deliberate: budget 0 is almost pure prior, budget 31 is almost pure interpolation, and the interesting adaptation happens in between. A model that wins only at \(B=31\) but loses at \(B=0\) can easily lose overall.</p>
+
+  <p>The curve need not be monotone. A single noisy label at \(B=1\) can make predictions worse; a model that overreacts to the first label can produce a visible bump. That bump is information, not necessarily a bug — but it must be explained, not hidden.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>ALC is a weighted average of six exam grades, with the middle four counting double. It rewards a model that is good <i>early</i> and stays good, not one that memorizes the final context. If you only tune the last budget, you are optimizing 10% of the score.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Model Brier: \((0.250,0.243,0.231,0.218,0.205,0.199)\).</p>
+    <p>ALC \(=0.1(0.250)+0.2(0.243)+0.2(0.231)+0.2(0.218)+0.2(0.205)+0.1(0.199)\)</p>
+    <p>\(=0.0250+0.0486+0.0462+0.0436+0.0410+0.0199=0.2243\).</p>
+    <p>Constant-0.5 baseline: \(0.250\). Relative gain: \((0.250-0.2243)/0.250=10.3\%\).</p>
+    <p>Notice that the \(B=0\) term contributes only 0.025, while the four middle terms contribute 0.179 — 80% of the score.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Computing ALC from budgets that are not nested, or from different acquisition orders per budget, silently changes the experiment. “Budget 7” must contain the labels revealed at budgets 1 and 3; otherwise the curve is not a learning curve.</p>
+  </div>
+</section>
+
+<section id="s11">
+  <h2 class="sec" id="s11-h"><span class="num">11</span>Who gets weight? Aggregation and the leaderboard</h2>
+  <p class="lede">The same predictions can score 0.218 or 0.300 depending on whether you average items or tasks. The competition averages tasks.</p>
+
+  <p>Three levels are easy to confuse:</p>
+  <ul>
+    <li><b>Item level:</b> one squared error per evaluation item. A task with 5,000 items dominates one with 50.</li>
+    <li><b>Task level:</b> average items within a subject–benchmark pair, then average pairs equally. This is the leaderboard’s unit.</li>
+    <li><b>Benchmark level:</b> average tasks within a benchmark, then benchmarks. Useful for reporting, but not the official weighting unless the organizer says so.</li>
+  </ul>
+
+  <p>Micro-averaging pools all items; macro-averaging pools tasks. They answer different questions. Micro asks “how good is the average prediction?”; macro asks “how good is the average task?”. When task sizes differ, the two can disagree in sign as well as magnitude.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Task A: 100 items, Brier 0.20. Task B: 10 items, Brier 0.40.</p>
+    <p>Micro \(=(100\cdot0.20+10\cdot0.40)/110=24/110=0.218\).</p>
+    <p>Macro \(=(0.20+0.40)/2=0.300\).</p>
+    <p>A 0.082 gap — larger than most model improvements in this competition — produced purely by the averaging choice. Always state which one you report.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If you compute a confidence interval over items, a big benchmark will dominate and the interval will look tiny. Resample <i>tasks</i> (or benchmarks) instead. The official protocol averages each eligible subject–benchmark pair equally before the leaderboard average.</p>
+  </div>
+
+  <table class="striped">
+    <thead><tr><th style="width:26%">Metric</th><th style="width:24%">What it measures</th><th style="width:20%">Proper?</th><th>Use it for</th></tr></thead>
+    <tbody>
+      <tr><td><b>Brier</b></td><td>squared probability error</td><td>yes, strictly</td><td>the competition; model selection</td></tr>
+      <tr><td><b>Log loss</b></td><td>negative log-likelihood</td><td>yes, strictly</td><td>training; sharper penalty for confidence</td></tr>
+      <tr><td><b>AUC</b></td><td>ranking</td><td>no</td><td>diagnosing resolution only</td></tr>
+      <tr><td><b>ECE</b></td><td>bin-wise calibration</td><td>no</td><td>diagnosing probability scale</td></tr>
+      <tr><td><b>Accuracy</b></td><td>thresholded decisions</td><td>no</td><td>almost never, here</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ================= PART III ================= -->
+<section class="part" id="part3">
+  <div class="part-kicker">Part III</div>
+  <h1 class="part-title" data-part="Part III">Item response theory</h1>
+  <p class="part-intro">IRT is the skeleton of the whole competition: one number for the subject, two numbers per item, and a logistic link. Amortized IRT replaces the per-item table with a network that reads item content.</p>
+  <ul class="part-list">
+    <li>12 · The 2PL model</li>
+    <li>13 · Fitting ability with MAP</li>
+    <li>14 · Amortized IRT</li>
+    <li>15 · Identifiability and leakage</li>
+  </ul>
+</section>
+
+<section id="s12">
+  <h2 class="sec" id="s12-h"><span class="num">12</span>The 2PL model: ability meets difficulty</h2>
+  <p class="lede">Every prediction in this repo is a logistic comparison between how able the subject is and how hard the item is, optionally sharpened by how well the item discriminates.</p>
+
+  <p>For subject \(s\) and item \(j\), the two-parameter logistic model is</p>
+
+  <div class="eq">\[ p_{sj}=P(y_{sj}=1)=\sigma\bigl(a_j(\theta_s-b_j)\bigr), \]</div>
+
+  <p>with three interpretable quantities:</p>
+  <ul>
+    <li>\(\theta_s\in\mathbb{R}\): the subject’s <b>ability</b>. Higher is better. It is a position on the same scale as difficulty.</li>
+    <li>\(b_j\in\mathbb{R}\): the item’s <b>difficulty</b>. The curve crosses 0.5 at \(\theta_s=b_j\); a harder item sits to the right.</li>
+    <li>\(a_j>0\): the item’s <b>discrimination</b>. It controls steepness. A large \(a_j\) means the item separates nearby ability levels sharply; \(a_j\to0\) makes it a coin flip.</li>
+  </ul>
+
+  <figure>
+    <img src="figures/irt.svg" alt="Three item characteristic curves">
+    <figcaption><b>Item characteristic curves.</b> Increasing \(b\) shifts the curve right (harder at every ability). Increasing \(a\) makes it steeper (more informative near the threshold). The dashed curve is the same \(a\) as the green one, just harder.</figcaption>
+  </figure>
+
+  <p>The relatives are worth knowing. <b>1PL</b> (Rasch) sets every \(a_j=1\) and learns only difficulties. <b>3PL</b> adds a guessing floor \(c_j\):</p>
+
+  <div class="eq">\[ p_{sj}=c_j+(1-c_j)\,\sigma\bigl(a_j(\theta_s-b_j)\bigr). \]</div>
+
+  <p>This repo uses 2PL only. There is no guessing mechanism on free-form harm labels, and \((a,b,c)\) is not identifiable from 31 labels. That is a modelling decision, not an omission.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Picture a ruler. Ability and difficulty are both measured on it. An item is a hurdle at position \(b_j\); a subject at \(\theta_s\) clears it with probability given by the gap \(\theta_s-b_j\). Discrimination \(a_j\) is how sharply the hurdle decides: a low-discrimination item is a fuzzy hurdle that lets almost anyone through with middling probability; a high-discrimination item is a razor edge.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Take \(\theta=1\), \(b=0.5\), \(a=1.5\): logit \(=1.5(0.5)=0.75\), so \(p=\sigma(0.75)=0.679\).</p>
+    <p>Make the item harder, \(b=1.5\): logit \(=1.5(-0.5)=-0.75\), \(p=0.321\). Same subject, different hurdle.</p>
+    <p>Keep \(b=0.5\) but lower discrimination to \(a=0.5\): logit \(=0.25\), \(p=0.562\). Raise it to \(a=3\): logit \(=1.5\), \(p=0.818\).</p>
+    <p><b>Read this:</b> difficulty moves the midpoint; discrimination changes how fast the curve rises around it.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>The sign convention is easy to flip. Here, larger \(b\) means <i>harder</i> because it is subtracted. If you see \(a(\theta+b)\) somewhere, difficulty has the opposite sign. Check the formula before comparing numbers across papers.</p>
+  </div>
+</section>
+
+<section id="s13">
+  <h2 class="sec" id="s13-h"><span class="num">13</span>Fitting ability: MAP and Newton in five lines</h2>
+  <p class="lede">With item parameters fixed, estimating a subject’s ability is a one-dimensional concave problem — which is why the repo can afford an exact Newton solve inside a neural model.</p>
+
+  <p>Given acquired labels \(C=\{(a_i,b_i,y_i)\}\), the penalized log-posterior for \(\theta\) is</p>
+
+  <div class="eq">\[ \log p(\theta\mid C)= \sum_{i\in C}\Bigl[y_i\log\sigma\bigl(a_i(\theta-b_i)\bigr)+(1-y_i)\log\bigl(1-\sigma(a_i(\theta-b_i))\bigr)\Bigr]-\frac{(\theta-\mu_0)^2}{2\sigma_0^2}+\text{const}. \]</div>
+
+  <p>Its first two derivatives are clean:</p>
+
+  <div class="eq">\[ g(\theta)=\sum_{i\in C}a_i(y_i-p_i)-\frac{\theta-\mu_0}{\sigma_0^2},\qquad h(\theta)=-\sum_{i\in C}a_i^2\,p_i(1-p_i)-\frac{1}{\sigma_0^2}. \]</div>
+
+  <p>Newton’s method jumps to the top of the local quadratic:</p>
+
+  <div class="eq">\[ \theta\leftarrow\theta-\frac{g(\theta)}{h(\theta)}. \]</div>
+
+  <p>Because the logistic log-likelihood is concave in \(\theta\) and the prior is Gaussian, the posterior is log-concave: there is one optimum, and Newton converges quickly. The repo runs 12 steps, clamps to \([-4,4]\), and uses \(\mu_0=0,\sigma_0^2=4\).</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Without a prior, one success on one item is “proof” that the subject never fails, so the maximum-likelihood ability runs off to infinity. The prior says “abilities are usually within a couple of units of zero”, and pulls the estimate back. This is not a hack; it is the only way to get a finite answer from separated data. The price is a little bias, paid gladly for a lot of variance reduction.</p>
+  </div>
+
+  <figure>
+    <img src="figures/shrink.svg" alt="Prior and posterior for ability after one success">
+    <figcaption><b>One success is not infinite ability.</b> The prior keeps the estimate at 1.04 instead of running to infinity. The posterior is the prior multiplied by the likelihood, then renormalized; the MAP is its peak.</figcaption>
+  </figure>
+
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>One item, \(a=1\), \(b=0\), observed \(y=1\). Prior \(\mathcal{N}(0,4)\), start \(\theta_0=0\).</p>
+    <p>At \(\theta=0\): \(p=0.5\), \(g=1(0.5)-0=0.5\), \(h=-1(0.25)-0.25=-0.5\). Step \(= -0.5/(-0.5)=1\), so \(\theta=1\).</p>
+    <p>At \(\theta=1\): \(p=0.731\), \(g=0.269-0.25=0.019\), \(h=-0.197-0.25=-0.447\). Step \(=0.042\), so \(\theta=1.042\).</p>
+    <p>Next step: 1.0426. The MLE, with no prior, would keep going: \(\theta\to\infty\).</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>map_ability</code> in <code>src/aims_starter/adaptation.py</code> is exactly this update, vectorized over context items. The neural models never output \(\theta_s\); they output item parameters and corrections, and the analytic MAP owns the ability level. That keeps the latent variable interpretable and prevents the network from hiding the level in an unconstrained scalar.</p>
+  </div>
+</section>
+
+<section id="s14">
+  <h2 class="sec" id="s14-h"><span class="num">14</span>Amortized IRT: difficulty from content, not a lookup table</h2>
+  <p class="lede">Classical IRT stores one difficulty per item. Amortized IRT learns a function from item content to difficulty, so an unseen item gets a sensible prior instead of a blank.</p>
+
+  <p>The item network \(f_\phi\) reads the item input \(x_j\) (text embedding, metadata, interactors) and outputs the 2PL parameters:</p>
+
+  <div class="eq">\[ (\tilde a_j,\;b_j)=f_\phi(x_j),\qquad a_j=\operatorname{softplus}(\tilde a_j)+\epsilon. \]</div>
+
+  <p>The softplus keeps discrimination positive; \(\epsilon\) is a small floor for numerical stability. Ability is then fitted by the MAP of §13, and the prediction is \(\sigma(a_j(\theta_s-b_j))\). Training minimizes binary cross-entropy over observed cells of the response matrix. Gradients flow into \(f_\phi\), not into a per-item table.</p>
+
+  <h3>Why “amortized” is the important word</h3>
+  <p>Amortization means paying a one-time cost to learn an inference function, then reusing it. Here the “inference” is item-parameter prediction: instead of fitting \(b_j\) for every new item at test time, the network predicts it in one forward pass. This is what makes cold-start evaluation possible. The alternative — fit a new IRT model per benchmark — cannot score items whose outcomes were never observed.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A human test designer can guess that a long, multi-step coding task is harder than a one-line syntax question, before seeing anyone attempt either. Amortized IRT learns exactly that guess from data: item text goes in, a difficulty and a discrimination come out. The subject’s ability then calibrates the guess against the few labels you have.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Toy item network: \(b=1.2x-0.3\), \(a=\operatorname{softplus}(0.4)\). Item \(x=0.5\), so \(b=0.3\), \(a=\log(1+e^{0.4})=0.913\). Subject \(\theta=0.6\).</p>
+    <p>Logit \(=0.913(0.6-0.3)=0.274\); \(p=\sigma(0.274)=0.568\).</p>
+    <p>If the observed outcome is \(y=1\), the BCE gradient with respect to the logit is \(p-y=-0.432\). Through the item net:</p>
+    <p>\(\partial L/\partial b=a(y-p)=0.913(0.432)=0.394\), and \(\partial L/\partial w=0.394\cdot x=0.197\).</p>
+    <p>Gradient descent lowers \(w\), which lowers \(b\), which raises the predicted probability. The chain rule is doing all the work.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The item encoder reads a 1,157-dimensional vector: 384-d MiniLM item embedding, five numeric item features, 384-d subject embedding, 384-d benchmark embedding. The subject slice is <b>masked</b> on the item-parameter path, so \(a_j,b_j\) cannot become subject-conditioned. Without that mask, “item difficulty” silently becomes “difficulty for this subject”, and the IRT interpretation collapses.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Amortization does not eliminate the need for held-out <i>items</i>. If the same item appears in training and test, the network can memorize its difficulty through the embedding, and the cold-start claim is false. Split by item (and by benchmark), not by random response rows.</p>
+  </div>
+</section>
+
+<section id="s15" class="page-break">
+  <h2 class="sec" id="s15-h"><span class="num">15</span>Identifiability, conventions, and leakage</h2>
+  <p class="lede">IRT is identifiable only up to a shift and a scale, and the competition’s real risk is not math — it is information that quietly crosses the train/test boundary.</p>
+
+  <h3>The shift and scale invariances</h3>
+  <p>For any constants \(c\) and \(k>0\), the 1PL model is unchanged by</p>
+
+  <div class="eq">\[ \theta_s\mapsto \theta_s+c,\quad b_j\mapsto b_j+c, \qquad\text{or}\qquad \theta_s\mapsto k\theta_s,\quad b_j\mapsto kb_j,\quad a_j\mapsto a_j/k. \]</div>
+
+  <p>Only <i>relative</i> positions are identified. Fix a convention: \(\theta\) has mean zero and a fixed prior variance, and \(a_j>0\). The repo uses \(\theta\sim\mathcal{N}(0,4)\) and clamps to \([-4,4]\). Without a convention, two fits can look different but predict identically.</p>
+
+  <h3>Leakage is broader than “using the test labels”</h3>
+  <ul>
+    <li><b>Direct:</b> target outcomes enter the posterior, the calibration fit, or early stopping.</li>
+    <li><b>Identity:</b> a subject or benchmark embedding lets the item path memorize that task’s base rate.</li>
+    <li><b>Duplicates:</b> the same item (or a paraphrase) appears in train and test; the embedding is a fingerprint.</li>
+    <li><b>Order:</b> the acquisition order was chosen using evaluation outcomes, even if the labels themselves are legal.</li>
+    <li><b>Selection:</b> the checkpoint was chosen by its test ALC. That is leakage at the experiment level, not the code level.</li>
+  </ul>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two parameter sets for the same item:</p>
+    <p>\(\theta=1,b=0,a=1\): logit \(=1(1-0)=1\).</p>
+    <p>\(\theta=2,b=1,a=1\): logit \(=1(2-1)=1\). Same probability, different “ability” and “difficulty”.</p>
+    <p>Scale: \(a=2,\theta=0.5,b=0\) gives logit 1; \(a=1,\theta=1,b=0\) also gives logit 1. The data cannot distinguish them without a convention.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Identifiability is “can the data tell these two stories apart?”. If every prediction is identical under both, the answer is no, and any claim about the absolute value of \(\theta\) is a claim about your convention, not about the world. This is why papers standardize ability and why the repo fixes a prior instead of reporting a raw MLE.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>At 31 labels, a 3PL guessing parameter is not identified: many \((a,b,c)\) triples fit the same six or seven outcomes equally well. The repo skips 3PL for this reason. Adding parameters that the data cannot constrain does not make the model more scientific; it makes the error bars dishonest.</p>
+  </div>
+</section>
+
+<!-- ================= PART IV ================= -->
+<section class="part" id="part4">
+  <div class="part-kicker">Part IV</div>
+  <h1 class="part-title" data-part="Part IV">Adaptation with almost no labels</h1>
+  <p class="part-intro">Thirty-one labels is not a training set; it is a handful of hints. The methods that work here are the ones that know how little they know: conjugate updates, partial pooling, and calibration fitted somewhere else.</p>
+  <ul class="part-list">
+    <li>16 · The Beta-Binomial control</li>
+    <li>17 · Hierarchical shrinkage</li>
+    <li>18 · Calibration in practice</li>
+  </ul>
+</section>
+
+<section id="s16">
+  <h2 class="sec" id="s16-h"><span class="num">16</span>The Beta-Binomial control that is hard to beat</h2>
+  <p class="lede">Before any neural network, there is a one-line predictor that updates a single probability with every revealed label. It is the bar every model must clear.</p>
+
+  <p>Start with \(\pi\sim\mathrm{Beta}(2,2)\), whose mean is 0.5. After \(n\) labels with \(k\) successes, the posterior is \(\mathrm{Beta}(2+k,\,2+n-k)\), and the predictive probability for the next item is the posterior mean:</p>
+
+  <div class="eq">\[ \hat p_n=\frac{2+k}{4+n}. \]</div>
+
+  <p>This is exactly the formula in the repo. It ignores item content entirely: every evaluation item gets the same probability. That sounds naive, and it is — but it is also robust, impossible to overfit, and surprisingly strong when the item signal is weak or the benchmark is new.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>The Beta-Binomial is a thermostat. It starts at 50%, and each label nudges the setting. One success moves it to 60%; three successes in seven moves it to 45% if failures dominate. It never panics, never claims certainty, and never needs a GPU. A neural model that loses to it at \(B=0\) or \(B=1\) is not adding value where value is scarcest.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Labels arrive in order \(1,0,1,\dots\).</p>
+    <p>\(B=0\): \(\hat p=2/4=0.500\).</p>
+    <p>\(B=1\) (one success): \(\hat p=3/5=0.600\).</p>
+    <p>\(B=3\) (two successes, one failure): \(\hat p=4/7=0.571\).</p>
+    <p>\(B=7\) (three successes, four failures): \(\hat p=5/11=0.455\).</p>
+    <p>Notice that adding labels can move the prediction either way. “More data” does not guarantee a better Brier score on a single task; it guarantees a better estimate of the task’s base rate.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>The control is not a straw man to be dismissed in the related-work section. If your model’s ALC is 0.27 and the control is 0.25, the correct conclusion is that your model is worse than a constant, not that the control is “too simple to compare against”.</p>
+  </div>
+</section>
+
+<section id="s17">
+  <h2 class="sec" id="s17-h"><span class="num">17</span>Hierarchical shrinkage and empirical Bayes</h2>
+  <p class="lede">When many small groups each have a noisy estimate, the best estimate for each group is usually a compromise between its own data and the pooled data.</p>
+
+  <p>Suppose task \(g\) has \(n_g\) labels and \(k_g\) successes. A hierarchical model gives each task its own rate \(\pi_g\), but lets those rates come from a common Beta prior:</p>
+
+  <div class="eq">\[ \pi_g\sim\mathrm{Beta}(\kappa\mu,\;\kappa(1-\mu)),\qquad k_g\mid\pi_g\sim\mathrm{Binomial}(n_g,\pi_g). \]</div>
+
+  <p>The posterior mean for task \(g\) is a shrinkage estimate:</p>
+
+  <div class="eq">\[ \hat\pi_g=\frac{k_g+\kappa\mu}{n_g+\kappa}=\underbrace{\frac{n_g}{n_g+\kappa}}_{\text{trust the data}}\cdot\frac{k_g}{n_g}\;+\;\underbrace{\frac{\kappa}{n_g+\kappa}}_{\text{trust the pool}}\cdot\mu. \]</div>
+
+  <p>\(\mu\) is the pooled rate and \(\kappa\) is the prior strength in pseudo-observations. <b>Empirical Bayes</b> estimates \(\mu\) and \(\kappa\) from the training tasks instead of fixing them by hand. With \(\kappa=0\) you get separate per-task rates; with \(\kappa\to\infty\) you get one pooled rate. Partial pooling is the interesting middle.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Task A: \(1/1\). Task B: \(3/9\). Pooled rate \(\mu=4/10=0.4\). Choose \(\kappa=4\).</p>
+    <p>Separate: \(1.00\) and \(0.333\). Pooled: \(0.400\) for both.</p>
+    <p>Shrunk: A \(=(1+4\cdot0.4)/(1+4)=2.6/5=0.520\); B \(=(3+1.6)/(9+4)=4.6/13=0.354\).</p>
+    <p>Task A’s perfect record is pulled down hard because one observation is weak evidence; Task B barely moves because nine observations already pin it down. That asymmetry is the point.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>If a benchmark with three items shows 100% success, you do not believe it is literally infallible. If a benchmark with 3,000 items shows 99.9%, you do. Shrinkage encodes that instinct: small groups borrow strength; large groups stand on their own. The prior strength \(\kappa\) says how many observations a new group needs before you stop borrowing.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>AbilityPrior</code> in <code>adaptation.py</code> is a two-level model: a benchmark-level mean ability plus a subject deviation regressed on the subject embedding, with the ridge penalty chosen by leave-one-out error over a grid \(\alpha\in\{1,\dots,1000\}\). It is empirical Bayes in spirit: the amount of shrinkage is estimated, not asserted.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Estimate \(\mu\) and \(\kappa\) on training benchmarks only. If you estimate them on the evaluation tasks, you have used the test distribution to set the prior — a subtle form of leakage that is easy to miss because no individual label is touched.</p>
+  </div>
+</section>
+
+<section id="s18" class="page-break">
+  <h2 class="sec" id="s18-h"><span class="num">18</span>Post-hoc calibration in practice</h2>
+  <p class="lede">Calibration is fitted on data that looks like deployment but is not deployment: meta-calibration folds from training benchmarks, separately at each budget.</p>
+
+  <p>The repo’s <code>AnchorCalibrator</code> combines two corrections per budget \(B\):</p>
+
+  <div class="eq">\[ p'=(1-\lambda_B)\,\sigma\!\bigl(s_B z+b_B\bigr)+\lambda_B\,\hat\pi_C, \]</div>
+
+  <p>where \(z\) is the model logit, \(s_B\) and \(b_B\) are a scale and bias fitted by logistic regression, \(\hat\pi_C=(1+\sum_{i\in C}y_i)/(2+|C|)\) is the smoothed context base rate, and \(\lambda_B\in[0,1]\) is a blending weight chosen on meta-calibration data. At \(B=0\), \(\hat\pi_C=0.5\) and the anchor is uninformative; as labels arrive, it becomes a useful level correction.</p>
+
+  <p>Why per budget? The miscalibration is not constant: at \(B=0\) the model is often underconfident because it has no subject evidence; at \(B=15\) it may be overconfident because it has fitted the context too closely. One global temperature cannot fix both.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Calibration is a post-processing step, like adjusting a scale that reads two pounds heavy. It does not improve what the scale measures; it makes the number readable. Temperature fixes “too extreme / too flat”. The anchor fixes “the whole task is easier or harder than the pool”. Both are cheap, both are monotone (so ranking is preserved), and both must be fitted on data you are allowed to see.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Fitted values: \(s=0.5\), \(b=0.1\), \(\lambda=0.3\), context rate \(0.6\). Logits \(z=-1,0,1\).</p>
+    <p>\(z=1\): \(\sigma(0.6)=0.646\); \(p'=0.7(0.646)+0.3(0.6)=0.632\).</p>
+    <p>\(z=0\): \(\sigma(0.1)=0.525\); \(p'=0.7(0.525)+0.18=0.547\).</p>
+    <p>\(z=-1\): \(\sigma(-0.4)=0.401\); \(p'=0.7(0.401)+0.18=0.461\).</p>
+    <p>The spread shrank from \((0.269,0.5,0.731)\) to \((0.461,0.547,0.632)\) and the whole range was pulled toward 0.6. Ordering is unchanged.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Fitting the calibrator on the evaluation pool’s outcomes is leakage; fitting it on the same fold used to choose the model is optimistic selection. The repo fits on meta-calibration samples from training benchmarks and applies the frozen parameters to held-out tasks. Keep that boundary visible in every experiment.</p>
+  </div>
+</section>
+
+<!-- ================= PART V ================= -->
+<section class="part" id="part5">
+  <div class="part-kicker">Part V</div>
+  <h1 class="part-title" data-part="Part V">Neural Processes</h1>
+  <p class="part-intro">A Neural Process is a function that takes a set of labelled examples and returns a prediction for any new input — in one forward pass, without gradient updates. The family differs only in how much it lets the context summary remember.</p>
+  <ul class="part-list">
+    <li>19 · A distribution over functions</li>
+    <li>20 · Sets and permutation invariance</li>
+    <li>21 · CNP: one deterministic summary</li>
+    <li>22 · NP: the latent variable and ELBO</li>
+    <li>23 · ANP: attention</li>
+    <li>24 · NP-AIRT in this repo</li>
+    <li>25 · Episodic training</li>
+    <li>26 · Reading diagnostics</li>
+  </ul>
+</section>
+
+<section id="s19">
+  <h2 class="sec" id="s19-h"><span class="num">19</span>A distribution over functions, not a single function</h2>
+  <p class="lede">A Neural Process does not learn one predictor. It learns a rule for turning any small context set into a predictor, and it expresses uncertainty about what happens between the points it has seen.</p>
+
+  <p>Ordinary supervised learning fits a function \(f:x\mapsto y\) using a large training set. A Neural Process is trained on <b>tasks</b>, each of which is itself a small dataset:</p>
+
+  <div class="eq">\[ \text{task}=\bigl(C,\;T\bigr),\qquad C=\{(x_i,y_i)\}_{i=1}^{N_C},\qquad T=\{(x_j,y_j)\}_{j=1}^{N_T}. \]</div>
+
+  <p>At meta-training time it sees many tasks. At meta-test time it receives a new context \(C\) and must predict \(y_T\) for targets \(x_T\). The weights are frozen; only the conditioning changes. This is why the repo calls it <b>amortized test-time inference</b>: the adaptation is a forward pass through a set encoder, not a gradient step.</p>
+
+  <p>The Gaussian Process is the classical cousin: a GP defines a prior over functions, and conditioning on observations gives a posterior over the function values at new inputs. A Neural Process approximates that conditioning with a neural network, trading exactness for scalability and for the ability to learn from data rather than from a hand-chosen kernel.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>You see two points of a curve: \((0,0)\) and \((1,1)\). What is the value at \(x=2\)? A single-function model must answer. A distribution over functions can say “probably near 2, but it could bend”. Add ten more points and the distribution narrows. A Neural Process learns both the mean answer and how the uncertainty should shrink — that is what makes it a “process”.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Context: \((0,0)\) and \((1,1)\). Query \(x=2\).</p>
+    <p>A linear model says 2.0 with no uncertainty. A GP with a smooth kernel says about 2.0 with a standard deviation that depends on the kernel length-scale. A CNP says a number determined by its learned decoder; an NP also returns a spread over Monte Carlo samples.</p>
+    <p>Add the point \((2,0)\): the linear model is now wrong, the GP posterior bends, and the NP re-encodes the context. The prediction is a function of the <i>set</i>, not of a fixed parameter vector.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“Meta-learning” here does not mean fine-tuning at test time. If your submission performs gradient steps on the evaluation task, it is doing something else (and probably violating the stateless-call contract). The NP adapts by re-encoding, not by retraining.</p>
+  </div>
+</section>
+
+<section id="s20">
+  <h2 class="sec" id="s20-h"><span class="num">20</span>Sets, pooling, and permutation invariance</h2>
+  <p class="lede">The context has no order. A model that cares whether the labels arrived as \((1,3,7)\) or \((7,1,3)\) is learning noise.</p>
+
+  <p>Each context pair is encoded independently, \(h_i=e_\phi(x_i,y_i)\). The encodings are then combined by a <b>permutation-invariant</b> pooling operator:</p>
+
+  <div class="eq">\[ r=\operatorname{pool}\{h_1,\dots,h_{N_C}\},\qquad \operatorname{pool}\in\{\text{mean},\text{sum},\text{max},\text{attention}\}. \]</div>
+
+  <p>Mean and sum are the simplest. They are also <i>decomposable</i>: the pooled vector is a sum of per-item functions, which is the DeepSets form. This is enough to guarantee that permuting the context permutes nothing in the output. The decoder is then applied to \((x_*,r)\), and it must be permutation-<i>equivariant</i> across targets: reorder the query items and the predictions reorder with them.</p>
+
+  <h3>Masks are not an implementation detail</h3>
+  <p>Contexts have variable length. If you pad with zeros and take a plain mean, a task with 31 labels is diluted by 31 padded slots. A masked mean divides by the number of real items only:</p>
+
+  <div class="eq">\[ r=\frac{\sum_i m_i h_i}{\sum_i m_i},\qquad m_i\in\{0,1\}. \]</div>
+
+  <p>The same mask must be applied inside attention (set padded keys to \(-\infty\) before the softmax) and inside the loss (ignore padded targets).</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A set is a bag, not a list. If you empty a bag onto a table, the order you pull items out does not change what is in the bag. Pooling is the mathematical version of “what is in the bag”: a summary that is identical under reordering. Attention is a weighted bag too — the weights move with the items, but the summary does not depend on the order in which they were added.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Encodings \(h_1=1,\;h_2=2,\;h_3=6\). Mean \(=9/3=3\).</p>
+    <p>Permute to \((6,1,2)\): mean \(=9/3=3\). Same summary.</p>
+    <p>With a padded fourth slot \(h_4=0\), the plain mean becomes \(9/4=2.25\) — a different answer for the same context. The masked mean stays 3.</p>
+    <p>For attention, the weights reorder with the items but always sum to one; the weighted summary is unchanged.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Sorting the context by \(x\) before encoding makes the model order-dependent and destroys the set interpretation. So does concatenating a positional index. If a “context encoder” in a paper uses an RNN over the labels, it is not permutation-invariant by construction — it may still work, but it is a different model.</p>
+  </div>
+</section>
+
+<section id="s21">
+  <h2 class="sec" id="s21-h"><span class="num">21</span>CNP: one deterministic summary</h2>
+  <p class="lede">A Conditional Neural Process compresses the context into a single vector and decodes every target from that vector. It is fast, simple, and often underfits.</p>
+
+  <p>The architecture is three maps:</p>
+
+  <div class="eq">\[ h_i=e_\phi(x_i,y_i),\qquad r=\frac{1}{N_C}\sum_{i=1}^{N_C}h_i,\qquad p(y_*\mid x_*,C)=p_\theta\bigl(y_*\mid x_*,\,r\bigr). \]</div>
+
+  <p>Training minimizes the negative log-likelihood of target outcomes, averaged over target items and episodes. There is no latent variable and no sampling: the same context always produces the same \(r\), hence the same prediction.</p>
+
+  <svg class="diagram" viewBox="0 0 740 270" role="img" aria-label="CNP, NP and ANP architecture comparison">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#a9a293"/>
+      </marker>
+      <marker id="ar3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9771f"/>
+      </marker>
+    </defs>
+    <g font-size="11.5" fill="#14231d">
+      <!-- context -->
+      <rect x="2" y="52" width="112" height="34" rx="3" fill="#edf3ee" stroke="#9dbcaa"/>
+      <text x="14" y="73">(x₁, y₁)</text>
+      <rect x="2" y="94" width="112" height="34" rx="3" fill="#edf3ee" stroke="#9dbcaa"/>
+      <text x="14" y="115">(x₂, y₂)</text>
+      <text x="2" y="40" font-size="10" fill="#6b7873">context C</text>
+
+      <!-- encoder -->
+      <rect x="152" y="52" width="96" height="76" rx="3" fill="#f6f3e9" stroke="#c9c3b4"/>
+      <text x="164" y="84">encoder</text>
+      <text x="164" y="100" font-size="10" fill="#6b7873">hᵢ = e(xᵢ, yᵢ)</text>
+
+      <!-- pool -->
+      <rect x="286" y="60" width="118" height="60" rx="3" fill="#edf3ee" stroke="#6fa08c"/>
+      <text x="298" y="84">pool</text>
+      <text x="298" y="100" font-size="10" fill="#5d6b65">mean / attention</text>
+
+      <!-- latent -->
+      <rect x="286" y="164" width="118" height="54" rx="3" fill="#fdfcf7" stroke="#6fa08c" stroke-dasharray="4 3"/>
+      <text x="298" y="186">q(z | C)</text>
+      <text x="298" y="202" font-size="10" fill="#5d6b65">NP only: sample z</text>
+
+      <!-- decoder -->
+      <rect x="452" y="76" width="118" height="84" rx="3" fill="#f6f3e9" stroke="#c9c3b4"/>
+      <text x="464" y="108">decoder</text>
+      <text x="464" y="124" font-size="10" fill="#6b7873">IRT head + correction</text>
+
+      <!-- target -->
+      <rect x="452" y="196" width="118" height="40" rx="3" fill="#f8f0e1" stroke="#d0a568"/>
+      <text x="478" y="221">target x*</text>
+
+      <!-- output -->
+      <rect x="616" y="90" width="116" height="56" rx="3" fill="#f8f0e1" stroke="#d0a568"/>
+      <text x="628" y="114">p(y* | x*, C)</text>
+      <text x="628" y="130" font-size="10" fill="#6d5a3d">probability</text>
+
+      <!-- arrows -->
+      <line x1="114" y1="69" x2="149" y2="76" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="114" y1="111" x2="149" y2="104" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="248" y1="90" x2="283" y2="90" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="404" y1="90" x2="449" y2="112" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="404" y1="84" x2="404" y2="161" stroke="#6fa08c" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      <line x1="404" y1="191" x2="449" y2="140" stroke="#6fa08c" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      <line x1="511" y1="196" x2="511" y2="163" stroke="#b9771f" marker-end="url(#ar3)"/>
+      <line x1="570" y1="118" x2="613" y2="118" stroke="#a9a293" marker-end="url(#ar2)"/>
+
+      <text x="2" y="252" font-size="10" fill="#6b7873">CNP: solid path only.</text>
+      <text x="286" y="252" font-size="10" fill="#6b7873">NP: dashed z path added.</text>
+      <text x="452" y="252" font-size="10" fill="#6b7873">ANP: pool is target-specific attention r*.</text>
+    </g>
+  </svg>
+  <div class="footnote" style="margin-top:-2pt;margin-bottom:10pt;">The same skeleton for all three models. The differences are the dashed latent path (NP) and the target-specific attention summary (ANP).</div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A CNP is a committee that submits one written summary. Every query is answered from that summary. If the context contains two different regimes — easy items and hard items — the mean summary blurs them together, and the CNP cannot say “this target looks like the easy ones”. That blurring is the underfitting that NP and ANP try to fix.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Encodings \(h_1=(1,0)\), \(h_2=(0,1)\); mean \(r=(0.5,0.5)\).</p>
+    <p>Toy decoder logit \(=r_1-r_2+0.5x_*\). For \(x_*=1\): logit \(=0.5-0.5+0.5=0.5\), so \(p=\sigma(0.5)=0.622\).</p>
+    <p>For \(x_*=0\): logit \(=0\), \(p=0.5\). The only thing that changes is the target input; the context summary is identical for every query.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>CNP-AIRT keeps the deterministic context path but replaces the generic decoder with the IRT anchor: \(a_j(\theta_s-b_j)\), plus a correction \(\Delta\theta(C)\). The ablation ladder asks whether that context encoder earns its keep beyond an item head plus MAP ability — a much sharper question than “does the CNP beat the baseline?”.</p>
+  </div>
+</section>
+
+<section id="s22">
+  <h2 class="sec" id="s22-h"><span class="num">22</span>NP: the latent variable and the ELBO</h2>
+  <p class="lede">A latent Neural Process adds a global random variable \(z\) that must explain the context. Training pushes the context-only posterior toward the target-aware posterior, and the KL term is what makes the whole thing a variational bound.</p>
+
+  <p>A CNP assumes the context summary is sufficient. An NP assumes there is a global task state \(z\) — a “mood” that changes how the subject behaves across all items — and that the context is noisy evidence about it:</p>
+
+  <div class="eq">\[ z\sim p(z)=\mathcal{N}(0,I),\qquad y_*\mid x_*,z\sim p_\theta(y_*\mid x_*,z). \]</div>
+
+  <p>The posterior \(p(z\mid C)\) is intractable, so we approximate it with a network \(q_\phi(z\mid C)=\mathcal{N}(\mu_\phi(C),\operatorname{diag}\sigma_\phi^2(C))\). The log marginal likelihood is bounded below by the ELBO:</p>
+
+  <div class="eq">\[ \log p(y_T\mid x_T,C)\;\ge\;\mathbb{E}_{q_\phi(z\mid C)}\bigl[\log p_\theta(y_T\mid x_T,z)\bigr]-\mathrm{KL}\bigl(q_\phi(z\mid C)\,\|\,p(z)\bigr). \]</div>
+
+  <p>At training time the targets \(y_T\) are available, so we can use a sharper posterior \(q_\phi(z\mid T)\). The standard NP objective is</p>
+
+  <div class="eq">\[ \mathcal{L}=\mathbb{E}_{q_\phi(z\mid T)}\bigl[-\log p_\theta(y_T\mid x_T,z)\bigr]+\frac{1}{N_T}\,\mathrm{KL}\bigl(q_\phi(z\mid T)\,\|\,q_\phi(z\mid C)\bigr). \]</div>
+
+  <p>The KL term forces the context-only posterior to match the target-aware one. At inference only \(C\) exists, so \(q_\phi(z\mid C)\) is used. Averaging over \(L\) samples of \(z\) gives the predictive probability; the spread across samples is the model’s epistemic uncertainty.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Think of \(z\) as the “subject’s mood today”: a single hidden state that shifts the difficulty of every item in the same direction. The context is a few observed answers; the posterior is your belief about the mood. The KL term is a consistency requirement: whatever mood explains the context should also explain the targets. Without it, the model could use a different mood for every target and learn nothing general.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>KL between \(\mathcal{N}(1,0.25)\) and \(\mathcal{N}(0,1)\):</p>
+    <p>\(\log(1/0.5)=0.693\); \((0.25+1)/2=0.625\); minus \(0.5\) gives \(0.818\) nats.</p>
+    <p>Two target items with predicted probabilities \(0.8\) and \(0.3\), outcomes \(1\) and \(0\): NLL \(=-[\log0.8+\log0.7]/2=(0.223+0.357)/2=0.290\).</p>
+    <p>Total loss \(=0.290+0.818/2=0.699\). The KL is divided by \(N_T\), so it does not dominate when there are many targets.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The v1 objective used a prior-KL with weight \(1/|T|\) and an “escape hatch”; the latent collapsed. The v2 objective is the standard (A)NP objective above with weight 1 on the dual likelihood, and disjoint \(C,T\). Even so, the measured \(\mathrm{KL}(q_T\|q_C)\approx2\times10^{-7}\) and effective latent rank 1 when \(z\) enters only through a scalar \(\theta\). That is the repo’s central negative result: a global latent is redundant when the analytic MAP already owns the only global degree of freedom.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>A KL that goes to zero is not necessarily good news. It can mean the posterior collapsed to the prior and \(z\) is being ignored. Check the KL, the effective rank of the Jacobian, and whether predictions change when \(z\) is resampled. If none of them move, you have an expensive CNP.</p>
+  </div>
+</section>
+
+<section id="s23">
+  <h2 class="sec" id="s23-h"><span class="num">23</span>ANP: attention makes the summary target-specific</h2>
+  <p class="lede">Instead of one summary for all queries, an Attentive Neural Process lets each target look at the context items that resemble it and build its own summary.</p>
+
+  <p>Each context item provides a key \(k_i\) and a value \(v_i\); each target provides a query \(q_*\). The attention weights and the target-specific representation are</p>
+
+  <div class="eq">\[ \alpha_{*i}=\frac{\exp\bigl(q_*^\top k_i/\sqrt d\bigr)}{\sum_{i'}\exp\bigl(q_*^\top k_{i'}/\sqrt d\bigr)},\qquad r_*=\sum_{i\in C}\alpha_{*i}\,v_i. \]</div>
+
+  <p>The \(\sqrt d\) keeps the logits from exploding as the dimension grows. With multiple heads, several such attention maps run in parallel and are concatenated; with self-attention, context items also attend to each other before the cross-attention, which lets the model represent interactions among items.</p>
+
+  <figure>
+    <img src="figures/attention.svg" alt="Softmax attention weights over three context items">
+    <figcaption><b>Softmax attention is a convex combination.</b> The weights are positive and sum to one, so \(r^*\) is a weighted average of context values. A peaked distribution selects one item; a flat one averages the whole context.</figcaption>
+  </figure>
+
+  <h3>What attention buys, and what it costs</h3>
+  <ul>
+    <li><b>Buys:</b> target-specific summaries. A hard target can attend to hard context items instead of the global mean.</li>
+    <li><b>Buys:</b> permutation equivariance for free — the sum over context items does not depend on their order.</li>
+    <li><b>Costs:</b> \(O(N_C N_T)\) scores, plus a second path to train. On 31 context items this is trivial; on 10,000 it is not.</li>
+    <li><b>Costs:</b> attention weights are not explanations. A high weight means “useful for this prediction”, not “caused this prediction”.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A CNP asks the whole class for one answer. An ANP lets each student ask the classmates who have done similar problems. The query is the target, the keys are the context items, and the values are what those items know. Softmax decides how much of each classmate’s answer to use. The result is still a set operation, but a much more flexible one.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Scores \(q^\top k_i/\sqrt d=(0,1,2)\). Softmax \(=(0.090,0.245,0.665)\). Values \((1,3,2)\).</p>
+    <p>\(r^*=0.090(1)+0.245(3)+0.665(2)=0.090+0.735+1.330=2.155\).</p>
+    <p>If the target were identical to context item 3, the score gap would grow and the weight would approach 1; \(r^*\) would approach value 2. Attention can interpolate between “listen to everyone” and “listen to one”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Padding is the classic silent bug. If padded context slots are not masked to \(-\infty\) before the softmax, every target attends to zeros and the weights no longer sum over real items. The model still trains, which is what makes it dangerous.</p>
+  </div>
+</section>
+
+<section id="s24">
+  <h2 class="sec" id="s24-h"><span class="num">24</span>NP-AIRT in this repo: where the anchor lives</h2>
+  <p class="lede">The repo’s models are Neural Processes with an IRT decoder: the network learns item parameters and a correction, while a MAP ability sets the level.</p>
+
+  <p>The decoder combines the psychometric anchor with a learned residual:</p>
+
+  <div class="eq">\[ \theta_s=\operatorname{MAP}(C),\qquad \ell_{sj}=a_j(\theta_s-b_j)+\delta_\omega(x_j,z,r_j^*),\qquad p_{sj}=\sigma(\ell_{sj}). \]</div>
+
+  <p>Three design choices matter more than the architecture:</p>
+  <ol>
+    <li><b>\(\theta_s\) is not a network output.</b> It is the analytic MAP of §13. The network owns the item side and the correction; the anchor owns the level. This prevents the latent from collapsing into a scalar and keeps ability comparable across tasks.</li>
+    <li><b>The residual is bounded and mean-centered across targets.</b> \(\delta=\delta_{\max}\tanh(\cdot)\), centered so it can reorder items without changing the overall level. Without centering, “correction” and “ability” become the same knob.</li>
+    <li><b>A budget-0 gate.</b> At \(B=0\), \(\Delta\theta=0\) and \(\delta=0\), so every adaptive variant returns the identical AIRT prediction. Otherwise the empty-context prior would silently define a different zero-budget model.</li>
+  </ol>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Item \(a=1.2\), \(b=0.2\); subject \(\theta=0.5\); correction \(\delta=0.4\).</p>
+    <p>Anchor logit \(=1.2(0.5-0.2)=0.36\), so \(p=\sigma(0.36)=0.589\).</p>
+    <p>With the correction: logit \(=0.36+0.4=0.76\), \(p=\sigma(0.76)=0.681\).</p>
+    <p>At \(B=0\) the gate sets \(\delta=0\), so the answer is 0.589. That is the number the model must reproduce with an empty context, by construction.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>src/aims_starter/faithful_np.py</code> implements NP, ANP, and stacked-MHSA-ANP variants with an IRT-anchored decoder. <code>modal_cnp_ladder.py</code> runs the encoder-contribution ladder (frozen 1PL, frozen 2PL, MAP, CNP, minus-correction control). The naming is deliberate: CNP-AIRT is deterministic; NP-AIRT is latent; ANP-AIRT is attentive.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If the residual is unbounded or uncentered, it can absorb the subject’s ability and the item’s difficulty at the same time. The model still fits, but “ability” is no longer identified, and the IRT story in the paper becomes false. Bound it, center it, and ablate the gate.</p>
+  </div>
+</section>
+
+<section id="s25">
+  <h2 class="sec" id="s25-h"><span class="num">25</span>Training an episodic model without fooling yourself</h2>
+  <p class="lede">The training loop is where the competition’s constraints become code: disjoint context and targets, variable context sizes, and a loss that matches the deployment query.</p>
+
+  <p>One episode samples a task, a context size from the official budget grid, a context subset, and a disjoint target subset. The loss is the NP objective of §22, averaged over target items. Three details decide whether the model generalizes:</p>
+
+  <ul>
+    <li><b>Disjoint \(C\) and \(T\).</b> If a target appears in the context, the model can copy the label and the training NLL becomes meaningless. The corrected repo episodes use disjoint sets; the older image-style \(C\subseteq T\) convention was a bug for this task.</li>
+    <li><b>Context-size distribution.</b> Train on sizes drawn from \(\{0,1,3,7,15,31\}\) so the model sees the same sparsity it will face. Training only at 31 and testing at 1 is a different task.</li>
+    <li><b>Masking.</b> Variable-length contexts and targets need masks in the encoder, the attention, and the loss. A padded target must not contribute a gradient.</li>
+  </ul>
+
+  <p>Optimization is ordinary: Adam, gradient clipping, deterministic seeds, early stopping on held-out <i>benchmarks</i>. What is not ordinary is the evaluation unit — a held-out benchmark, not a held-out row.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Episodic training is a fire drill. Each episode is a miniature of the real job: here are a few labelled items, now predict these unseen ones. If the drill always gives you 31 labels and the real job gives you one, you have trained for the wrong job. If the drill lets you peek at the answer sheet, you have trained for a job that does not exist.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two targets, predicted \(p=(0.8,0.3)\), outcomes \(y=(1,0)\).</p>
+    <p>NLL \(=-[\log0.8+\log0.7]/2=0.290\).</p>
+    <p>KL \(=0.818\), \(N_T=2\), so the KL term is \(0.409\). Total \(=0.699\).</p>
+    <p>If the KL were not divided by \(N_T\), it would contribute 0.818 and dominate the likelihood. The \(1/N_T\) convention keeps the two terms on a comparable scale as the target set grows.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Do not early-stop on the test benchmark, and do not choose the checkpoint by Codabench score and then report that score as evidence. The public leaderboard is a test set; using it for model selection turns it into a validation set and inflates the reported number.</p>
+  </div>
+</section>
+
+<section id="s26">
+  <h2 class="sec" id="s26-h"><span class="num">26</span>Reading the diagnostics: signal, scale, or noise?</h2>
+  <p class="lede">Most “the model is broken” moments are one of three things: no signal, wrong scale, or too little data to tell. The metrics tell them apart if you read them together.</p>
+
+  <table class="striped">
+    <thead><tr><th style="width:34%">Pattern</th><th style="width:36%">Likely cause</th><th>First fix</th></tr></thead>
+    <tbody>
+      <tr><td>Brier \(\approx0.25\), AUC \(\approx0.5\)</td><td>no item signal; predictions near the base rate</td><td>check features, leakage-free split, and the item encoder</td></tr>
+      <tr><td>AUC \(0.63\), Brier \(0.27\)</td><td>ranking works, probability scale is wrong</td><td>temperature / anchor calibration; inspect mean \(p\) vs base rate</td></tr>
+      <tr><td>ECE high, AUC fine</td><td>miscalibration only</td><td>per-budget calibration; do not touch the architecture</td></tr>
+      <tr><td>\(\mathrm{KL}\approx0\), rank 1</td><td>latent collapsed or redundant</td><td>remove \(z\); test a deterministic CNP</td></tr>
+      <tr><td>Train NLL falls, val Brier rises</td><td>overfitting or distribution shift</td><td>benchmark-held-out validation; stronger regularization</td></tr>
+      <tr><td>Bump at \(B=1\), recovers by \(B=7\)</td><td>overreaction to one label</td><td>shrinkage / prior strength; check the update rule</td></tr>
+      <tr><td>Seed spread \(\gg\) model gap</td><td>underpowered comparison</td><td>more seeds, paired tasks, report intervals</td></tr>
+    </tbody>
+  </table>
+
+  <p>Two quantities are especially useful and often skipped. The <b>mean predicted probability</b> should be close to the observed base rate on a held-out task; a gap is a level error, which calibration can fix. The <b>effective rank</b> of the latent Jacobian tells you whether \(z\) is doing anything at all: rank 1 means the latent is a scalar in disguise.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>A model has AUC 0.63, Brier 0.27, mean prediction 0.72, base rate 0.50.</p>
+    <p>It ranks better than chance but predicts 22 points too high. On 100 balanced items, the Brier penalty from level alone is roughly \((0.72-0.5)^2=0.048\).</p>
+    <p>Apply a bias correction that maps the mean to 0.50 (or fit a temperature on meta-calibration data): Brier can drop toward 0.22 without changing AUC at all. The signal was there; the scale was not.</p>
+    <p><b>Read this:</b> never conclude “the model has no signal” from Brier alone. Check AUC and the mean prediction first.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Separate the two questions. <i>Can the model tell items apart?</i> That is AUC / resolution. <i>Does it say the right number?</i> That is calibration / reliability. Brier is the product of both, so a bad Brier score is ambiguous until you look at the pair. Debugging in the wrong order wastes days.</p>
+  </div>
+</section>
+
+<!-- ================= PART VI ================= -->
+<section class="part" id="part6">
+  <div class="part-kicker">Part VI</div>
+  <h1 class="part-title" data-part="Part VI">The competition playbook</h1>
+  <p class="part-intro">A ladder tells you what to build next. An ablation tells you whether it worked. A checklist tells you why the leaderboard disagrees. And a cram sheet gets you through the meeting.</p>
+  <ul class="part-list">
+    <li>27 · The model ladder</li>
+    <li>28 · Ablations that survive review</li>
+    <li>29 · Failure-mode checklist</li>
+    <li>30 · Cram sheet</li>
+  </ul>
+</section>
+
+<section id="s27">
+  <h2 class="sec" id="s27-h"><span class="num">27</span>The model ladder: what each rung actually tests</h2>
+  <p class="lede">Every added component must answer a question the previous rung could not. If it cannot beat the simpler control, it is not a contribution.</p>
+
+  <table class="compact striped">
+    <thead><tr><th style="width:22%">Rung</th><th style="width:34%">What it adds</th><th>Question it answers</th></tr></thead>
+    <tbody>
+      <tr><td><b>Constant 0.5</b></td><td>nothing</td><td>Is the model better than admitting ignorance? (Brier 0.25)</td></tr>
+      <tr><td><b>Beta-Binomial</b></td><td>one online rate</td><td>Can a conjugate update with no item content beat the constant?</td></tr>
+      <tr><td><b>1PL / 2PL</b></td><td>per-item difficulty (± discrimination)</td><td>Is there item structure worth modeling?</td></tr>
+      <tr><td><b>Amortized IRT</b></td><td>\(f_\phi(x_j)\mapsto(a_j,b_j)\)</td><td>Can content predict difficulty for unseen items?</td></tr>
+      <tr><td><b>Online-AIRT</b></td><td>MAP \(\theta\) from acquired labels</td><td>Is a scalar Bayesian update enough?</td></tr>
+      <tr><td><b>CNP-AIRT</b></td><td>deterministic context encoder + correction</td><td>Does learned global conditioning beat the analytic update?</td></tr>
+      <tr><td><b>NP-AIRT</b></td><td>global latent \(z\)</td><td>Does a stochastic task state add anything?</td></tr>
+      <tr><td><b>ANP-AIRT</b></td><td>target-specific attention \(r^*\)</td><td>Does item-to-item relevance help beyond a global summary?</td></tr>
+      <tr><td><b>Stacked ANP</b></td><td>self-attention over context</td><td>Do context–context interactions help?</td></tr>
+      <tr><td><b>RAA-IRT</b></td><td>explicit relational features</td><td>Is a gain genuinely relational, or just more parameters?</td></tr>
+      <tr><td><b>Shuffled relations</b></td><td>negative control</td><td>Does destroying the relation structure remove the gain?</td></tr>
+    </tbody>
+  </table>
+
+  <p>The ladder is cumulative for a reason. If ANP-AIRT beats CNP-AIRT but NP-AIRT does not, the gain is attention, not the latent. If RAA-IRT beats ANP-AIRT but the shuffled-relation control does too, the gain is capacity, not relations.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A ladder is a sequence of controlled comparisons, not a wish list. Each rung isolates one degree of freedom: item content, then subject adaptation, then a global latent, then target-specific attention. If you add two rungs at once and the score improves, you have learned that <i>something</i> helped — which is not a scientific claim.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Model A ALC 0.224, Model B ALC 0.219, difference 0.005. Seed spread across three seeds: \(\pm0.006\).</p>
+    <p>Paired per-task differences: mean \(-0.005\), \(\mathrm{SE}=0.004\). A 95% interval is roughly \([-0.013,0.003]\) — it crosses zero.</p>
+    <p><b>Decision:</b> do not claim B is better. Either run more seeds/tasks or report the comparison as inconclusive. A 0.005 gain with 0.006 noise is not a result.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The named ladder is Online-AIRT → CNP-AIRT → NP-AIRT → ANP-AIRT → stacked ANP → per-item latent correction → hybrid anchor. The negative controls are a correction-free CNP item head, a latent with \(d_z=1\), shuffled acquisition orders, and shuffled relations. They are part of the argument, not an appendix.</p>
+  </div>
+</section>
+
+<section id="s28">
+  <h2 class="sec" id="s28-h"><span class="num">28</span>Ablations that survive review</h2>
+  <p class="lede">An ablation is an experiment, not a victory lap. Freeze everything you are not testing, change one thing, and decide the rule before you see the numbers.</p>
+
+  <p>The repo’s binding protocol is a good template:</p>
+  <ul>
+    <li><b>Fixed task grid.</b> 104 validation tasks, with eligible subject–benchmark pairs defined in advance.</li>
+    <li><b>Frozen acquisition orders.</b> Ten fixed candidate streams, one seed for the build, so seeds cannot disagree on the labels.</li>
+    <li><b>Nested budgets.</b> The budget-3 context contains the budget-1 label, and so on.</li>
+    <li><b>Out-of-fold calibration.</b> Five folds; calibrator parameters for a task never see that task’s outcomes.</li>
+    <li><b>One test read.</b> The test fold is opened once, for the selected model and the baseline, after selection is complete.</li>
+  </ul>
+
+  <p>Report paired per-task differences, not just two means. Report every seed, not the best one. Report benchmark-level failures, runtime, and parameter count — a gain that costs 100× compute is a different result from a free one.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Question: does attention help beyond the global summary?</p>
+    <p>Design: same AIRT base, same episodes, same budgets, same calibration folds, same seeds. Arm A replaces \(r^*\) with the mean-pooled \(r\); Arm B uses attention. Everything else is identical.</p>
+    <p>Metric: paired ALC difference per task, 10 frozen orders, report mean, 95% interval, and the fraction of tasks improved.</p>
+    <p>Decision rule (written first): claim a gain only if the interval excludes zero and the gain survives the shuffled-relation control. Otherwise report “no detectable difference”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If each arm gets its own hyperparameter search, you are comparing tuning budgets, not architectures. Fix the budget, or tune on a nested split and report the search cost.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>docs/ablation-protocol.md</code> is the contract; <code>docs/uniform-audit.md</code> checks that the code actually follows it. The audit exists because an ablation protocol that is only described, not enforced, drifts.</p>
+  </div>
+</section>
+
+<section id="s29">
+  <h2 class="sec" id="s29-h"><span class="num">29</span>Failure-mode checklist</h2>
+  <p class="lede">When the offline number and the leaderboard disagree, the cause is almost always on this list.</p>
+
+  <div class="two-col small">
+    <p><b>1 · Target leakage.</b> Do evaluation outcomes enter any fit, calibration, early stop, or order choice? Check the call graph, not just the model.</p>
+    <p><b>2 · Subject identity in the item path.</b> Are subject embeddings masked from \(a_j,b_j\)? If not, “difficulty” is subject-specific.</p>
+    <p><b>3 · Duplicate items.</b> Do paraphrases or repeated trials cross the train/test split? Group by item and benchmark.</p>
+    <p><b>4 · Non-nested budgets.</b> Does budget 7 contain the labels from 1 and 3? If not, the curve is not a learning curve.</p>
+    <p><b>5 · Micro vs macro.</b> Are you averaging items when the leaderboard averages tasks? See §11.</p>
+    <p><b>6 · Calibration on test.</b> Was the calibrator fitted on the evaluation tasks? It must be fitted elsewhere.</p>
+    <p><b>7 · AUC-only tuning.</b> Did you select a checkpoint by AUC and then report Brier? Ranking and scale are different.</p>
+    <p><b>8 · Seed cherry-picking.</b> Is the reported seed the best of several? Report all seeds and the spread.</p>
+    <p><b>9 · Budget-0 mismatch.</b> Does the model at \(B=0\) reproduce the frozen anchor? The gate should force it.</p>
+    <p><b>10 · Padding bugs.</b> Are padded context slots masked in the mean, the softmax, and the loss? Check a task with \(B=1\).</p>
+    <p><b>11 · Dead softmax.</b> Are attention logits saturated or NaN? Inspect weights and gradients.</p>
+    <p><b>12 · KL collapse.</b> Is \(z\) ignored? Resample \(z\) and see whether predictions move.</p>
+    <p><b>13 · Statelessness.</b> Does the predictor rebuild from the full labelled list each call? Workers may restart between budgets.</p>
+    <p><b>14 · Probability clipping.</b> Are 0 and 1 replaced by epsilon before the log? Otherwise one confident mistake produces infinity.</p>
+    <p><b>15 · Benchmark shift.</b> Is the test benchmark unlike training? Report per-benchmark failures, not one average.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Offline 0.18 vs leaderboard 0.31: too large for seed noise. Check calibration first (mean 0.7 vs base 0.4 means wrong scale), then the split (duplicates, subject identity, calibration on evaluation).</p>
+  </div>
+
+</section>
+
+<section id="s30" class="page-break">
+  <h2 class="sec" id="s30-h" style="border-top:none;padding-top:0;margin-top:2pt;"><span class="num">30</span>Cram sheet</h2>
+  <p class="lede">Everything on one page, for the ten minutes before the meeting.</p>
+
+  <h3>Formulas</h3>
+  <div class="eq left">\[
+  \begin{aligned}
+  &\text{logit: } z=\log\frac{p}{1-p}, && p=\sigma(z)=\frac{1}{1+e^{-z}},\qquad \sigma'(z)=\sigma(z)(1-\sigma(z))\\[2pt]
+  &\text{Bernoulli NLL: } -\frac1n\sum_i\bigl[y_i\log p_i+(1-y_i)\log(1-p_i)\bigr]\\[2pt]
+  &\text{Beta--Bernoulli: } \pi\sim\mathrm{Beta}(\alpha,\beta),\;\; \pi\mid y\sim\mathrm{Beta}(\alpha+k,\;\beta+n-k)\\[2pt]
+  &\text{2PL: } p_{sj}=\sigma\bigl(a_j(\theta_s-b_j)\bigr),\qquad \text{3PL: } c_j+(1-c_j)\sigma\bigl(a_j(\theta_s-b_j)\bigr)\\[2pt]
+  &\text{MAP ability: } g=\sum_i a_i(y_i-p_i)-\frac{\theta-\mu_0}{\sigma_0^2},\quad h=-\sum_i a_i^2p_i(1-p_i)-\frac{1}{\sigma_0^2}\\[2pt]
+  &\text{Brier: } \mathrm{BS}=\frac1n\sum_i(p_i-y_i)^2,\qquad \mathbb{E}[(p-Y)^2]=(p-\pi)^2+\pi(1-\pi)\\[2pt]
+  &\text{ALC: } 0.1B_0+0.2B_1+0.2B_3+0.2B_7+0.2B_{15}+0.1B_{31}\\[2pt]
+  &\text{ECE: } \sum_k\frac{n_k}{n}\lvert\bar p_k-\bar y_k\rvert,\qquad \text{AUC}=P(s_+>s_-)+\tfrac12P(s_+=s_-)\\[2pt]
+  &\text{ELBO: } \mathbb{E}_{q(z\mid C)}\log p(y_T\mid z)-\mathrm{KL}\bigl(q(z\mid C)\,\|\,p(z)\bigr)\\[2pt]
+  &\text{Gaussian KL: } \log\frac{\sigma_2}{\sigma_1}+\frac{\sigma_1^2+(\mu_1-\mu_2)^2}{2\sigma_2^2}-\frac12\\[2pt]
+  &\text{Attention: } \alpha_i=\frac{\exp(q^\top k_i/\sqrt d)}{\sum_{i'}\exp(q^\top k_{i'}/\sqrt d)},\qquad r^*=\sum_i\alpha_iv_i
+  \end{aligned}
+  \]</div>
+
+  <h3>Numbers to remember</h3>
+  <table class="compact striped">
+    <tbody>
+      <tr><td style="width:52%">Brier of a constant 0.5</td><td><b>0.25</b> — the “knows nothing” bar</td></tr>
+      <tr><td>Budgets and weights</td><td>0, 1, 3, 7, 15, 31; 0.1, 0.2, 0.2, 0.2, 0.2, 0.1</td></tr>
+      <tr><td>Repo ability prior</td><td>\(\mathcal{N}(0,4)\), clamped \(\pm4\), 12 Newton steps</td></tr>
+      <tr><td>Repo Beta-Binomial</td><td>\(\mathrm{Beta}(2,2)\), \(\hat p=(2+k)/(4+n)\)</td></tr>
+      <tr><td>Entropy at \(p=0.5\)</td><td>0.693 nats (1 bit)</td></tr>
+      <tr><td>Logit landmarks</td><td>0 → 0.50; 1 → 0.73; 2 → 0.88; 4 → 0.98</td></tr>
+      <tr><td>Odds multiplier</td><td>+1 logit multiplies odds by \(e\approx2.72\)</td></tr>
+      <tr><td>90% interval width</td><td>\(\approx3.29\) standard deviations</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Diagnosis in one line each</h3>
+  <ul class="tight small">
+    <li><b>Brier 0.25, AUC 0.5:</b> no signal. Check features and leakage.</li>
+    <li><b>AUC high, Brier bad:</b> wrong scale. Calibrate; do not retrain.</li>
+    <li><b>ECE high, AUC fine:</b> miscalibrated only. Temperature or anchor.</li>
+    <li><b>KL ≈ 0, rank 1:</b> latent redundant. Use a CNP or reparameterize.</li>
+    <li><b>Validation great, test bad:</b> leakage or benchmark shift. Check the split first.</li>
+    <li><b>Bump at B = 1:</b> overreaction. Increase shrinkage.</li>
+  </ul>
+
+  <h3>Ten questions</h3>
+  <ol class="tight small">
+    <li>Why is 0.25 the Brier baseline? <span class="muted">A constant 0.5 gives \((0.5)^2\) on every item.</span></li>
+    <li>Why can AUC rise while Brier falls? <span class="muted">AUC is rank-only; Brier also cares about scale.</span></li>
+    <li>What does a prior do at \(B=1\)? <span class="muted">Prevents infinite ability and shrinks the update.</span></li>
+    <li>Why divide KL by \(N_T\)? <span class="muted">Keeps it comparable to the per-target likelihood as targets grow.</span></li>
+    <li>What makes a CNP permutation-invariant? <span class="muted">Per-item encoding plus a symmetric pool.</span></li>
+    <li>What does ANP add? <span class="muted">A target-specific context summary via attention.</span></li>
+    <li>Why is 3PL skipped? <span class="muted">Guessing is not identifiable from 31 labels and has no mechanism here.</span></li>
+    <li>Why is a paired test better? <span class="muted">Task difficulty cancels; the comparison is more precise.</span></li>
+    <li>Why macro-average? <span class="muted">The leaderboard weights subject–benchmark tasks equally.</span></li>
+    <li>Why freeze the acquisition order? <span class="muted">To separate predictor quality from label-stream luck.</span></li>
+  </ol>
+
+  <div class="box plain" style="margin-top:12pt;">
+    <span class="tag">The one sentence</span>
+    <p>Predict a probability for every hidden outcome, use content for the cold start, use a few labels to update a low-dimensional state, and never let the evaluation outcomes touch the fit.</p>
+  </div>
+</section>
+
+<!-- ================= APPENDIX ================= -->
+<section class="part" id="appendix">
+  <div class="part-kicker">Appendix</div>
+  <h1 class="part-title" data-part="Appendix">Glossary and map</h1>
+  <p class="part-intro">The vocabulary, the files, and the papers — in the order you are likely to need them.</p>
+  <ul class="part-list">
+    <li>A · Glossary</li>
+    <li>B · Where things live</li>
+    <li>C · Reading list</li>
+  </ul>
+</section>
+
+<section id="glossary">
+  <h2 class="sec" id="glossary-h"><span class="num">A</span>Glossary</h2>
+  <p class="lede">The vocabulary of the competition, in the order it usually bites.</p>
+  <table class="compact striped">
+    <tbody>
+      <tr><td style="width:27%"><b>Acquisition pool</b></td><td>items whose outcomes may be revealed; disjoint from the scored evaluation pool.</td></tr>
+      <tr><td><b>ALC</b></td><td>area under the Brier learning curve; here a fixed weighted average over six budgets.</td></tr>
+      <tr><td><b>Amortized inference</b></td><td>learning a network that predicts the result of an inference step in one forward pass.</td></tr>
+      <tr><td><b>ANP</b></td><td>Attentive Neural Process; uses cross-attention to build a target-specific summary.</td></tr>
+      <tr><td><b>AUC</b></td><td>probability that a random positive is ranked above a random negative; rank-only.</td></tr>
+      <tr><td><b>Beta-Binomial</b></td><td>conjugate model for a binary rate with a Beta prior; the repo’s control predictor.</td></tr>
+      <tr><td><b>Brier score</b></td><td>mean squared error of probabilities; strictly proper; lower is better.</td></tr>
+      <tr><td><b>Calibration</b></td><td>agreement between predicted probabilities and observed frequencies.</td></tr>
+      <tr><td><b>CNP</b></td><td>Conditional Neural Process; deterministic context summary, no global latent.</td></tr>
+      <tr><td><b>Context \(C\)</b></td><td>the labelled items revealed so far; the conditioning set.</td></tr>
+      <tr><td><b>Discrimination \(a_j\)</b></td><td>steepness of an item’s characteristic curve; how sharply it separates abilities.</td></tr>
+      <tr><td><b>Difficulty \(b_j\)</b></td><td>the ability level at which success probability is 0.5 (2PL).</td></tr>
+      <tr><td><b>ECE</b></td><td>expected calibration error over probability bins; diagnostic, not proper.</td></tr>
+      <tr><td><b>ELBO</b></td><td>evidence lower bound; the variational objective used to train latent NPs.</td></tr>
+      <tr><td><b>Episode</b></td><td>one meta-training task: a context set plus target set drawn from a task.</td></tr>
+      <tr><td><b>Evaluation pool</b></td><td>items on which predictions are scored; outcomes hidden.</td></tr>
+      <tr><td><b>Identifiability</b></td><td>whether the data can distinguish parameter values that predict identically.</td></tr>
+      <tr><td><b>IRT</b></td><td>item response theory; models binary outcomes from ability and item parameters.</td></tr>
+      <tr><td><b>KL divergence</b></td><td>non-negative, asymmetric cost of using \(q\) when the truth is \(p\), in nats.</td></tr>
+      <tr><td><b>Logit</b></td><td>\(\log(p/(1-p))\); the linear scale of the model.</td></tr>
+      <tr><td><b>MAP</b></td><td>maximum a posteriori; the parameter value maximizing posterior density.</td></tr>
+      <tr><td><b>Meta-learning</b></td><td>learning across tasks so that a new task can be handled from a small context.</td></tr>
+      <tr><td><b>Nats</b></td><td>unit of log-probability; 1 nat = 1.4427 bits.</td></tr>
+      <tr><td><b>NP</b></td><td>Neural Process; a CNP with a global latent variable \(z\).</td></tr>
+      <tr><td><b>Permutation invariance</b></td><td>output unchanged when the input set is reordered.</td></tr>
+      <tr><td><b>Proper scoring rule</b></td><td>a score whose expectation is optimized by reporting the true probability.</td></tr>
+      <tr><td><b>Resolution</b></td><td>the part of Brier that rewards separating easy from hard cases.</td></tr>
+      <tr><td><b>Shrinkage</b></td><td>pulling a noisy estimate toward a pooled value; partial pooling.</td></tr>
+      <tr><td><b>Subject</b></td><td>the AI system being evaluated, not the predictor.</td></tr>
+      <tr><td><b>Temperature \(T\)</b></td><td>divisor on the logit; \(T>1\) softens, \(T<1\) sharpens.</td></tr>
+      <tr><td><b>2PL</b></td><td>two-parameter logistic IRT: ability, difficulty, discrimination.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="map">
+  <h2 class="sec" id="map-h"><span class="num">B</span>Where things live in the repo</h2>
+  <p class="lede">Twelve files, and the question each one answers.</p>
+  <table class="compact">
+    <thead><tr><th style="width:38%">File</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/aims_starter/metrics.py</code></td><td>Brier, ECE, AUC, and the official ALC weights. Read this first.</td></tr>
+      <tr><td><code>src/aims_starter/adaptation.py</code></td><td>Newton MAP for \(\theta\), benchmark ability prior, ridge subject deviation.</td></tr>
+      <tr><td><code>src/aims_starter/calibration.py</code></td><td>per-budget scale/bias/anchor calibration fitted on meta-calibration folds.</td></tr>
+      <tr><td><code>src/aims_starter/faithful_np.py</code></td><td>NP, ANP, and stacked-MHSA-ANP with the IRT-anchored decoder.</td></tr>
+      <tr><td><code>src/aims_starter/data.py</code></td><td>episode construction, feature slices, and split handling.</td></tr>
+      <tr><td><code>src/aims_starter/evaluation.py</code></td><td>budgeted evaluation loop and aggregation.</td></tr>
+      <tr><td><code>submission/model.py</code></td><td>the self-contained predictor packaged for Codabench.</td></tr>
+      <tr><td><code>docs/notation.md</code></td><td>canonical symbols; use it before naming anything.</td></tr>
+      <tr><td><code>docs/methods-guide.md</code></td><td>the one-page method summary for the paper.</td></tr>
+      <tr><td><code>docs/raa_irt_design.md</code></td><td>the proposed relation-aware extension and its controls.</td></tr>
+      <tr><td><code>docs/ablation-protocol.md</code></td><td>the binding experiment contract; read before running anything.</td></tr>
+      <tr><td><code>docs/uniform-audit.md</code></td><td>the audit that checks the code against the contract.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box repo">
+    <span class="tag">How to use the map</span>
+    <p>If you have five minutes before a meeting, open <code>metrics.py</code> and <code>methods-guide.md</code>. If you have an hour, read <code>faithful_np.py</code> alongside §21–25. If you are debugging a number, start at <code>evaluation.py</code>, not at the model — aggregation bugs look like model bugs.</p>
+  </div>
+</section>
+
+<section id="reading">
+  <h2 class="sec" id="reading-h"><span class="num">C</span>Reading list</h2>
+  <p class="lede">Four papers cover almost everything in this guide. Read them in this order; each one assumes the previous.</p>
+
+  <table class="compact striped">
+    <thead><tr><th style="width:34%">Paper</th><th style="width:22%">Read for</th><th>One-line summary</th></tr></thead>
+    <tbody>
+      <tr><td><b>Conditional Neural Processes</b><br><span class="tiny muted">Garnelo et al., 2018 · arXiv:1807.01613</span></td><td>the CNP skeleton</td><td>Encode each context pair, pool, decode each target. No latent.</td></tr>
+      <tr><td><b>Neural Processes</b><br><span class="tiny muted">Garnelo et al., 2018 · arXiv:1807.01622</span></td><td>the latent + ELBO</td><td>Add a global \(z\) and train with a context/target KL.</td></tr>
+      <tr><td><b>Attentive Neural Processes</b><br><span class="tiny muted">Kim et al., 2019 · arXiv:1901.05761</span></td><td>attention variants</td><td>Target-specific summaries; dot-product, multihead, stacked self-attention.</td></tr>
+      <tr><td><b>Amortized IRT</b><br><span class="tiny muted">Truong et al., 2025 · PMLR v267</span></td><td>the competition’s base model</td><td>Predict item parameters from item content; fit ability from a few responses.</td></tr>
+    </tbody>
+  </table>
+
+  <p>For the statistics, any standard treatment of proper scoring rules and calibration will do; the Brier decomposition in §7 is the Murphy decomposition. For shrinkage, the empirical-Bayes chapter of Efron &amp; Hastie is the canonical reference. For the competition protocol, the official starter kit and <code>docs/ablation-protocol.md</code> are more authoritative than any summary here.</p>
+
+  <div class="box plain">
+    <span class="tag">A last word</span>
+    <p>You do not need to hold all of this in your head. Hold the one sentence: <i>a subject’s ability, compared with an item’s difficulty, squashed into a probability — with the ability updated from a few labels and the difficulty predicted from content.</i> Everything else in this guide is a detail hanging off that sentence.</p>
+  </div>
+</section>
+
+
+</body>
+</html>

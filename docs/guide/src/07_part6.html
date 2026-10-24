@@ -1,0 +1,282 @@
+<!-- ================= PART VI ================= -->
+<section class="part" id="part6">
+  <div class="part-kicker">Part VI</div>
+  <h1 class="part-title" data-part="Part VI">The competition playbook</h1>
+  <p class="part-intro">A ladder tells you what to build next. An ablation tells you whether it worked. A checklist tells you why the leaderboard disagrees. And a cram sheet gets you through the meeting.</p>
+  <ul class="part-list">
+    <li>27 · The model ladder</li>
+    <li>28 · Ablations that survive review</li>
+    <li>29 · Failure-mode checklist</li>
+    <li>30 · Cram sheet</li>
+  </ul>
+</section>
+
+<section id="s27">
+  <h2 class="sec" id="s27-h"><span class="num">27</span>The model ladder: what each rung actually tests</h2>
+  <p class="lede">Every added component must answer a question the previous rung could not. If it cannot beat the simpler control, it is not a contribution.</p>
+
+  <table class="compact striped">
+    <thead><tr><th style="width:22%">Rung</th><th style="width:34%">What it adds</th><th>Question it answers</th></tr></thead>
+    <tbody>
+      <tr><td><b>Constant 0.5</b></td><td>nothing</td><td>Is the model better than admitting ignorance? (Brier 0.25)</td></tr>
+      <tr><td><b>Beta-Binomial</b></td><td>one online rate</td><td>Can a conjugate update with no item content beat the constant?</td></tr>
+      <tr><td><b>1PL / 2PL</b></td><td>per-item difficulty (± discrimination)</td><td>Is there item structure worth modeling?</td></tr>
+      <tr><td><b>Amortized IRT</b></td><td>\(f_\phi(x_j)\mapsto(a_j,b_j)\)</td><td>Can content predict difficulty for unseen items?</td></tr>
+      <tr><td><b>Online-AIRT</b></td><td>MAP \(\theta\) from acquired labels</td><td>Is a scalar Bayesian update enough?</td></tr>
+      <tr><td><b>CNP-AIRT</b></td><td>deterministic context encoder + correction</td><td>Does learned global conditioning beat the analytic update?</td></tr>
+      <tr><td><b>NP-AIRT</b></td><td>global latent \(z\)</td><td>Does a stochastic task state add anything?</td></tr>
+      <tr><td><b>ANP-AIRT</b></td><td>target-specific attention \(r^*\)</td><td>Does item-to-item relevance help beyond a global summary?</td></tr>
+      <tr><td><b>Stacked ANP</b></td><td>self-attention over context</td><td>Do context–context interactions help?</td></tr>
+      <tr><td><b>RAA-IRT</b></td><td>explicit relational features</td><td>Is a gain genuinely relational, or just more parameters?</td></tr>
+      <tr><td><b>Shuffled relations</b></td><td>negative control</td><td>Does destroying the relation structure remove the gain?</td></tr>
+    </tbody>
+  </table>
+
+  <p>The ladder is cumulative for a reason. If ANP-AIRT beats CNP-AIRT but NP-AIRT does not, the gain is attention, not the latent. If RAA-IRT beats ANP-AIRT but the shuffled-relation control does too, the gain is capacity, not relations.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A ladder is a sequence of controlled comparisons, not a wish list. Each rung isolates one degree of freedom: item content, then subject adaptation, then a global latent, then target-specific attention. If you add two rungs at once and the score improves, you have learned that <i>something</i> helped — which is not a scientific claim.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Model A ALC 0.224, Model B ALC 0.219, difference 0.005. Seed spread across three seeds: \(\pm0.006\).</p>
+    <p>Paired per-task differences: mean \(-0.005\), \(\mathrm{SE}=0.004\). A 95% interval is roughly \([-0.013,0.003]\) — it crosses zero.</p>
+    <p><b>Decision:</b> do not claim B is better. Either run more seeds/tasks or report the comparison as inconclusive. A 0.005 gain with 0.006 noise is not a result.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The named ladder is Online-AIRT → CNP-AIRT → NP-AIRT → ANP-AIRT → stacked ANP → per-item latent correction → hybrid anchor. The negative controls are a correction-free CNP item head, a latent with \(d_z=1\), shuffled acquisition orders, and shuffled relations. They are part of the argument, not an appendix.</p>
+  </div>
+</section>
+
+<section id="s28">
+  <h2 class="sec" id="s28-h"><span class="num">28</span>Ablations that survive review</h2>
+  <p class="lede">An ablation is an experiment, not a victory lap. Freeze everything you are not testing, change one thing, and decide the rule before you see the numbers.</p>
+
+  <p>The repo’s binding protocol is a good template:</p>
+  <ul>
+    <li><b>Fixed task grid.</b> 104 validation tasks, with eligible subject–benchmark pairs defined in advance.</li>
+    <li><b>Frozen acquisition orders.</b> Ten fixed candidate streams, one seed for the build, so seeds cannot disagree on the labels.</li>
+    <li><b>Nested budgets.</b> The budget-3 context contains the budget-1 label, and so on.</li>
+    <li><b>Out-of-fold calibration.</b> Five folds; calibrator parameters for a task never see that task’s outcomes.</li>
+    <li><b>One test read.</b> The test fold is opened once, for the selected model and the baseline, after selection is complete.</li>
+  </ul>
+
+  <p>Report paired per-task differences, not just two means. Report every seed, not the best one. Report benchmark-level failures, runtime, and parameter count — a gain that costs 100× compute is a different result from a free one.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Question: does attention help beyond the global summary?</p>
+    <p>Design: same AIRT base, same episodes, same budgets, same calibration folds, same seeds. Arm A replaces \(r^*\) with the mean-pooled \(r\); Arm B uses attention. Everything else is identical.</p>
+    <p>Metric: paired ALC difference per task, 10 frozen orders, report mean, 95% interval, and the fraction of tasks improved.</p>
+    <p>Decision rule (written first): claim a gain only if the interval excludes zero and the gain survives the shuffled-relation control. Otherwise report “no detectable difference”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If each arm gets its own hyperparameter search, you are comparing tuning budgets, not architectures. Fix the budget, or tune on a nested split and report the search cost.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>docs/ablation-protocol.md</code> is the contract; <code>docs/uniform-audit.md</code> checks that the code actually follows it. The audit exists because an ablation protocol that is only described, not enforced, drifts.</p>
+  </div>
+</section>
+
+<section id="s29">
+  <h2 class="sec" id="s29-h"><span class="num">29</span>Failure-mode checklist</h2>
+  <p class="lede">When the offline number and the leaderboard disagree, the cause is almost always on this list.</p>
+
+  <div class="two-col small">
+    <p><b>1 · Target leakage.</b> Do evaluation outcomes enter any fit, calibration, early stop, or order choice? Check the call graph, not just the model.</p>
+    <p><b>2 · Subject identity in the item path.</b> Are subject embeddings masked from \(a_j,b_j\)? If not, “difficulty” is subject-specific.</p>
+    <p><b>3 · Duplicate items.</b> Do paraphrases or repeated trials cross the train/test split? Group by item and benchmark.</p>
+    <p><b>4 · Non-nested budgets.</b> Does budget 7 contain the labels from 1 and 3? If not, the curve is not a learning curve.</p>
+    <p><b>5 · Micro vs macro.</b> Are you averaging items when the leaderboard averages tasks? See §11.</p>
+    <p><b>6 · Calibration on test.</b> Was the calibrator fitted on the evaluation tasks? It must be fitted elsewhere.</p>
+    <p><b>7 · AUC-only tuning.</b> Did you select a checkpoint by AUC and then report Brier? Ranking and scale are different.</p>
+    <p><b>8 · Seed cherry-picking.</b> Is the reported seed the best of several? Report all seeds and the spread.</p>
+    <p><b>9 · Budget-0 mismatch.</b> Does the model at \(B=0\) reproduce the frozen anchor? The gate should force it.</p>
+    <p><b>10 · Padding bugs.</b> Are padded context slots masked in the mean, the softmax, and the loss? Check a task with \(B=1\).</p>
+    <p><b>11 · Dead softmax.</b> Are attention logits saturated or NaN? Inspect weights and gradients.</p>
+    <p><b>12 · KL collapse.</b> Is \(z\) ignored? Resample \(z\) and see whether predictions move.</p>
+    <p><b>13 · Statelessness.</b> Does the predictor rebuild from the full labelled list each call? Workers may restart between budgets.</p>
+    <p><b>14 · Probability clipping.</b> Are 0 and 1 replaced by epsilon before the log? Otherwise one confident mistake produces infinity.</p>
+    <p><b>15 · Benchmark shift.</b> Is the test benchmark unlike training? Report per-benchmark failures, not one average.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Offline 0.18 vs leaderboard 0.31: too large for seed noise. Check calibration first (mean 0.7 vs base 0.4 means wrong scale), then the split (duplicates, subject identity, calibration on evaluation).</p>
+  </div>
+
+</section>
+
+<section id="s30" class="page-break">
+  <h2 class="sec" id="s30-h" style="border-top:none;padding-top:0;margin-top:2pt;"><span class="num">30</span>Cram sheet</h2>
+  <p class="lede">Everything on one page, for the ten minutes before the meeting.</p>
+
+  <h3>Formulas</h3>
+  <div class="eq left">\[
+  \begin{aligned}
+  &\text{logit: } z=\log\frac{p}{1-p}, && p=\sigma(z)=\frac{1}{1+e^{-z}},\qquad \sigma'(z)=\sigma(z)(1-\sigma(z))\\[2pt]
+  &\text{Bernoulli NLL: } -\frac1n\sum_i\bigl[y_i\log p_i+(1-y_i)\log(1-p_i)\bigr]\\[2pt]
+  &\text{Beta--Bernoulli: } \pi\sim\mathrm{Beta}(\alpha,\beta),\;\; \pi\mid y\sim\mathrm{Beta}(\alpha+k,\;\beta+n-k)\\[2pt]
+  &\text{2PL: } p_{sj}=\sigma\bigl(a_j(\theta_s-b_j)\bigr),\qquad \text{3PL: } c_j+(1-c_j)\sigma\bigl(a_j(\theta_s-b_j)\bigr)\\[2pt]
+  &\text{MAP ability: } g=\sum_i a_i(y_i-p_i)-\frac{\theta-\mu_0}{\sigma_0^2},\quad h=-\sum_i a_i^2p_i(1-p_i)-\frac{1}{\sigma_0^2}\\[2pt]
+  &\text{Brier: } \mathrm{BS}=\frac1n\sum_i(p_i-y_i)^2,\qquad \mathbb{E}[(p-Y)^2]=(p-\pi)^2+\pi(1-\pi)\\[2pt]
+  &\text{ALC: } 0.1B_0+0.2B_1+0.2B_3+0.2B_7+0.2B_{15}+0.1B_{31}\\[2pt]
+  &\text{ECE: } \sum_k\frac{n_k}{n}\lvert\bar p_k-\bar y_k\rvert,\qquad \text{AUC}=P(s_+>s_-)+\tfrac12P(s_+=s_-)\\[2pt]
+  &\text{ELBO: } \mathbb{E}_{q(z\mid C)}\log p(y_T\mid z)-\mathrm{KL}\bigl(q(z\mid C)\,\|\,p(z)\bigr)\\[2pt]
+  &\text{Gaussian KL: } \log\frac{\sigma_2}{\sigma_1}+\frac{\sigma_1^2+(\mu_1-\mu_2)^2}{2\sigma_2^2}-\frac12\\[2pt]
+  &\text{Attention: } \alpha_i=\frac{\exp(q^\top k_i/\sqrt d)}{\sum_{i'}\exp(q^\top k_{i'}/\sqrt d)},\qquad r^*=\sum_i\alpha_iv_i
+  \end{aligned}
+  \]</div>
+
+  <h3>Numbers to remember</h3>
+  <table class="compact striped">
+    <tbody>
+      <tr><td style="width:52%">Brier of a constant 0.5</td><td><b>0.25</b> — the “knows nothing” bar</td></tr>
+      <tr><td>Budgets and weights</td><td>0, 1, 3, 7, 15, 31; 0.1, 0.2, 0.2, 0.2, 0.2, 0.1</td></tr>
+      <tr><td>Repo ability prior</td><td>\(\mathcal{N}(0,4)\), clamped \(\pm4\), 12 Newton steps</td></tr>
+      <tr><td>Repo Beta-Binomial</td><td>\(\mathrm{Beta}(2,2)\), \(\hat p=(2+k)/(4+n)\)</td></tr>
+      <tr><td>Entropy at \(p=0.5\)</td><td>0.693 nats (1 bit)</td></tr>
+      <tr><td>Logit landmarks</td><td>0 → 0.50; 1 → 0.73; 2 → 0.88; 4 → 0.98</td></tr>
+      <tr><td>Odds multiplier</td><td>+1 logit multiplies odds by \(e\approx2.72\)</td></tr>
+      <tr><td>90% interval width</td><td>\(\approx3.29\) standard deviations</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Diagnosis in one line each</h3>
+  <ul class="tight small">
+    <li><b>Brier 0.25, AUC 0.5:</b> no signal. Check features and leakage.</li>
+    <li><b>AUC high, Brier bad:</b> wrong scale. Calibrate; do not retrain.</li>
+    <li><b>ECE high, AUC fine:</b> miscalibrated only. Temperature or anchor.</li>
+    <li><b>KL ≈ 0, rank 1:</b> latent redundant. Use a CNP or reparameterize.</li>
+    <li><b>Validation great, test bad:</b> leakage or benchmark shift. Check the split first.</li>
+    <li><b>Bump at B = 1:</b> overreaction. Increase shrinkage.</li>
+  </ul>
+
+  <h3>Ten questions</h3>
+  <ol class="tight small">
+    <li>Why is 0.25 the Brier baseline? <span class="muted">A constant 0.5 gives \((0.5)^2\) on every item.</span></li>
+    <li>Why can AUC rise while Brier falls? <span class="muted">AUC is rank-only; Brier also cares about scale.</span></li>
+    <li>What does a prior do at \(B=1\)? <span class="muted">Prevents infinite ability and shrinks the update.</span></li>
+    <li>Why divide KL by \(N_T\)? <span class="muted">Keeps it comparable to the per-target likelihood as targets grow.</span></li>
+    <li>What makes a CNP permutation-invariant? <span class="muted">Per-item encoding plus a symmetric pool.</span></li>
+    <li>What does ANP add? <span class="muted">A target-specific context summary via attention.</span></li>
+    <li>Why is 3PL skipped? <span class="muted">Guessing is not identifiable from 31 labels and has no mechanism here.</span></li>
+    <li>Why is a paired test better? <span class="muted">Task difficulty cancels; the comparison is more precise.</span></li>
+    <li>Why macro-average? <span class="muted">The leaderboard weights subject–benchmark tasks equally.</span></li>
+    <li>Why freeze the acquisition order? <span class="muted">To separate predictor quality from label-stream luck.</span></li>
+  </ol>
+
+  <div class="box plain" style="margin-top:12pt;">
+    <span class="tag">The one sentence</span>
+    <p>Predict a probability for every hidden outcome, use content for the cold start, use a few labels to update a low-dimensional state, and never let the evaluation outcomes touch the fit.</p>
+  </div>
+</section>
+
+<!-- ================= APPENDIX ================= -->
+<section class="part" id="appendix">
+  <div class="part-kicker">Appendix</div>
+  <h1 class="part-title" data-part="Appendix">Glossary and map</h1>
+  <p class="part-intro">The vocabulary, the files, and the papers — in the order you are likely to need them.</p>
+  <ul class="part-list">
+    <li>A · Glossary</li>
+    <li>B · Where things live</li>
+    <li>C · Reading list</li>
+  </ul>
+</section>
+
+<section id="glossary">
+  <h2 class="sec" id="glossary-h"><span class="num">A</span>Glossary</h2>
+  <p class="lede">The vocabulary of the competition, in the order it usually bites.</p>
+  <table class="compact striped">
+    <tbody>
+      <tr><td style="width:27%"><b>Acquisition pool</b></td><td>items whose outcomes may be revealed; disjoint from the scored evaluation pool.</td></tr>
+      <tr><td><b>ALC</b></td><td>area under the Brier learning curve; here a fixed weighted average over six budgets.</td></tr>
+      <tr><td><b>Amortized inference</b></td><td>learning a network that predicts the result of an inference step in one forward pass.</td></tr>
+      <tr><td><b>ANP</b></td><td>Attentive Neural Process; uses cross-attention to build a target-specific summary.</td></tr>
+      <tr><td><b>AUC</b></td><td>probability that a random positive is ranked above a random negative; rank-only.</td></tr>
+      <tr><td><b>Beta-Binomial</b></td><td>conjugate model for a binary rate with a Beta prior; the repo’s control predictor.</td></tr>
+      <tr><td><b>Brier score</b></td><td>mean squared error of probabilities; strictly proper; lower is better.</td></tr>
+      <tr><td><b>Calibration</b></td><td>agreement between predicted probabilities and observed frequencies.</td></tr>
+      <tr><td><b>CNP</b></td><td>Conditional Neural Process; deterministic context summary, no global latent.</td></tr>
+      <tr><td><b>Context \(C\)</b></td><td>the labelled items revealed so far; the conditioning set.</td></tr>
+      <tr><td><b>Discrimination \(a_j\)</b></td><td>steepness of an item’s characteristic curve; how sharply it separates abilities.</td></tr>
+      <tr><td><b>Difficulty \(b_j\)</b></td><td>the ability level at which success probability is 0.5 (2PL).</td></tr>
+      <tr><td><b>ECE</b></td><td>expected calibration error over probability bins; diagnostic, not proper.</td></tr>
+      <tr><td><b>ELBO</b></td><td>evidence lower bound; the variational objective used to train latent NPs.</td></tr>
+      <tr><td><b>Episode</b></td><td>one meta-training task: a context set plus target set drawn from a task.</td></tr>
+      <tr><td><b>Evaluation pool</b></td><td>items on which predictions are scored; outcomes hidden.</td></tr>
+      <tr><td><b>Identifiability</b></td><td>whether the data can distinguish parameter values that predict identically.</td></tr>
+      <tr><td><b>IRT</b></td><td>item response theory; models binary outcomes from ability and item parameters.</td></tr>
+      <tr><td><b>KL divergence</b></td><td>non-negative, asymmetric cost of using \(q\) when the truth is \(p\), in nats.</td></tr>
+      <tr><td><b>Logit</b></td><td>\(\log(p/(1-p))\); the linear scale of the model.</td></tr>
+      <tr><td><b>MAP</b></td><td>maximum a posteriori; the parameter value maximizing posterior density.</td></tr>
+      <tr><td><b>Meta-learning</b></td><td>learning across tasks so that a new task can be handled from a small context.</td></tr>
+      <tr><td><b>Nats</b></td><td>unit of log-probability; 1 nat = 1.4427 bits.</td></tr>
+      <tr><td><b>NP</b></td><td>Neural Process; a CNP with a global latent variable \(z\).</td></tr>
+      <tr><td><b>Permutation invariance</b></td><td>output unchanged when the input set is reordered.</td></tr>
+      <tr><td><b>Proper scoring rule</b></td><td>a score whose expectation is optimized by reporting the true probability.</td></tr>
+      <tr><td><b>Resolution</b></td><td>the part of Brier that rewards separating easy from hard cases.</td></tr>
+      <tr><td><b>Shrinkage</b></td><td>pulling a noisy estimate toward a pooled value; partial pooling.</td></tr>
+      <tr><td><b>Subject</b></td><td>the AI system being evaluated, not the predictor.</td></tr>
+      <tr><td><b>Temperature \(T\)</b></td><td>divisor on the logit; \(T>1\) softens, \(T<1\) sharpens.</td></tr>
+      <tr><td><b>2PL</b></td><td>two-parameter logistic IRT: ability, difficulty, discrimination.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="map">
+  <h2 class="sec" id="map-h"><span class="num">B</span>Where things live in the repo</h2>
+  <p class="lede">Twelve files, and the question each one answers.</p>
+  <table class="compact">
+    <thead><tr><th style="width:38%">File</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/aims_starter/metrics.py</code></td><td>Brier, ECE, AUC, and the official ALC weights. Read this first.</td></tr>
+      <tr><td><code>src/aims_starter/adaptation.py</code></td><td>Newton MAP for \(\theta\), benchmark ability prior, ridge subject deviation.</td></tr>
+      <tr><td><code>src/aims_starter/calibration.py</code></td><td>per-budget scale/bias/anchor calibration fitted on meta-calibration folds.</td></tr>
+      <tr><td><code>src/aims_starter/faithful_np.py</code></td><td>NP, ANP, and stacked-MHSA-ANP with the IRT-anchored decoder.</td></tr>
+      <tr><td><code>src/aims_starter/data.py</code></td><td>episode construction, feature slices, and split handling.</td></tr>
+      <tr><td><code>src/aims_starter/evaluation.py</code></td><td>budgeted evaluation loop and aggregation.</td></tr>
+      <tr><td><code>submission/model.py</code></td><td>the self-contained predictor packaged for Codabench.</td></tr>
+      <tr><td><code>docs/notation.md</code></td><td>canonical symbols; use it before naming anything.</td></tr>
+      <tr><td><code>docs/methods-guide.md</code></td><td>the one-page method summary for the paper.</td></tr>
+      <tr><td><code>docs/raa_irt_design.md</code></td><td>the proposed relation-aware extension and its controls.</td></tr>
+      <tr><td><code>docs/ablation-protocol.md</code></td><td>the binding experiment contract; read before running anything.</td></tr>
+      <tr><td><code>docs/uniform-audit.md</code></td><td>the audit that checks the code against the contract.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box repo">
+    <span class="tag">How to use the map</span>
+    <p>If you have five minutes before a meeting, open <code>metrics.py</code> and <code>methods-guide.md</code>. If you have an hour, read <code>faithful_np.py</code> alongside §21–25. If you are debugging a number, start at <code>evaluation.py</code>, not at the model — aggregation bugs look like model bugs.</p>
+  </div>
+</section>
+
+<section id="reading">
+  <h2 class="sec" id="reading-h"><span class="num">C</span>Reading list</h2>
+  <p class="lede">Four papers cover almost everything in this guide. Read them in this order; each one assumes the previous.</p>
+
+  <table class="compact striped">
+    <thead><tr><th style="width:34%">Paper</th><th style="width:22%">Read for</th><th>One-line summary</th></tr></thead>
+    <tbody>
+      <tr><td><b>Conditional Neural Processes</b><br><span class="tiny muted">Garnelo et al., 2018 · arXiv:1807.01613</span></td><td>the CNP skeleton</td><td>Encode each context pair, pool, decode each target. No latent.</td></tr>
+      <tr><td><b>Neural Processes</b><br><span class="tiny muted">Garnelo et al., 2018 · arXiv:1807.01622</span></td><td>the latent + ELBO</td><td>Add a global \(z\) and train with a context/target KL.</td></tr>
+      <tr><td><b>Attentive Neural Processes</b><br><span class="tiny muted">Kim et al., 2019 · arXiv:1901.05761</span></td><td>attention variants</td><td>Target-specific summaries; dot-product, multihead, stacked self-attention.</td></tr>
+      <tr><td><b>Amortized IRT</b><br><span class="tiny muted">Truong et al., 2025 · PMLR v267</span></td><td>the competition’s base model</td><td>Predict item parameters from item content; fit ability from a few responses.</td></tr>
+    </tbody>
+  </table>
+
+  <p>For the statistics, any standard treatment of proper scoring rules and calibration will do; the Brier decomposition in §7 is the Murphy decomposition. For shrinkage, the empirical-Bayes chapter of Efron &amp; Hastie is the canonical reference. For the competition protocol, the official starter kit and <code>docs/ablation-protocol.md</code> are more authoritative than any summary here.</p>
+
+  <div class="box plain">
+    <span class="tag">A last word</span>
+    <p>You do not need to hold all of this in your head. Hold the one sentence: <i>a subject’s ability, compared with an item’s difficulty, squashed into a probability — with the ability updated from a few labels and the difficulty predicted from content.</i> Everything else in this guide is a detail hanging off that sentence.</p>
+  </div>
+</section>

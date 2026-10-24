@@ -1,0 +1,158 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+
+\title{An information-content ceiling check for the CNP-AIRT ablation ladder}
+\author{Working note --- not part of the NeurIPS submission}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+Every neural variant in the ablation ladder (\texttt{ablation-results.md},
+\texttt{uniform-audit.md}) ties or loses to the Beta-Binomial baseline on
+calibrated Brier ALC. Before attributing this to undertraining or an
+objective bug, check whether the baseline is already near the
+\emph{information-theoretic ceiling} for this task: with at most 31 binary
+responses, there is a hard limit on how precisely a scalar ability
+$\theta$ can be known, and therefore a hard floor on achievable Brier risk.
+If the Beta-Binomial baseline already sits at that floor, no architecture
+change can beat it, and the ladder rungs are not testing anything.
+
+\section{Model}
+
+Assume a correctly specified 2PL item response model. Item $i$ has
+discrimination $a_i > 0$ and difficulty $b_i$:
+\begin{equation}
+  p_i(\theta) = \sigma\!\big(a_i(\theta - b_i)\big), \qquad
+  \sigma(x) = \frac{1}{1+e^{-x}}.
+\end{equation}
+
+\section{Step 1: Fisher information from the acquired context}
+
+The Fisher information that a single response on item $i$ carries about
+$\theta$ is
+\begin{equation}
+  I_i(\theta) = a_i^2\, p_i(\theta)\big(1 - p_i(\theta)\big).
+\end{equation}
+For a context $C$ of $n$ acquired items, the total information at the true
+ability is additive:
+\begin{equation}
+  I_n(\theta) = \sum_{i \in C} a_i^2\, p_i(\theta)\big(1 - p_i(\theta)\big).
+\end{equation}
+This is exactly the quantity already computed as the negative Hessian in
+the existing MAP solver (\texttt{faithful\_np.py}, \texttt{map\_theta}):
+\begin{verbatim}
+hessian = -sum(a_C^2 * p_C * (1 - p_C)) - 1 / prior_variance
+\end{verbatim}
+The codebase is already computing $I_n(\theta)$ at every forward pass; it is
+simply not being read as a bound.
+
+\section{Step 2: posterior variance (Laplace approximation)}
+
+With a Gaussian prior of variance $\tau^2$ on $\theta$ (the code uses
+$\tau^2 = 4$), the Laplace approximation to the posterior at the MAP
+estimate $\hat\theta$ gives
+\begin{equation}
+  \sigma_\theta^2(n) \;\approx\; \frac{1}{I_n(\hat\theta) + 1/\tau^2}.
+  \label{eq:posterior-var}
+\end{equation}
+By the Cram\'er--Rao bound, no estimator --- linear, Bayesian, or a trained
+neural network --- can achieve a lower variance than
+Eq.~\eqref{eq:posterior-var} if the 2PL model is correctly specified and
+$(a_i, b_i)$ are known. This is the hard floor referred to loosely as
+``$\sim 31$ bits of information'': the precise statement is that
+$\sigma_\theta^2(n)$ is bounded below by the reciprocal of total Fisher
+information, not literally Shannon bits.
+
+\section{Step 3: propagating ability uncertainty into item-level Brier risk}
+
+For a target item $t$ with parameters $(a_t, b_t)$, the Bayes-optimal
+predictor under squared loss is the posterior-predictive probability
+\begin{equation}
+  \hat p_t = \mathbb{E}_{\theta \sim q(\theta \mid C)}\big[p_t(\theta)\big].
+\end{equation}
+Its achievable risk decomposes exactly into an \emph{estimation} term and an
+\emph{irreducible noise} term. For any fixed $\theta$,
+\begin{equation}
+  \mathbb{E}_{y \sim \mathrm{Bernoulli}(p_t(\theta))}\!\left[(\hat p_t - y)^2 \mid \theta\right]
+  = (\hat p_t - p_t(\theta))^2 + p_t(\theta)\big(1 - p_t(\theta)\big).
+\end{equation}
+Taking the expectation over $\theta \sim q(\theta \mid C)$ and using
+$\hat p_t = \mathbb{E}_\theta[p_t(\theta)]$ for the first term:
+\begin{equation}
+  R(t) \;=\; \underbrace{\mathrm{Var}_{\theta \sim q}\big[p_t(\theta)\big]}_{\text{residual ability uncertainty}}
+  \;+\; \underbrace{\mathbb{E}_{\theta \sim q}\big[p_t(\theta)\big(1 - p_t(\theta)\big)\big]}_{\text{irreducible Bernoulli noise}}.
+  \label{eq:risk-decomp}
+\end{equation}
+This is the Bayes risk floor for item $t$: it is what the best possible
+predictor achieves, given only the information content of the context, with
+the true item parameters known exactly.
+
+\subsection{First-order closed form}
+
+Linearizing $p_t(\theta)$ around $\hat\theta$,
+$p_t(\theta) \approx \hat p_t + a_t\, \hat p_t(1-\hat p_t)(\theta - \hat\theta)$,
+and substituting $\sigma_\theta^2(n)$ from Eq.~\eqref{eq:posterior-var} gives
+a closed-form ceiling that needs no simulation:
+\begin{equation}
+  R(t; n) \;\approx\;
+  \hat p_t \big(1 - \hat p_t\big)
+  \;+\;
+  a_t^2\, \hat p_t^2 \big(1 - \hat p_t\big)^2\, \sigma_\theta^2(n),
+  \qquad \hat p_t = p_t(\hat\theta).
+  \label{eq:closed-form}
+\end{equation}
+
+\section{Step 4: the ceiling to compare against}
+
+Using the competition's own budget grid and weights,
+\begin{equation}
+  \mathrm{ALC}_{\min} \;=\; \sum_{b \in \{0,1,3,7,15,31\}} w_b \cdot
+  \mathbb{E}_{\text{tasks},\, t}\big[R(t;\, n=b)\big],
+  \label{eq:alc-floor}
+\end{equation}
+where the expectation over target items $t$ and tasks is taken either
+
+\begin{itemize}
+  \item \textbf{in closed form}, by plugging the corpus's empirical
+    distribution of $(a_i, b_i)$ into Eq.~\eqref{eq:closed-form} and
+    averaging, or
+  \item \textbf{by Monte Carlo}: simulate $\theta_{\mathrm{true}} \sim
+    \mathcal{N}(0, \tau^2)$, draw context and target responses from real or
+    fitted $(a_i, b_i)$, run the \emph{existing} MAP + Hessian solver
+    exactly as in production, evaluate $R(t)$ by quadrature over the
+    resulting $q(\theta)$, and average over many simulated tasks.
+\end{itemize}
+
+\section{The check}
+
+Compare $\mathrm{ALC}_{\min}$ from Eq.~\eqref{eq:alc-floor} against the
+measured Beta-Binomial Brier ALC on validation ($0.222838$, per
+\texttt{uniform-audit.md}).
+
+\begin{itemize}
+  \item If the measured value is within noise of $\mathrm{ALC}_{\min}$, the
+    baseline is already near-optimal given the information content of
+    $\le 31$ binary responses. No architecture --- CNP, ANP, GP-residual,
+    or latent --- can beat it without violating the Cram\'er--Rao bound,
+    and ladder rungs 3 through 6 are testing against an unbeatable number
+    rather than against a weak baseline.
+  \item If the measured value is meaningfully above $\mathrm{ALC}_{\min}$,
+    there is real headroom, and the null results documented in
+    \texttt{ablation-results.md} and \texttt{uniform-audit.md} point to a
+    training or objective problem (undertraining, KL misweighting, detached
+    MAP gradient) rather than to a fundamental information limit.
+\end{itemize}
+
+This is a half-day closed-form-plus-Monte-Carlo computation against code
+that already exists (\texttt{map\_theta}), and it should be run before
+committing further compute to architecture rungs 3--6 of the ablation
+ladder.
+
+\end{document}

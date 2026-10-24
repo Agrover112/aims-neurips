@@ -41,6 +41,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 CORPUS_ROOT = REMOTE_ROOT / "datasets" / "full" / "allbench-features-v1"
 RESULT_ROOT = REMOTE_ROOT / "results" / "allbench-deterministic-2seed"
 OUTPUT_ROOT = REMOTE_ROOT / "results" / "allbench-calibration-ablation"
+UNIFORM_ROOT = REMOTE_ROOT / "results" / "allbench-uniform-v1" / "calibration"
+UNIFORM_FOLDS = 5
 MODES = ("masked", "visible")
 SEEDS = (20261018, 20261019)
 SUBJECT_SLICE = (384, 768)
@@ -354,6 +356,9 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
     x_dim = int(item_embeddings.shape[1] + subject_embeddings.shape[1])
     evaluation_items = pd.read_parquet(CORPUS_ROOT / "eval_items.parquet")
     order_frame = pd.read_parquet(CORPUS_ROOT / "eval_orders.parquet")
+    from aims_starter.uniform_eval import validation_fold_map
+
+    fold_map = validation_fold_map(evaluation_items, n_folds=UNIFORM_FOLDS)
     cnp, online = _load_models(seed, mode, x_dim)
 
     def features(rows):
@@ -417,6 +422,7 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
                                 "benchmark_id": benchmark,
                                 "task_id": str(task_id),
                                 "order_seed": int(order_seed),
+                                "fold": int(fold_map.get(str(task_id), -1)),
                                 "model": model_name,
                                 "budget": int(budget),
                                 "logits": np.asarray(logits, dtype=float),
@@ -452,19 +458,73 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
             for record in records
             if record["model"] == model_name and record["split"] == "validation"
         ]
+        folds = sorted({int(record["fold"]) for record in validation})
         fits_by_model[model_name] = {
-            "per_budget_row": _fit_variants(validation, balanced=False, shared=False),
-            "per_budget_task": _fit_variants(validation, balanced=True, shared=False),
-            "shared_row": _fit_variants(validation, balanced=False, shared=True),
+            "full": {
+                "per_budget_row": _fit_variants(validation, balanced=False, shared=False),
+                "per_budget_task": _fit_variants(validation, balanced=True, shared=False),
+                "shared_row": _fit_variants(validation, balanced=False, shared=True),
+            },
+            "folds": {
+                str(fold): {
+                    "per_budget_row": _fit_variants(
+                        [record for record in validation if int(record["fold"]) != fold],
+                        balanced=False,
+                        shared=False,
+                    ),
+                    "per_budget_task": _fit_variants(
+                        [record for record in validation if int(record["fold"]) != fold],
+                        balanced=True,
+                        shared=False,
+                    ),
+                    "shared_row": _fit_variants(
+                        [record for record in validation if int(record["fold"]) != fold],
+                        balanced=False,
+                        shared=True,
+                    ),
+                }
+                for fold in folds
+            },
         }
         fit_rows[model_name] = {
-            "validation_rows": int(sum(len(record["labels"]) for record in validation)),
-            "validation_tasks": len({record["task_id"] for record in validation}),
+            "full": {
+                "validation_rows": int(sum(len(record["labels"]) for record in validation)),
+                "validation_tasks": len({record["task_id"] for record in validation}),
+            },
+            "folds": {
+                str(fold): {
+                    "fit_rows": int(
+                        sum(
+                            len(record["labels"])
+                            for record in validation
+                            if int(record["fold"]) != fold
+                        )
+                    ),
+                    "fit_tasks": len(
+                        {
+                            record["task_id"]
+                            for record in validation
+                            if int(record["fold"]) != fold
+                        }
+                    ),
+                    "held_out_tasks": len(
+                        {
+                            record["task_id"]
+                            for record in validation
+                            if int(record["fold"]) == fold
+                        }
+                    ),
+                }
+                for fold in folds
+            },
         }
 
     evaluation_rows: list[dict[str, Any]] = []
     for record in records:
-        fits = fits_by_model[record["model"]]
+        if record["split"] == "validation":
+            fits = fits_by_model[record["model"]]["folds"][str(record["fold"])]
+        else:
+            fits = fits_by_model[record["model"]]["full"]
         for variant in variants:
             probability = _variant_probability(record, fits, variant)
             labels = record["labels"]
@@ -473,6 +533,7 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
                     "model": record["model"],
                     "mode": mode,
                     "split": record["split"],
+                    "fold": int(record["fold"]),
                     "task_id": record["task_id"],
                     "order_seed": record["order_seed"],
                     "budget": record["budget"],
@@ -486,6 +547,12 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
     weights = dict(zip(BUDGETS, WEIGHTS, strict=True))
     frame["weighted_brier"] = frame["budget"].map(weights) * frame["brier"]
     frame["weighted_ece"] = frame["budget"].map(weights) * frame["ece"]
+    UNIFORM_ROOT.mkdir(parents=True, exist_ok=True)
+    stem = "-".join(models)
+    frame.to_parquet(
+        UNIFORM_ROOT / f"calibration-ablation-{seed}-{mode}-{stem}-rows.parquet",
+        index=False,
+    )
     by_budget = []
     for (model, split, variant, budget), group in frame.groupby(
         ["model", "split", "variant", "budget"], sort=True
@@ -529,23 +596,34 @@ def _fit_and_evaluate(seed: int, mode: str, models: tuple[str, ...], limit_tasks
             }
         )
 
+    def _serialize_fit_block(block: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: {
+                ("shared" if budget is None else str(budget)): value
+                for budget, value in fit["fits"].items()
+            }
+            for key, fit in block.items()
+        }
+
     artifact = {
-        "status": "calibration_ablation",
+        "status": "calibration_ablation_uniform",
         "seed": seed,
         "mode": mode,
         "models": list(models),
         "orders": orders,
         "limit_tasks": limit_tasks,
+        "split_policy": "validation folds are out-of-fold; test uses the full validation fit",
+        "folds": int(UNIFORM_FOLDS),
         "fit_rows": fit_rows,
         "by_budget": by_budget,
         "alc": alc,
         "fits": {
             model: {
-                key: {
-                    ("shared" if budget is None else str(budget)): value
-                    for budget, value in fit["fits"].items()
-                }
-                for key, fit in model_fits.items()
+                "full": _serialize_fit_block(model_fits["full"]),
+                "folds": {
+                    fold: _serialize_fit_block(block)
+                    for fold, block in model_fits["folds"].items()
+                },
             }
             for model, model_fits in fits_by_model.items()
         },
@@ -572,9 +650,9 @@ def run(
     if not names:
         raise ValueError("at least one model is required")
     artifact = _fit_and_evaluate(seed, mode, names, limit_tasks, orders)
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    UNIFORM_ROOT.mkdir(parents=True, exist_ok=True)
     stem = "-".join(names)
-    output = OUTPUT_ROOT / f"calibration-ablation-{seed}-{mode}-{stem}.json"
+    output = UNIFORM_ROOT / f"calibration-ablation-{seed}-{mode}-{stem}.json"
     _write_json(output, artifact)
     volume.commit()
     return artifact
@@ -582,16 +660,25 @@ def run(
 
 @app.local_entrypoint()
 def main(
-    seed: int = 20261018,
-    mode: str = "masked",
-    models: str = "cnp_airt",
+    seed: int = 0,
+    mode: str = "",
+    models: str = "cnp_airt,online_airt_2pl",
     limit_tasks: int = 0,
     orders: int = 10,
 ) -> None:
-    print(
-        json.dumps(
-            run.remote(seed, mode, models, limit_tasks, orders),
-            indent=2,
-            sort_keys=True,
+    if seed and mode:
+        print(
+            json.dumps(
+                run.remote(seed, mode, models, limit_tasks, orders),
+                indent=2,
+                sort_keys=True,
+            )
         )
-    )
+        return
+    handles = [
+        run.spawn(seed_value, mode_value, models, limit_tasks, orders)
+        for seed_value in SEEDS
+        for mode_value in MODES
+    ]
+    for handle in handles:
+        handle.get()

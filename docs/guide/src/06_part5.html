@@ -1,0 +1,356 @@
+<!-- ================= PART V ================= -->
+<section class="part" id="part5">
+  <div class="part-kicker">Part V</div>
+  <h1 class="part-title" data-part="Part V">Neural Processes</h1>
+  <p class="part-intro">A Neural Process is a function that takes a set of labelled examples and returns a prediction for any new input — in one forward pass, without gradient updates. The family differs only in how much it lets the context summary remember.</p>
+  <ul class="part-list">
+    <li>19 · A distribution over functions</li>
+    <li>20 · Sets and permutation invariance</li>
+    <li>21 · CNP: one deterministic summary</li>
+    <li>22 · NP: the latent variable and ELBO</li>
+    <li>23 · ANP: attention</li>
+    <li>24 · NP-AIRT in this repo</li>
+    <li>25 · Episodic training</li>
+    <li>26 · Reading diagnostics</li>
+  </ul>
+</section>
+
+<section id="s19">
+  <h2 class="sec" id="s19-h"><span class="num">19</span>A distribution over functions, not a single function</h2>
+  <p class="lede">A Neural Process does not learn one predictor. It learns a rule for turning any small context set into a predictor, and it expresses uncertainty about what happens between the points it has seen.</p>
+
+  <p>Ordinary supervised learning fits a function \(f:x\mapsto y\) using a large training set. A Neural Process is trained on <b>tasks</b>, each of which is itself a small dataset:</p>
+
+  <div class="eq">\[ \text{task}=\bigl(C,\;T\bigr),\qquad C=\{(x_i,y_i)\}_{i=1}^{N_C},\qquad T=\{(x_j,y_j)\}_{j=1}^{N_T}. \]</div>
+
+  <p>At meta-training time it sees many tasks. At meta-test time it receives a new context \(C\) and must predict \(y_T\) for targets \(x_T\). The weights are frozen; only the conditioning changes. This is why the repo calls it <b>amortized test-time inference</b>: the adaptation is a forward pass through a set encoder, not a gradient step.</p>
+
+  <p>The Gaussian Process is the classical cousin: a GP defines a prior over functions, and conditioning on observations gives a posterior over the function values at new inputs. A Neural Process approximates that conditioning with a neural network, trading exactness for scalability and for the ability to learn from data rather than from a hand-chosen kernel.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>You see two points of a curve: \((0,0)\) and \((1,1)\). What is the value at \(x=2\)? A single-function model must answer. A distribution over functions can say “probably near 2, but it could bend”. Add ten more points and the distribution narrows. A Neural Process learns both the mean answer and how the uncertainty should shrink — that is what makes it a “process”.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Context: \((0,0)\) and \((1,1)\). Query \(x=2\).</p>
+    <p>A linear model says 2.0 with no uncertainty. A GP with a smooth kernel says about 2.0 with a standard deviation that depends on the kernel length-scale. A CNP says a number determined by its learned decoder; an NP also returns a spread over Monte Carlo samples.</p>
+    <p>Add the point \((2,0)\): the linear model is now wrong, the GP posterior bends, and the NP re-encodes the context. The prediction is a function of the <i>set</i>, not of a fixed parameter vector.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“Meta-learning” here does not mean fine-tuning at test time. If your submission performs gradient steps on the evaluation task, it is doing something else (and probably violating the stateless-call contract). The NP adapts by re-encoding, not by retraining.</p>
+  </div>
+</section>
+
+<section id="s20">
+  <h2 class="sec" id="s20-h"><span class="num">20</span>Sets, pooling, and permutation invariance</h2>
+  <p class="lede">The context has no order. A model that cares whether the labels arrived as \((1,3,7)\) or \((7,1,3)\) is learning noise.</p>
+
+  <p>Each context pair is encoded independently, \(h_i=e_\phi(x_i,y_i)\). The encodings are then combined by a <b>permutation-invariant</b> pooling operator:</p>
+
+  <div class="eq">\[ r=\operatorname{pool}\{h_1,\dots,h_{N_C}\},\qquad \operatorname{pool}\in\{\text{mean},\text{sum},\text{max},\text{attention}\}. \]</div>
+
+  <p>Mean and sum are the simplest. They are also <i>decomposable</i>: the pooled vector is a sum of per-item functions, which is the DeepSets form. This is enough to guarantee that permuting the context permutes nothing in the output. The decoder is then applied to \((x_*,r)\), and it must be permutation-<i>equivariant</i> across targets: reorder the query items and the predictions reorder with them.</p>
+
+  <h3>Masks are not an implementation detail</h3>
+  <p>Contexts have variable length. If you pad with zeros and take a plain mean, a task with 31 labels is diluted by 31 padded slots. A masked mean divides by the number of real items only:</p>
+
+  <div class="eq">\[ r=\frac{\sum_i m_i h_i}{\sum_i m_i},\qquad m_i\in\{0,1\}. \]</div>
+
+  <p>The same mask must be applied inside attention (set padded keys to \(-\infty\) before the softmax) and inside the loss (ignore padded targets).</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A set is a bag, not a list. If you empty a bag onto a table, the order you pull items out does not change what is in the bag. Pooling is the mathematical version of “what is in the bag”: a summary that is identical under reordering. Attention is a weighted bag too — the weights move with the items, but the summary does not depend on the order in which they were added.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Encodings \(h_1=1,\;h_2=2,\;h_3=6\). Mean \(=9/3=3\).</p>
+    <p>Permute to \((6,1,2)\): mean \(=9/3=3\). Same summary.</p>
+    <p>With a padded fourth slot \(h_4=0\), the plain mean becomes \(9/4=2.25\) — a different answer for the same context. The masked mean stays 3.</p>
+    <p>For attention, the weights reorder with the items but always sum to one; the weighted summary is unchanged.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Sorting the context by \(x\) before encoding makes the model order-dependent and destroys the set interpretation. So does concatenating a positional index. If a “context encoder” in a paper uses an RNN over the labels, it is not permutation-invariant by construction — it may still work, but it is a different model.</p>
+  </div>
+</section>
+
+<section id="s21">
+  <h2 class="sec" id="s21-h"><span class="num">21</span>CNP: one deterministic summary</h2>
+  <p class="lede">A Conditional Neural Process compresses the context into a single vector and decodes every target from that vector. It is fast, simple, and often underfits.</p>
+
+  <p>The architecture is three maps:</p>
+
+  <div class="eq">\[ h_i=e_\phi(x_i,y_i),\qquad r=\frac{1}{N_C}\sum_{i=1}^{N_C}h_i,\qquad p(y_*\mid x_*,C)=p_\theta\bigl(y_*\mid x_*,\,r\bigr). \]</div>
+
+  <p>Training minimizes the negative log-likelihood of target outcomes, averaged over target items and episodes. There is no latent variable and no sampling: the same context always produces the same \(r\), hence the same prediction.</p>
+
+  <svg class="diagram" viewBox="0 0 740 270" role="img" aria-label="CNP, NP and ANP architecture comparison">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#a9a293"/>
+      </marker>
+      <marker id="ar3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9771f"/>
+      </marker>
+    </defs>
+    <g font-size="11.5" fill="#14231d">
+      <!-- context -->
+      <rect x="2" y="52" width="112" height="34" rx="3" fill="#edf3ee" stroke="#9dbcaa"/>
+      <text x="14" y="73">(x₁, y₁)</text>
+      <rect x="2" y="94" width="112" height="34" rx="3" fill="#edf3ee" stroke="#9dbcaa"/>
+      <text x="14" y="115">(x₂, y₂)</text>
+      <text x="2" y="40" font-size="10" fill="#6b7873">context C</text>
+
+      <!-- encoder -->
+      <rect x="152" y="52" width="96" height="76" rx="3" fill="#f6f3e9" stroke="#c9c3b4"/>
+      <text x="164" y="84">encoder</text>
+      <text x="164" y="100" font-size="10" fill="#6b7873">hᵢ = e(xᵢ, yᵢ)</text>
+
+      <!-- pool -->
+      <rect x="286" y="60" width="118" height="60" rx="3" fill="#edf3ee" stroke="#6fa08c"/>
+      <text x="298" y="84">pool</text>
+      <text x="298" y="100" font-size="10" fill="#5d6b65">mean / attention</text>
+
+      <!-- latent -->
+      <rect x="286" y="164" width="118" height="54" rx="3" fill="#fdfcf7" stroke="#6fa08c" stroke-dasharray="4 3"/>
+      <text x="298" y="186">q(z | C)</text>
+      <text x="298" y="202" font-size="10" fill="#5d6b65">NP only: sample z</text>
+
+      <!-- decoder -->
+      <rect x="452" y="76" width="118" height="84" rx="3" fill="#f6f3e9" stroke="#c9c3b4"/>
+      <text x="464" y="108">decoder</text>
+      <text x="464" y="124" font-size="10" fill="#6b7873">IRT head + correction</text>
+
+      <!-- target -->
+      <rect x="452" y="196" width="118" height="40" rx="3" fill="#f8f0e1" stroke="#d0a568"/>
+      <text x="478" y="221">target x*</text>
+
+      <!-- output -->
+      <rect x="616" y="90" width="116" height="56" rx="3" fill="#f8f0e1" stroke="#d0a568"/>
+      <text x="628" y="114">p(y* | x*, C)</text>
+      <text x="628" y="130" font-size="10" fill="#6d5a3d">probability</text>
+
+      <!-- arrows -->
+      <line x1="114" y1="69" x2="149" y2="76" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="114" y1="111" x2="149" y2="104" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="248" y1="90" x2="283" y2="90" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="404" y1="90" x2="449" y2="112" stroke="#a9a293" marker-end="url(#ar2)"/>
+      <line x1="404" y1="84" x2="404" y2="161" stroke="#6fa08c" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      <line x1="404" y1="191" x2="449" y2="140" stroke="#6fa08c" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      <line x1="511" y1="196" x2="511" y2="163" stroke="#b9771f" marker-end="url(#ar3)"/>
+      <line x1="570" y1="118" x2="613" y2="118" stroke="#a9a293" marker-end="url(#ar2)"/>
+
+      <text x="2" y="252" font-size="10" fill="#6b7873">CNP: solid path only.</text>
+      <text x="286" y="252" font-size="10" fill="#6b7873">NP: dashed z path added.</text>
+      <text x="452" y="252" font-size="10" fill="#6b7873">ANP: pool is target-specific attention r*.</text>
+    </g>
+  </svg>
+  <div class="footnote" style="margin-top:-2pt;margin-bottom:10pt;">The same skeleton for all three models. The differences are the dashed latent path (NP) and the target-specific attention summary (ANP).</div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A CNP is a committee that submits one written summary. Every query is answered from that summary. If the context contains two different regimes — easy items and hard items — the mean summary blurs them together, and the CNP cannot say “this target looks like the easy ones”. That blurring is the underfitting that NP and ANP try to fix.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Encodings \(h_1=(1,0)\), \(h_2=(0,1)\); mean \(r=(0.5,0.5)\).</p>
+    <p>Toy decoder logit \(=r_1-r_2+0.5x_*\). For \(x_*=1\): logit \(=0.5-0.5+0.5=0.5\), so \(p=\sigma(0.5)=0.622\).</p>
+    <p>For \(x_*=0\): logit \(=0\), \(p=0.5\). The only thing that changes is the target input; the context summary is identical for every query.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>CNP-AIRT keeps the deterministic context path but replaces the generic decoder with the IRT anchor: \(a_j(\theta_s-b_j)\), plus a correction \(\Delta\theta(C)\). The ablation ladder asks whether that context encoder earns its keep beyond an item head plus MAP ability — a much sharper question than “does the CNP beat the baseline?”.</p>
+  </div>
+</section>
+
+<section id="s22">
+  <h2 class="sec" id="s22-h"><span class="num">22</span>NP: the latent variable and the ELBO</h2>
+  <p class="lede">A latent Neural Process adds a global random variable \(z\) that must explain the context. Training pushes the context-only posterior toward the target-aware posterior, and the KL term is what makes the whole thing a variational bound.</p>
+
+  <p>A CNP assumes the context summary is sufficient. An NP assumes there is a global task state \(z\) — a “mood” that changes how the subject behaves across all items — and that the context is noisy evidence about it:</p>
+
+  <div class="eq">\[ z\sim p(z)=\mathcal{N}(0,I),\qquad y_*\mid x_*,z\sim p_\theta(y_*\mid x_*,z). \]</div>
+
+  <p>The posterior \(p(z\mid C)\) is intractable, so we approximate it with a network \(q_\phi(z\mid C)=\mathcal{N}(\mu_\phi(C),\operatorname{diag}\sigma_\phi^2(C))\). The log marginal likelihood is bounded below by the ELBO:</p>
+
+  <div class="eq">\[ \log p(y_T\mid x_T,C)\;\ge\;\mathbb{E}_{q_\phi(z\mid C)}\bigl[\log p_\theta(y_T\mid x_T,z)\bigr]-\mathrm{KL}\bigl(q_\phi(z\mid C)\,\|\,p(z)\bigr). \]</div>
+
+  <p>At training time the targets \(y_T\) are available, so we can use a sharper posterior \(q_\phi(z\mid T)\). The standard NP objective is</p>
+
+  <div class="eq">\[ \mathcal{L}=\mathbb{E}_{q_\phi(z\mid T)}\bigl[-\log p_\theta(y_T\mid x_T,z)\bigr]+\frac{1}{N_T}\,\mathrm{KL}\bigl(q_\phi(z\mid T)\,\|\,q_\phi(z\mid C)\bigr). \]</div>
+
+  <p>The KL term forces the context-only posterior to match the target-aware one. At inference only \(C\) exists, so \(q_\phi(z\mid C)\) is used. Averaging over \(L\) samples of \(z\) gives the predictive probability; the spread across samples is the model’s epistemic uncertainty.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Think of \(z\) as the “subject’s mood today”: a single hidden state that shifts the difficulty of every item in the same direction. The context is a few observed answers; the posterior is your belief about the mood. The KL term is a consistency requirement: whatever mood explains the context should also explain the targets. Without it, the model could use a different mood for every target and learn nothing general.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>KL between \(\mathcal{N}(1,0.25)\) and \(\mathcal{N}(0,1)\):</p>
+    <p>\(\log(1/0.5)=0.693\); \((0.25+1)/2=0.625\); minus \(0.5\) gives \(0.818\) nats.</p>
+    <p>Two target items with predicted probabilities \(0.8\) and \(0.3\), outcomes \(1\) and \(0\): NLL \(=-[\log0.8+\log0.7]/2=(0.223+0.357)/2=0.290\).</p>
+    <p>Total loss \(=0.290+0.818/2=0.699\). The KL is divided by \(N_T\), so it does not dominate when there are many targets.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The v1 objective used a prior-KL with weight \(1/|T|\) and an “escape hatch”; the latent collapsed. The v2 objective is the standard (A)NP objective above with weight 1 on the dual likelihood, and disjoint \(C,T\). Even so, the measured \(\mathrm{KL}(q_T\|q_C)\approx2\times10^{-7}\) and effective latent rank 1 when \(z\) enters only through a scalar \(\theta\). That is the repo’s central negative result: a global latent is redundant when the analytic MAP already owns the only global degree of freedom.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>A KL that goes to zero is not necessarily good news. It can mean the posterior collapsed to the prior and \(z\) is being ignored. Check the KL, the effective rank of the Jacobian, and whether predictions change when \(z\) is resampled. If none of them move, you have an expensive CNP.</p>
+  </div>
+</section>
+
+<section id="s23">
+  <h2 class="sec" id="s23-h"><span class="num">23</span>ANP: attention makes the summary target-specific</h2>
+  <p class="lede">Instead of one summary for all queries, an Attentive Neural Process lets each target look at the context items that resemble it and build its own summary.</p>
+
+  <p>Each context item provides a key \(k_i\) and a value \(v_i\); each target provides a query \(q_*\). The attention weights and the target-specific representation are</p>
+
+  <div class="eq">\[ \alpha_{*i}=\frac{\exp\bigl(q_*^\top k_i/\sqrt d\bigr)}{\sum_{i'}\exp\bigl(q_*^\top k_{i'}/\sqrt d\bigr)},\qquad r_*=\sum_{i\in C}\alpha_{*i}\,v_i. \]</div>
+
+  <p>The \(\sqrt d\) keeps the logits from exploding as the dimension grows. With multiple heads, several such attention maps run in parallel and are concatenated; with self-attention, context items also attend to each other before the cross-attention, which lets the model represent interactions among items.</p>
+
+  <figure>
+    <img src="figures/attention.svg" alt="Softmax attention weights over three context items">
+    <figcaption><b>Softmax attention is a convex combination.</b> The weights are positive and sum to one, so \(r^*\) is a weighted average of context values. A peaked distribution selects one item; a flat one averages the whole context.</figcaption>
+  </figure>
+
+  <h3>What attention buys, and what it costs</h3>
+  <ul>
+    <li><b>Buys:</b> target-specific summaries. A hard target can attend to hard context items instead of the global mean.</li>
+    <li><b>Buys:</b> permutation equivariance for free — the sum over context items does not depend on their order.</li>
+    <li><b>Costs:</b> \(O(N_C N_T)\) scores, plus a second path to train. On 31 context items this is trivial; on 10,000 it is not.</li>
+    <li><b>Costs:</b> attention weights are not explanations. A high weight means “useful for this prediction”, not “caused this prediction”.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A CNP asks the whole class for one answer. An ANP lets each student ask the classmates who have done similar problems. The query is the target, the keys are the context items, and the values are what those items know. Softmax decides how much of each classmate’s answer to use. The result is still a set operation, but a much more flexible one.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Scores \(q^\top k_i/\sqrt d=(0,1,2)\). Softmax \(=(0.090,0.245,0.665)\). Values \((1,3,2)\).</p>
+    <p>\(r^*=0.090(1)+0.245(3)+0.665(2)=0.090+0.735+1.330=2.155\).</p>
+    <p>If the target were identical to context item 3, the score gap would grow and the weight would approach 1; \(r^*\) would approach value 2. Attention can interpolate between “listen to everyone” and “listen to one”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Padding is the classic silent bug. If padded context slots are not masked to \(-\infty\) before the softmax, every target attends to zeros and the weights no longer sum over real items. The model still trains, which is what makes it dangerous.</p>
+  </div>
+</section>
+
+<section id="s24">
+  <h2 class="sec" id="s24-h"><span class="num">24</span>NP-AIRT in this repo: where the anchor lives</h2>
+  <p class="lede">The repo’s models are Neural Processes with an IRT decoder: the network learns item parameters and a correction, while a MAP ability sets the level.</p>
+
+  <p>The decoder combines the psychometric anchor with a learned residual:</p>
+
+  <div class="eq">\[ \theta_s=\operatorname{MAP}(C),\qquad \ell_{sj}=a_j(\theta_s-b_j)+\delta_\omega(x_j,z,r_j^*),\qquad p_{sj}=\sigma(\ell_{sj}). \]</div>
+
+  <p>Three design choices matter more than the architecture:</p>
+  <ol>
+    <li><b>\(\theta_s\) is not a network output.</b> It is the analytic MAP of §13. The network owns the item side and the correction; the anchor owns the level. This prevents the latent from collapsing into a scalar and keeps ability comparable across tasks.</li>
+    <li><b>The residual is bounded and mean-centered across targets.</b> \(\delta=\delta_{\max}\tanh(\cdot)\), centered so it can reorder items without changing the overall level. Without centering, “correction” and “ability” become the same knob.</li>
+    <li><b>A budget-0 gate.</b> At \(B=0\), \(\Delta\theta=0\) and \(\delta=0\), so every adaptive variant returns the identical AIRT prediction. Otherwise the empty-context prior would silently define a different zero-budget model.</li>
+  </ol>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Item \(a=1.2\), \(b=0.2\); subject \(\theta=0.5\); correction \(\delta=0.4\).</p>
+    <p>Anchor logit \(=1.2(0.5-0.2)=0.36\), so \(p=\sigma(0.36)=0.589\).</p>
+    <p>With the correction: logit \(=0.36+0.4=0.76\), \(p=\sigma(0.76)=0.681\).</p>
+    <p>At \(B=0\) the gate sets \(\delta=0\), so the answer is 0.589. That is the number the model must reproduce with an empty context, by construction.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>src/aims_starter/faithful_np.py</code> implements NP, ANP, and stacked-MHSA-ANP variants with an IRT-anchored decoder. <code>modal_cnp_ladder.py</code> runs the encoder-contribution ladder (frozen 1PL, frozen 2PL, MAP, CNP, minus-correction control). The naming is deliberate: CNP-AIRT is deterministic; NP-AIRT is latent; ANP-AIRT is attentive.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If the residual is unbounded or uncentered, it can absorb the subject’s ability and the item’s difficulty at the same time. The model still fits, but “ability” is no longer identified, and the IRT story in the paper becomes false. Bound it, center it, and ablate the gate.</p>
+  </div>
+</section>
+
+<section id="s25">
+  <h2 class="sec" id="s25-h"><span class="num">25</span>Training an episodic model without fooling yourself</h2>
+  <p class="lede">The training loop is where the competition’s constraints become code: disjoint context and targets, variable context sizes, and a loss that matches the deployment query.</p>
+
+  <p>One episode samples a task, a context size from the official budget grid, a context subset, and a disjoint target subset. The loss is the NP objective of §22, averaged over target items. Three details decide whether the model generalizes:</p>
+
+  <ul>
+    <li><b>Disjoint \(C\) and \(T\).</b> If a target appears in the context, the model can copy the label and the training NLL becomes meaningless. The corrected repo episodes use disjoint sets; the older image-style \(C\subseteq T\) convention was a bug for this task.</li>
+    <li><b>Context-size distribution.</b> Train on sizes drawn from \(\{0,1,3,7,15,31\}\) so the model sees the same sparsity it will face. Training only at 31 and testing at 1 is a different task.</li>
+    <li><b>Masking.</b> Variable-length contexts and targets need masks in the encoder, the attention, and the loss. A padded target must not contribute a gradient.</li>
+  </ul>
+
+  <p>Optimization is ordinary: Adam, gradient clipping, deterministic seeds, early stopping on held-out <i>benchmarks</i>. What is not ordinary is the evaluation unit — a held-out benchmark, not a held-out row.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Episodic training is a fire drill. Each episode is a miniature of the real job: here are a few labelled items, now predict these unseen ones. If the drill always gives you 31 labels and the real job gives you one, you have trained for the wrong job. If the drill lets you peek at the answer sheet, you have trained for a job that does not exist.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two targets, predicted \(p=(0.8,0.3)\), outcomes \(y=(1,0)\).</p>
+    <p>NLL \(=-[\log0.8+\log0.7]/2=0.290\).</p>
+    <p>KL \(=0.818\), \(N_T=2\), so the KL term is \(0.409\). Total \(=0.699\).</p>
+    <p>If the KL were not divided by \(N_T\), it would contribute 0.818 and dominate the likelihood. The \(1/N_T\) convention keeps the two terms on a comparable scale as the target set grows.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Do not early-stop on the test benchmark, and do not choose the checkpoint by Codabench score and then report that score as evidence. The public leaderboard is a test set; using it for model selection turns it into a validation set and inflates the reported number.</p>
+  </div>
+</section>
+
+<section id="s26">
+  <h2 class="sec" id="s26-h"><span class="num">26</span>Reading the diagnostics: signal, scale, or noise?</h2>
+  <p class="lede">Most “the model is broken” moments are one of three things: no signal, wrong scale, or too little data to tell. The metrics tell them apart if you read them together.</p>
+
+  <table class="striped">
+    <thead><tr><th style="width:34%">Pattern</th><th style="width:36%">Likely cause</th><th>First fix</th></tr></thead>
+    <tbody>
+      <tr><td>Brier \(\approx0.25\), AUC \(\approx0.5\)</td><td>no item signal; predictions near the base rate</td><td>check features, leakage-free split, and the item encoder</td></tr>
+      <tr><td>AUC \(0.63\), Brier \(0.27\)</td><td>ranking works, probability scale is wrong</td><td>temperature / anchor calibration; inspect mean \(p\) vs base rate</td></tr>
+      <tr><td>ECE high, AUC fine</td><td>miscalibration only</td><td>per-budget calibration; do not touch the architecture</td></tr>
+      <tr><td>\(\mathrm{KL}\approx0\), rank 1</td><td>latent collapsed or redundant</td><td>remove \(z\); test a deterministic CNP</td></tr>
+      <tr><td>Train NLL falls, val Brier rises</td><td>overfitting or distribution shift</td><td>benchmark-held-out validation; stronger regularization</td></tr>
+      <tr><td>Bump at \(B=1\), recovers by \(B=7\)</td><td>overreaction to one label</td><td>shrinkage / prior strength; check the update rule</td></tr>
+      <tr><td>Seed spread \(\gg\) model gap</td><td>underpowered comparison</td><td>more seeds, paired tasks, report intervals</td></tr>
+    </tbody>
+  </table>
+
+  <p>Two quantities are especially useful and often skipped. The <b>mean predicted probability</b> should be close to the observed base rate on a held-out task; a gap is a level error, which calibration can fix. The <b>effective rank</b> of the latent Jacobian tells you whether \(z\) is doing anything at all: rank 1 means the latent is a scalar in disguise.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>A model has AUC 0.63, Brier 0.27, mean prediction 0.72, base rate 0.50.</p>
+    <p>It ranks better than chance but predicts 22 points too high. On 100 balanced items, the Brier penalty from level alone is roughly \((0.72-0.5)^2=0.048\).</p>
+    <p>Apply a bias correction that maps the mean to 0.50 (or fit a temperature on meta-calibration data): Brier can drop toward 0.22 without changing AUC at all. The signal was there; the scale was not.</p>
+    <p><b>Read this:</b> never conclude “the model has no signal” from Brier alone. Check AUC and the mean prediction first.</p>
+  </div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Separate the two questions. <i>Can the model tell items apart?</i> That is AUC / resolution. <i>Does it say the right number?</i> That is calibration / reliability. Brier is the product of both, so a bad Brier score is ambiguous until you look at the pair. Debugging in the wrong order wastes days.</p>
+  </div>
+</section>

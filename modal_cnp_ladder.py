@@ -38,6 +38,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 CORPUS_ROOT = REMOTE_ROOT / "datasets" / "full" / "allbench-features-v1"
 RESULT_ROOT = REMOTE_ROOT / "results" / "allbench-deterministic-2seed"
 OUTPUT_ROOT = REMOTE_ROOT / "results" / "allbench-cnp-ladder"
+UNIFORM_ROOT = REMOTE_ROOT / "results" / "allbench-uniform-v1" / "ladder"
+UNIFORM_FOLDS = 5
 MODES = ("masked", "visible")
 SEEDS = (20261018, 20261019)
 SUBJECT_SLICE = (384, 768)
@@ -77,6 +79,44 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _source_path(name: str) -> Path:
+    mounted = Path("/opt/aims/src") / name
+    if mounted.exists():
+        return mounted
+    return PROJECT_ROOT / "src" / name
+
+
+def _training_signature() -> str:
+    from aims_starter.caching import content_signature
+
+    return content_signature(
+        [_source_path("aims_starter/faithful_np.py")],
+        {
+            "corpus": CORPUS_ROOT.name,
+            "seeds": list(SEEDS),
+            "modes": list(MODES),
+            "steps": 800,
+            "episodes_per_step": 4,
+            "budgets": list(BUDGETS),
+            "disjoint_context_target": False,
+        },
+    )
+
+
+def _result_signature() -> str:
+    from aims_starter.caching import content_signature
+
+    return content_signature(
+        [_source_path("aims_starter/calibration.py")],
+        {
+            "training": _training_signature(),
+            "orders": len(ORDER_SEEDS),
+            "fit_sample_limit": FIT_SAMPLE_LIMIT,
+            "uniform_folds": UNIFORM_FOLDS,
+        },
+    )
 
 
 def _sigmoid(value: np.ndarray) -> np.ndarray:
@@ -140,6 +180,7 @@ def _load_or_train_models(seed: int, mode: str, x_dim: int):
     source_root = RESULT_ROOT / f"seed-{seed}-{mode}-checkpoints"
     ladder_root = OUTPUT_ROOT / f"seed-{seed}-{mode}-checkpoints"
     ladder_root.mkdir(parents=True, exist_ok=True)
+    training_signature = _training_signature()
 
     cnp = CNPAIRT(x_dim, subject_feature_slice=subject_slice).to(device)
     _load_checkpoint(cnp, source_root / "cnp_airt.pt")
@@ -160,25 +201,46 @@ def _load_or_train_models(seed: int, mode: str, x_dim: int):
     one_pl_path = ladder_root / "irt_1pl.pt"
     one_pl_history_path = ladder_root / "irt_1pl-history.json"
     if one_pl_path.exists():
+        one_pl_history = _read_json(one_pl_history_path)
+        if (
+            one_pl_history is None
+            or one_pl_history.get("training_signature") != training_signature
+        ):
+            raise RuntimeError(
+                "cached 1PL checkpoint was produced by different training code or "
+                f"protocol; remove {one_pl_path} and {one_pl_history_path} before rerunning"
+            )
         one_pl_state = torch.load(one_pl_path, map_location=device)
         one_pl = Amortized1PL(
             x_dim, int(one_pl_state["theta"].shape[0]), subject_feature_slice=subject_slice
         ).to(device)
         one_pl.load_state_dict(one_pl_state)
         one_pl.eval()
-        one_pl_history = _read_json(one_pl_history_path)
     else:
         one_pl, history = train_amortized_1pl(
             tasks, seed=seed, steps=800, subject_feature_slice=subject_slice
         )
         torch.save(one_pl.state_dict(), one_pl_path)
-        one_pl_history = {"history": history}
+        one_pl_history = {
+            "history": history,
+            "training_signature": training_signature,
+        }
         _write_json(one_pl_history_path, one_pl_history)
         volume.commit()
 
     no_delta_path = ladder_root / "cnp_no_delta.pt"
     no_delta_history_path = ladder_root / "cnp_no_delta-history.json"
     if no_delta_path.exists():
+        no_delta_history = _read_json(no_delta_history_path)
+        if (
+            no_delta_history is None
+            or no_delta_history.get("training_signature") != training_signature
+        ):
+            raise RuntimeError(
+                "cached no-delta checkpoint was produced by different training code "
+                f"or protocol; remove {no_delta_path} and {no_delta_history_path} "
+                "before rerunning"
+            )
         no_delta_state = torch.load(no_delta_path, map_location=device)
         no_delta = CNPAIRT(
             x_dim,
@@ -187,7 +249,6 @@ def _load_or_train_models(seed: int, mode: str, x_dim: int):
         ).to(device)
         no_delta.load_state_dict(no_delta_state)
         no_delta.eval()
-        no_delta_history = _read_json(no_delta_history_path)
     else:
         no_delta, history = train_cnp(
             tasks,
@@ -198,7 +259,10 @@ def _load_or_train_models(seed: int, mode: str, x_dim: int):
             use_theta_delta=False,
         )
         torch.save(no_delta.state_dict(), no_delta_path)
-        no_delta_history = {"history": history}
+        no_delta_history = {
+            "history": history,
+            "training_signature": training_signature,
+        }
         _write_json(no_delta_history_path, no_delta_history)
         volume.commit()
 
@@ -318,6 +382,93 @@ def _fit_calibrators(records: list[dict[str, Any]]):
         calibrators[arm] = calibrator
         summaries[arm] = calibrator.summary()
     return calibrators, summaries
+
+
+def _fit_one_calibrator(samples: list[dict[str, Any]], rng):
+    from aims_starter.calibration import AnchorCalibrator
+
+    logits, labels, rates, budgets = _flatten(samples)
+    if len(labels) > FIT_SAMPLE_LIMIT:
+        index = rng.choice(len(labels), size=FIT_SAMPLE_LIMIT, replace=False)
+        logits, labels, rates, budgets = (
+            logits[index],
+            labels[index],
+            rates[index],
+            budgets[index],
+        )
+    return AnchorCalibrator.fit(logits, labels, rates, budgets)
+
+
+def _fit_calibrators_uniform(records: list[dict[str, Any]]):
+    rng = np.random.default_rng(20261020)
+    output: dict[str, Any] = {}
+    for arm in ARMS:
+        if arm == "beta":
+            continue
+        samples = [
+            record
+            for record in records
+            if record["arm"] == arm and record["split"] == "validation"
+        ]
+        folds = sorted({int(record["fold"]) for record in samples})
+        output[arm] = {
+            "full": _fit_one_calibrator(samples, rng),
+            "folds": {
+                fold: _fit_one_calibrator(
+                    [record for record in samples if int(record["fold"]) != fold], rng
+                )
+                for fold in folds
+            },
+        }
+    return output
+
+
+def _metric_rows_uniform(records: list[dict[str, Any]], calibrators) -> list[dict[str, Any]]:
+    from aims_starter.faithful_np import binary_auc
+    from aims_starter.metrics import calibration_ece
+
+    rows = []
+    for record in records:
+        labels = np.asarray(record["labels"], dtype=float)
+        logits = np.asarray(record["logits"], dtype=float)
+        probability = _sigmoid(logits)
+        arm = record["arm"]
+        if arm == "beta":
+            probability_calibrated = probability
+        else:
+            key = (
+                int(record["fold"])
+                if record["split"] == "validation"
+                else "full"
+            )
+            calibrator = (
+                calibrators[arm]["folds"][key]
+                if key != "full"
+                else calibrators[arm]["full"]
+            )
+            probability_calibrated = calibrator.transform(
+                logits, record["budget"], record["context_labels"]
+            )
+        rows.append(
+            {
+                "arm": arm,
+                "split": record["split"],
+                "fold": int(record["fold"]),
+                "benchmark_id": record["benchmark_id"],
+                "task_id": record["task_id"],
+                "order_seed": record["order_seed"],
+                "budget": record["budget"],
+                "brier_raw": float(np.mean((probability - labels) ** 2)),
+                "brier_cal": float(np.mean((probability_calibrated - labels) ** 2)),
+                "ece_raw": float(calibration_ece(labels.tolist(), probability.tolist())),
+                "ece_cal": float(
+                    calibration_ece(labels.tolist(), probability_calibrated.tolist())
+                ),
+                "auc_raw": float(binary_auc(labels, probability)),
+                "auc_cal": float(binary_auc(labels, probability_calibrated)),
+            }
+        )
+    return rows
 
 
 def _metric_rows(records: list[dict[str, Any]], calibrators) -> list[dict[str, Any]]:
@@ -520,6 +671,9 @@ def _collect(seed: int, mode: str, orders: int, limit_tasks: int):
     x_dim = int(item_embeddings.shape[1] + subject_embeddings.shape[1])
     evaluation_items = pd.read_parquet(CORPUS_ROOT / "eval_items.parquet")
     order_frame = pd.read_parquet(CORPUS_ROOT / "eval_orders.parquet")
+    from aims_starter.uniform_eval import validation_fold_map
+
+    fold_map = validation_fold_map(evaluation_items, n_folds=UNIFORM_FOLDS)
     models = _load_or_train_models(seed, mode, x_dim)
     models["irt_1pl"] = models["one_pl"]
     models["irt_2pl"] = models["online"]
@@ -565,6 +719,7 @@ def _collect(seed: int, mode: str, orders: int, limit_tasks: int):
                             "benchmark_id": benchmark,
                             "task_id": task_id,
                             "order_seed": int(order_seed),
+                            "fold": int(fold_map.get(task_id, -1)),
                             "arm": "beta",
                             "budget": int(budget),
                             "logits": np.full(
@@ -596,6 +751,7 @@ def _collect(seed: int, mode: str, orders: int, limit_tasks: int):
                             "benchmark_id": benchmark,
                             "task_id": task_id,
                             "order_seed": int(order_seed),
+                            "fold": int(fold_map.get(task_id, -1)),
                             "arm": arm,
                             "budget": int(budget),
                             "logits": np.asarray(logits, dtype=float),
@@ -656,6 +812,7 @@ def run(
     if not 1 <= orders <= len(ORDER_SEEDS):
         raise ValueError("orders must be between 1 and 10")
     output = OUTPUT_ROOT / f"cnp-ladder-{seed}-{mode}.json"
+    result_signature = _result_signature()
     existing = _read_json(output)
     if (
         existing is not None
@@ -664,6 +821,11 @@ def run(
         and int(existing.get("limit_tasks", 0)) == 0
         and int(existing.get("orders", 0)) == len(ORDER_SEEDS)
     ):
+        if existing.get("result_signature") != result_signature:
+            raise RuntimeError(
+                "cached ladder result was produced by different code or protocol; "
+                f"remove {output} before rerunning"
+            )
         return existing
 
     records, models = _collect(seed, mode, orders, limit_tasks)
@@ -686,6 +848,7 @@ def run(
         "mode": mode,
         "orders": orders,
         "limit_tasks": limit_tasks,
+        "result_signature": result_signature,
         "arms": list(ARMS),
         "fits": fits,
         "by_budget": by_budget,
@@ -703,24 +866,123 @@ def run(
     return result
 
 
+@app.function(
+    image=image,
+    gpu="L4",
+    cpu=8,
+    memory=65_536,
+    volumes={str(REMOTE_ROOT): volume},
+    timeout=6 * 60 * 60,
+)
+def run_uniform(
+    seed: int = 20261018,
+    mode: str = "masked",
+    orders: int = 10,
+    limit_tasks: int = 0,
+) -> dict[str, Any]:
+    import pandas as pd
+
+    from aims_starter.uniform_eval import validation_fold_frame
+
+    if seed not in SEEDS:
+        raise ValueError(f"seed must be one of {SEEDS}")
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}")
+    if not 1 <= orders <= len(ORDER_SEEDS):
+        raise ValueError("orders must be between 1 and 10")
+    output = UNIFORM_ROOT / f"cnp-ladder-{seed}-{mode}.json"
+    records_path = UNIFORM_ROOT / f"cnp-ladder-{seed}-{mode}-rows.parquet"
+    result_signature = _result_signature()
+    existing = _read_json(output)
+    if (
+        existing is not None
+        and not limit_tasks
+        and orders == len(ORDER_SEEDS)
+        and int(existing.get("limit_tasks", 0)) == 0
+        and int(existing.get("orders", 0)) == len(ORDER_SEEDS)
+    ):
+        if existing.get("result_signature") != result_signature:
+            raise RuntimeError(
+                "cached uniform ladder result was produced by different code or "
+                f"protocol; remove {output} before rerunning"
+            )
+        return existing
+
+    records, models = _collect(seed, mode, orders, limit_tasks)
+    calibrators = _fit_calibrators_uniform(records)
+    metric_rows = _metric_rows_uniform(records, calibrators)
+    by_budget, alc, task_alc = _summarize(metric_rows)
+    paired = []
+    for split in ("validation", "test"):
+        for first, second in (
+            ("cnp_full", "cnp_no_delta"),
+            ("cnp_no_delta", "irt_2pl"),
+            ("irt_2pl", "irt_1pl"),
+            ("cnp_full", "cnp_no_delta_retrained"),
+            ("cnp_no_delta_retrained", "cnp_no_delta"),
+        ):
+            paired.append(_paired(task_alc, split, first, second))
+    evaluation_items = pd.read_parquet(CORPUS_ROOT / "eval_items.parquet")
+    fold_frame = validation_fold_frame(evaluation_items, n_folds=UNIFORM_FOLDS)
+    result = {
+        "status": "cnp_ladder_uniform",
+        "seed": seed,
+        "mode": mode,
+        "orders": orders,
+        "limit_tasks": limit_tasks,
+        "result_signature": result_signature,
+        "arms": list(ARMS),
+        "split_policy": "validation folds are out-of-fold; test uses the full validation fit",
+        "folds": int(UNIFORM_FOLDS),
+        "fold_tasks": fold_frame.to_dict(orient="records"),
+        "fits": {
+            arm: {
+                "full": fit["full"].summary(),
+                "folds": {
+                    str(fold): calibrator.summary()
+                    for fold, calibrator in fit["folds"].items()
+                },
+            }
+            for arm, fit in calibrators.items()
+        },
+        "by_budget": by_budget,
+        "alc": alc,
+        "paired": paired,
+        "delta": _delta_diagnostics(records),
+        "raw_check": _check_raw(records, seed, mode),
+        "training": {
+            "irt_1pl": models["histories"]["irt_1pl"],
+            "cnp_no_delta": models["histories"]["cnp_no_delta"],
+        },
+    }
+    UNIFORM_ROOT.mkdir(parents=True, exist_ok=True)
+    _write_json(output, result)
+    frame = pd.DataFrame(metric_rows)
+    frame.to_parquet(records_path, index=False)
+    volume.commit()
+    return result
+
+
 @app.local_entrypoint()
 def main(
     seed: int = 0,
     mode: str = "",
     orders: int = 10,
     limit_tasks: int = 0,
+    uniform: bool = False,
 ) -> None:
+    function = run_uniform if uniform else run
     if seed and mode:
         print(
             json.dumps(
-                run.remote(seed, mode, orders, limit_tasks),
+                function.remote(seed, mode, orders, limit_tasks),
                 indent=2,
                 sort_keys=True,
             )
         )
         return
     handles = [
-        run.spawn(seed_value, mode_value, orders, limit_tasks)
+        function.spawn(seed_value, mode_value, orders, limit_tasks)
         for seed_value in SEEDS
         for mode_value in MODES
     ]

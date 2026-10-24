@@ -1,0 +1,198 @@
+<!-- ================= PART II ================= -->
+<section class="part" id="part2">
+  <div class="part-kicker">Part II</div>
+  <h1 class="part-title" data-part="Part II">Scoring a probabilistic predictor</h1>
+  <p class="part-intro">The competition pays in Brier score, averaged over budgets. Calibration and discrimination are the two ways that score can fail, and they need different fixes.</p>
+  <ul class="part-list">
+    <li>7 · Brier score</li>
+    <li>8 · Calibration</li>
+    <li>9 · Discrimination and AUC</li>
+    <li>10 · The learning curve and ALC</li>
+    <li>11 · Who gets weight?</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2 class="sec" id="s7-h"><span class="num">7</span>Brier score: the only number you are paid on</h2>
+  <p class="lede">Brier is mean squared error applied to probabilities. It rewards being right and honest at the same time.</p>
+
+  <p>For \(n\) predictions \(p_i\) and outcomes \(y_i\in\{0,1\}\):</p>
+
+  <div class="eq">\[ \mathrm{BS}=\frac{1}{n}\sum_{i=1}^{n}(p_i-y_i)^2. \]</div>
+
+  <p>Each term is small when the probability is close to the outcome. Predicting 0.9 on a success costs \(0.01\); predicting 0.9 on a failure costs \(0.81\). The score is in squared-probability units, bounded in \([0,1]\), lower is better.</p>
+
+  <h3>It is a proper scoring rule</h3>
+  <p>Suppose the true success probability is \(\pi\). The expected Brier score of a forecast \(p\) is</p>
+
+  <div class="eq">\[ \mathbb{E}[(p-Y)^2]=(p-\pi)^2+\pi(1-\pi). \]</div>
+
+  <p>The second term does not depend on \(p\); the first is minimized uniquely at \(p=\pi\). So the best expected score is achieved by reporting your true belief. No other probability can do better in expectation. This property — <b>strict propriety</b> — is why the competition can use Brier without worrying that competitors will game it by scattering predictions.</p>
+
+  <h3>The decomposition worth remembering</h3>
+  <p>Group predictions into bins \(k\) with mean forecast \(\bar p_k\) and observed frequency \(\bar y_k\):</p>
+
+  <div class="eq">\[ \mathrm{BS}=\underbrace{\frac{1}{n}\sum_k n_k(\bar p_k-\bar y_k)^2}_{\text{reliability}}\;-\;\underbrace{\frac{1}{n}\sum_k n_k(\bar y_k-\bar y)^2}_{\text{resolution}}\;+\;\underbrace{\bar y(1-\bar y)}_{\text{uncertainty}}. \]</div>
+
+  <ul>
+    <li><b>Reliability</b>: how far bin averages are from observed frequencies. Calibration error. Lower is better.</li>
+    <li><b>Resolution</b>: how much the bins differ from the overall base rate. Higher is better — it is the model’s ability to separate easy from hard cases.</li>
+    <li><b>Uncertainty</b>: the irreducible variance of the outcomes. It depends on the dataset, not the model.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Brier rewards two different skills. <b>Resolution</b> is “can you tell which items are harder?”. <b>Reliability</b> is “when you say 70%, is it really 70%?”. A model can be excellent at ranking items and still get a bad Brier score if its probabilities are on the wrong scale. That is not a contradiction; it is the most common failure in this repo.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>\(y=(1,0,1,0)\), \(p=(0.9,0.2,0.6,0.4)\).</p>
+    <p>Squared errors: \(0.01,\,0.04,\,0.16,\,0.16\). Brier \(=0.37/4=0.0925\).</p>
+    <p>Constant-0.5 baseline: 0.25. Skill score \(=1-0.0925/0.25=0.63\), i.e. 63% of the baseline’s error removed.</p>
+    <p>Now move one prediction from 0.9 to 0.99 on the success: error falls from 0.01 to 0.0001 — but move it to 0.99 on a failure and the error explodes from 0.81 to 0.9801. Asymmetric risk in one line.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Do not compare raw Brier scores across benchmarks with different base rates. The floor is \(\bar y(1-\bar y)\), not zero: a benchmark with 10% successes has a much lower floor than one with 50%. Use a skill score, or compare only on identical tasks.</p>
+  </div>
+</section>
+
+<section id="s8">
+  <h2 class="sec" id="s8-h"><span class="num">8</span>Calibration: are your probabilities honest?</h2>
+  <p class="lede">Calibration is the agreement between the number you say and the frequency that happens. It is separate from being able to tell items apart.</p>
+
+  <p>Among all cases where you predicted about 0.7, roughly 70% should succeed. If only 50% succeed, you are <b>overconfident</b>. If 85% succeed, you are <b>underconfident</b>. A reliability diagram plots observed frequency against predicted probability; perfect calibration is the diagonal.</p>
+
+  <p>The scalar summary used here is the <b>expected calibration error</b> over \(K\) equal-width bins:</p>
+
+  <div class="eq">\[ \mathrm{ECE}=\sum_{k=1}^{K}\frac{n_k}{n}\,\bigl|\,\bar p_k-\bar y_k\,\bigr|. \]</div>
+
+  <p>ECE is a diagnostic, not the competition metric. It depends on the number of bins, it ignores ordering within a bin, and it is not a proper scoring rule — you can reduce ECE by throwing away resolution. Report it alongside Brier, never instead of it.</p>
+
+  <h3>The two standard fixes</h3>
+  <ul>
+    <li><b>Temperature scaling.</b> \(p'=\sigma(z/T)\). One parameter, fitted on held-out data. \(T>1\) softens overconfidence; \(T<1\) sharpens underconfidence. It is monotone, so AUC does not change.</li>
+    <li><b>Platt scaling.</b> \(p'=\sigma(az+b)\). Two parameters; can fix both scale and bias. Again monotone if \(a>0\).</li>
+  </ul>
+
+  <p>Neither fix creates resolution. If the model cannot tell easy items from hard ones, no monotone rescaling will help; it only moves the probability scale.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Imagine a weather forecaster who says “70% chance of rain” on 100 days, and it rains on 70 of them. Calibration is that match. Now imagine a forecaster who always says 70% and one who says 20% on dry days and 90% on wet days. Both can be calibrated; the second is more useful. Brier rewards both calibration and usefulness; ECE only checks the first.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Two bins of five predictions each.</p>
+    <p>Bin 1: mean prediction 0.84, observed 3/5 = 0.60. Gap 0.24.</p>
+    <p>Bin 2: mean prediction 0.44, observed 3/5 = 0.60. Gap 0.16.</p>
+    <p>\(\mathrm{ECE}=0.5(0.24)+0.5(0.16)=0.20\). The model is overconfident in the first bin and underconfident in the second. A single temperature may not fix both; that is a signal of a shape problem, not just a scale problem.</p>
+    <p>Apply \(T=2\) to logits \((-1,0,1)\): they become \((-0.5,0,0.5)\), probabilities \((0.378,0.5,0.622)\). Ordering is preserved; only the spread changes.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p><code>AnchorCalibrator</code> fits a scale, a bias, and a weight on the context base rate, separately per budget, on meta-calibration folds from training benchmarks. The context-rate anchor is the only task-specific quantity available at low budgets, so it is blended in rather than trusted outright.</p>
+  </div>
+</section>
+
+<section id="s9">
+  <h2 class="sec" id="s9-h"><span class="num">9</span>Discrimination and AUC: can you tell items apart?</h2>
+  <p class="lede">AUC measures ranking, not probability. It answers “is a random success scored above a random failure?”, and it is blind to whether the scores are calibrated.</p>
+
+  <p>For every positive–negative pair, count a win if the positive has the higher score, a tie as half. That fraction is the area under the ROC curve:</p>
+
+  <div class="eq">\[ \mathrm{AUC}=P\bigl(s_{+}>s_{-}\bigr)+\tfrac12P\bigl(s_{+}=s_{-}\bigr). \]</div>
+
+  <p>0.5 is chance, 1.0 is perfect ordering. AUC is invariant to any strictly increasing transformation of the scores: adding 3, multiplying by 10, or applying a sigmoid all leave it unchanged. It is therefore the right diagnostic for “does the model have signal?” and the wrong metric for “are the probabilities usable?”.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>AUC is a <i>ranking</i> score, like a leaderboard that only cares about order. Brier is a <i>probability</i> score, like a weather forecast that must state the number. A model can rank perfectly and still say “99%” for everything — AUC 1.0, terrible Brier. Conversely, a model can be perfectly calibrated at the base rate and have AUC 0.5: it says 30% to everyone, and 30% is right on average, but it cannot distinguish anything.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Scores \(s=(0.9,0.8,0.4,0.3)\), outcomes \(y=(1,0,1,0)\). Positives: 0.9, 0.4. Negatives: 0.8, 0.3.</p>
+    <p>Pairs: \(0.9>0.8\) ✓, \(0.9>0.3\) ✓, \(0.4>0.8\) ✗, \(0.4>0.3\) ✓. Three wins out of four: \(\mathrm{AUC}=0.75\).</p>
+    <p>Now transform every score by \(s\mapsto 10s+2\): the same three pairs win, AUC stays 0.75. The Brier score, however, changes dramatically because the probabilities are no longer in \([0,1]\).</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“AUC went up” is not evidence that the submission improved. The leaderboard is Brier ALC. Optimize a proper score; use AUC only to diagnose whether the model has resolution.</p>
+  </div>
+</section>
+
+<section id="s10">
+  <h2 class="sec" id="s10-h"><span class="num">10</span>The learning curve and Brier ALC</h2>
+  <p class="lede">The competition does not score one budget. It scores the whole path from zero labels to thirty-one, with the middle of the path weighted most.</p>
+
+  <p>At each budget \(B\in\{0,1,3,7,15,31\}\), reveal the first \(B\) outcomes of the acquisition pool (the prefixes are nested), recompute predictions for the untouched evaluation pool, and compute Brier. That gives six numbers \(B_0,\dots,B_{31}\). The official aggregate is</p>
+
+  <div class="eq">\[ \mathrm{ALC}=0.1B_0+0.2B_1+0.2B_3+0.2B_7+0.2B_{15}+0.1B_{31}. \]</div>
+
+  <p>The weights sum to one, so ALC is on the same scale as Brier. The endpoints get half weight. That is deliberate: budget 0 is almost pure prior, budget 31 is almost pure interpolation, and the interesting adaptation happens in between. A model that wins only at \(B=31\) but loses at \(B=0\) can easily lose overall.</p>
+
+  <p>The curve need not be monotone. A single noisy label at \(B=1\) can make predictions worse; a model that overreacts to the first label can produce a visible bump. That bump is information, not necessarily a bug — but it must be explained, not hidden.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>ALC is a weighted average of six exam grades, with the middle four counting double. It rewards a model that is good <i>early</i> and stays good, not one that memorizes the final context. If you only tune the last budget, you are optimizing 10% of the score.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Model Brier: \((0.250,0.243,0.231,0.218,0.205,0.199)\).</p>
+    <p>ALC \(=0.1(0.250)+0.2(0.243)+0.2(0.231)+0.2(0.218)+0.2(0.205)+0.1(0.199)\)</p>
+    <p>\(=0.0250+0.0486+0.0462+0.0436+0.0410+0.0199=0.2243\).</p>
+    <p>Constant-0.5 baseline: \(0.250\). Relative gain: \((0.250-0.2243)/0.250=10.3\%\).</p>
+    <p>Notice that the \(B=0\) term contributes only 0.025, while the four middle terms contribute 0.179 — 80% of the score.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Computing ALC from budgets that are not nested, or from different acquisition orders per budget, silently changes the experiment. “Budget 7” must contain the labels revealed at budgets 1 and 3; otherwise the curve is not a learning curve.</p>
+  </div>
+</section>
+
+<section id="s11">
+  <h2 class="sec" id="s11-h"><span class="num">11</span>Who gets weight? Aggregation and the leaderboard</h2>
+  <p class="lede">The same predictions can score 0.218 or 0.300 depending on whether you average items or tasks. The competition averages tasks.</p>
+
+  <p>Three levels are easy to confuse:</p>
+  <ul>
+    <li><b>Item level:</b> one squared error per evaluation item. A task with 5,000 items dominates one with 50.</li>
+    <li><b>Task level:</b> average items within a subject–benchmark pair, then average pairs equally. This is the leaderboard’s unit.</li>
+    <li><b>Benchmark level:</b> average tasks within a benchmark, then benchmarks. Useful for reporting, but not the official weighting unless the organizer says so.</li>
+  </ul>
+
+  <p>Micro-averaging pools all items; macro-averaging pools tasks. They answer different questions. Micro asks “how good is the average prediction?”; macro asks “how good is the average task?”. When task sizes differ, the two can disagree in sign as well as magnitude.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Task A: 100 items, Brier 0.20. Task B: 10 items, Brier 0.40.</p>
+    <p>Micro \(=(100\cdot0.20+10\cdot0.40)/110=24/110=0.218\).</p>
+    <p>Macro \(=(0.20+0.40)/2=0.300\).</p>
+    <p>A 0.082 gap — larger than most model improvements in this competition — produced purely by the averaging choice. Always state which one you report.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>If you compute a confidence interval over items, a big benchmark will dominate and the interval will look tiny. Resample <i>tasks</i> (or benchmarks) instead. The official protocol averages each eligible subject–benchmark pair equally before the leaderboard average.</p>
+  </div>
+
+  <table class="striped">
+    <thead><tr><th style="width:26%">Metric</th><th style="width:24%">What it measures</th><th style="width:20%">Proper?</th><th>Use it for</th></tr></thead>
+    <tbody>
+      <tr><td><b>Brier</b></td><td>squared probability error</td><td>yes, strictly</td><td>the competition; model selection</td></tr>
+      <tr><td><b>Log loss</b></td><td>negative log-likelihood</td><td>yes, strictly</td><td>training; sharper penalty for confidence</td></tr>
+      <tr><td><b>AUC</b></td><td>ranking</td><td>no</td><td>diagnosing resolution only</td></tr>
+      <tr><td><b>ECE</b></td><td>bin-wise calibration</td><td>no</td><td>diagnosing probability scale</td></tr>
+      <tr><td><b>Accuracy</b></td><td>thresholded decisions</td><td>no</td><td>almost never, here</td></tr>
+    </tbody>
+  </table>
+</section>

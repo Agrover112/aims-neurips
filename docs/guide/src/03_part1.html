@@ -1,0 +1,244 @@
+<!-- ================= PART I ================= -->
+<section class="part" id="part1">
+  <div class="part-kicker">Part I</div>
+  <h1 class="part-title" data-part="Part I">The statistics you actually need</h1>
+  <p class="part-intro">Six ideas carry almost all of the weight: a probability is a prediction, a logit makes it linear, a likelihood scores it, a prior stabilizes it, a standard error tells you whether a difference is real, and entropy tells you what a label is worth.</p>
+  <ul class="part-list">
+    <li>1 · One picture of the problem</li>
+    <li>2 · Probability, odds, logits</li>
+    <li>3 · Likelihood and log loss</li>
+    <li>4 · Bayes, priors, shrinkage</li>
+    <li>5 · Uncertainty and paired tests</li>
+    <li>6 · Entropy, KL, information</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2 class="sec" id="s1-h"><span class="num">1</span>One picture of the whole problem</h2>
+  <p class="lede">You are filling in a mostly empty subject × item table, and you are paid for the honesty of each filled-in probability, not for the label you would guess.</p>
+
+  <p>Imagine a giant table. Each row is a <b>subject</b> — one AI system. Each column is an <b>item</b> — one task. Each cell would contain a binary outcome \(y_{sj}\in\{0,1\}\): did subject \(s\) succeed on item \(j\)? In the real data, almost every cell is missing, because running every subject on every item is exactly what evaluation is trying to avoid.</p>
+
+  <p>The competition hands you one row-slice at a time: a subject, a benchmark, a set of item descriptions, and two disjoint pools of items. The <b>acquisition pool</b> can reveal outcomes, up to the current budget. The <b>evaluation pool</b> is where you are scored; its outcomes stay hidden. Your predictor is a function</p>
+
+  <div class="eq">\[ p_{sj}=P\bigl(y_{sj}=1\mid x_j,\; m_s,\; C_s^{(B)}\bigr), \]</div>
+
+  <p>where \(x_j\) is everything known about item \(j\) before its outcome, \(m_s\) is subject metadata, and \(C_s^{(B)}=\{(x_i,y_{si})\}_{i=1}^{B}\) is the set of acquired labels. The output must be a probability for <i>every</i> evaluation item.</p>
+
+  <figure>
+    <img src="figures/alc.svg" alt="Two Brier learning curves, adaptive model and constant predictor">
+    <figcaption><b>The object you are optimizing.</b> Brier score at each budget, joined into one weighted number. The shaded area is the part of the curve the adaptive model wins; the dashed line is the “no information” predictor \(p=0.5\). Lower is better.</figcaption>
+  </figure>
+
+  <h3>Why this is hard in three different ways</h3>
+  <ul>
+    <li><b>Cold items.</b> Evaluation items were never seen. Memorizing an item’s difficulty is useless; you need difficulty to be a function of item content.</li>
+    <li><b>Cold subject at \(B=0\).</b> With no labels, you know only metadata. A subject-level prior has to do all the work.</li>
+    <li><b>Tiny budgets.</b> At \(B=1\), one binary outcome is one bit of evidence — and a noisy bit. The model must update without overreacting.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Think of the table as a light-cone problem. The item column tells you how hard the task is; the subject row tells you how capable the system is; the revealed cells are the only place the two meet. A good model is a principled interpolation between “what the content suggests” and “what the few labels prove”.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Four evaluation items have hidden outcomes \(y=(1,0,1,0)\).</p>
+    <p>Predict \(p=0.5\) for all four. Brier \(=\frac{1}{4}\left[(0.5)^2+(0.5)^2+(0.5)^2+(0.5)^2\right]=0.25\).</p>
+    <p>Now predict \(p=(0.9,0.2,0.6,0.4)\). Brier \(=\frac{1}{4}(0.01+0.04+0.16+0.16)=0.0925\).</p>
+    <p><b>Read this:</b> 0.25 is not “average”, it is the score of a predictor that knows nothing. A model at 0.27 is <i>worse than admitting ignorance</i>. This single fact explains most of the debugging in Part VI.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>“Accuracy” is not the metric. A model can be 80% accurate and badly calibrated; Brier punishes the probability, not the thresholded decision. Never tune a classifier’s accuracy and expect the Brier score to follow.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2 class="sec" id="s2-h"><span class="num">2</span>Probability, odds, and logits</h2>
+  <p class="lede">The logit is the model’s native language: it turns “probability” into a number that can be added to, compared, and modeled linearly.</p>
+
+  <p>A probability \(p\in[0,1]\) is what you report. The <b>odds</b> are \(p/(1-p)\) — “four to one” means \(p=0.8\). The <b>logit</b> is the log of the odds:</p>
+
+  <div class="eq">\[ z=\operatorname{logit}(p)=\log\frac{p}{1-p},\qquad p=\sigma(z)=\frac{1}{1+e^{-z}}. \]</div>
+
+  <p>The two functions are inverses. \(p=0.5\) maps to \(z=0\); \(p\to1\) maps to \(z\to+\infty\); \(p\to0\) maps to \(z\to-\infty\). The sigmoid derivative is \(\sigma'(z)=\sigma(z)(1-\sigma(z))\), which is why a logit change near zero moves the probability much more than the same change in the tail.</p>
+
+  <figure>
+    <img src="figures/sigmoid.svg" alt="Sigmoid curve with annotated probabilities">
+    <figcaption><b>One curve, two scales.</b> The same fitted value is a logit on the horizontal axis and a probability on the vertical axis. Models add evidence in logit space; the scorer sees probability space.</figcaption>
+  </figure>
+
+  <h3>Why model logits instead of probabilities</h3>
+  <ul>
+    <li><b>No boundaries.</b> A linear model \(w^\top x\) can output any real number; the sigmoid keeps the result inside \([0,1]\).</li>
+    <li><b>Additive evidence.</b> Independent pieces of evidence multiply in odds, so they add in log-odds. Naive Bayes is literally a sum of logits.</li>
+    <li><b>IRT is linear in the logit.</b> \(a_j(\theta_s-b_j)\) is a straight line in ability. Difficulty shifts it; discrimination scales it.</li>
+  </ul>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>A logit is a “score” in a game with no upper limit. Zero means a coin flip; \(+2\) means roughly 88% — confident but not certain; \(+6\) means 99.75%. Adding one unit of logit multiplies the odds by \(e\approx2.72\). This is why a model can be “confident” at logit 4 and still be wrong: 98% is not 100%.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Take \(p=0.8\). Odds \(=0.8/0.2=4\); logit \(=\log 4=1.386\).</p>
+    <p>Now subtract 0.7 of evidence: \(z=1.386-0.7=0.686\), so \(p=\sigma(0.686)=0.665\).</p>
+    <p>Check the derivative at \(z=0\): \(\sigma'(0)=0.25\). A small step \(\Delta z=0.1\) changes \(p\) by about \(0.025\) near the middle, but only by about \(0.002\) at \(z=4\).</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>Every model outputs a logit and calls <code>sigmoid</code> once at the end; calibration (<code>src/aims_starter/calibration.py</code>) operates on that logit, not on the probability. Temperature scaling divides the logit by \(T\) — a one-line change in logit space that is messy in probability space.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2 class="sec" id="s3-h"><span class="num">3</span>Likelihood and log loss</h2>
+  <p class="lede">A likelihood asks “how plausible are these labels under this probability?”, and its negative log is the loss the network minimizes.</p>
+
+  <p>For one binary outcome, the probability of what actually happened can be written in one line:</p>
+
+  <div class="eq">\[ P(y\mid p)=p^{y}(1-p)^{1-y}= \begin{cases} p, & y=1,\\ 1-p, & y=0.\end{cases} \]</div>
+
+  <p>For \(n\) independent outcomes, the likelihood is the product \(\prod_i p_i^{y_i}(1-p_i)^{1-y_i}\). Products underflow and have awkward derivatives, so we take the log. Maximizing the log-likelihood is the same as minimizing the <b>negative log-likelihood</b> (NLL):</p>
+
+  <div class="eq">\[ \mathrm{NLL}(p)=-\frac{1}{n}\sum_{i=1}^{n}\left[y_i\log p_i+(1-y_i)\log(1-p_i)\right]. \]</div>
+
+  <p>This is exactly binary cross-entropy. With a sigmoid, PyTorch’s <code>binary_cross_entropy_with_logits</code> computes it stably in one step.</p>
+
+  <figure>
+    <img src="figures/nll.svg" alt="Negative log likelihood for y=1 and y=0">
+    <figcaption><b>The loss is asymmetric in a useful way.</b> Predicting \(0.9\) when \(y=1\) costs 0.105 nats; predicting \(0.1\) when \(y=1\) costs 2.303. Being confidently wrong is punished without bound, while being uncertain is cheap.</figcaption>
+  </figure>
+
+  <h3>The MLE of a Bernoulli is just the base rate</h3>
+  <p>Set the derivative of the total log-likelihood to zero: \(\sum_i (y_i-p)/[p(1-p)]=0\), so \(\hat p=\frac{1}{n}\sum_i y_i\). With no prior, the best constant probability is the observed frequency. That is the “empirical mean” baseline, and it is already hard to beat when there is no item information.</p>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Log loss is a penalty measured in “surprise”. If you say an event has probability 0.9 and it happens, you are only mildly surprised (\(-\log 0.9=0.105\)). If you say 0.1 and it happens, you are very surprised (\(-\log 0.1=2.303\)). The average surprise is the loss. A model that is never surprised is either perfect or cheating.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Three outcomes \(y=(1,0,1)\).</p>
+    <p>Predict \(p=0.7\) everywhere: \(\mathrm{NLL}=-[2\log 0.7+\log 0.3]/3=(0.713+1.204)/3=0.639\).</p>
+    <p>Predict \(p=0.9\): \(\mathrm{NLL}=-[2\log 0.9+\log 0.1]/3=(0.211+2.303)/3=0.838\).</p>
+    <p>The base rate is \(2/3=0.667\), with NLL \(0.6365\). So 0.7 is close to optimal; 0.9 is much worse. <b>More confidence is not more skill.</b></p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Cross-entropy is not calibrated by construction. A network can drive NLL down by becoming confident on easy training items and still output badly scaled probabilities on a new benchmark. That is a distribution-shift problem, not an optimization bug — see §8 and §18.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2 class="sec" id="s4-h"><span class="num">4</span>Bayes, priors, and shrinkage</h2>
+  <p class="lede">A prior is a small, honest lie that keeps an estimate sane when the data are scarce — and the posterior is the corrected version of that lie.</p>
+
+  <p>Bayes’ rule for parameters \(\pi\) and observed labels \(y\):</p>
+
+  <div class="eq">\[ \underbrace{p(\pi\mid y)}_{\text{posterior}}\;\propto\;\underbrace{p(y\mid\pi)}_{\text{likelihood}}\;\underbrace{p(\pi)}_{\text{prior}}. \]</div>
+
+  <p>The missing denominator is a constant with respect to \(\pi\), so it does not affect the shape or the argmax. With a Bernoulli likelihood and a Beta prior, the posterior is Beta again — <b>conjugacy</b>:</p>
+
+  <div class="eq">\[ \pi\sim\mathrm{Beta}(\alpha,\beta),\quad y_i\sim\mathrm{Bernoulli}(\pi) \;\Longrightarrow\; \pi\mid y\sim\mathrm{Beta}\!\left(\alpha+\sum_i y_i,\;\beta+n-\sum_i y_i\right). \]</div>
+
+  <p>The posterior mean is a weighted average of the prior mean and the data mean:</p>
+
+  <div class="eq">\[ \mathbb{E}[\pi\mid y]=\frac{\alpha+k}{\alpha+\beta+n} =\frac{\alpha+\beta}{\alpha+\beta+n}\,\frac{\alpha}{\alpha+\beta}\;+\;\frac{n}{\alpha+\beta+n}\,\frac{k}{n}. \]</div>
+
+  <p>The prior acts like \(\alpha+\beta\) pseudo-observations. That is the entire idea of <b>shrinkage</b>: with little data, trust the prior; with a lot, trust the data.</p>
+
+  <figure>
+    <img src="figures/beta.svg" alt="Beta prior and posterior after three successes in four trials">
+    <figcaption><b>Three successes in four trials, starting from Beta(2, 2).</b> The posterior is Beta(5, 3); its mean moves from 0.50 to 0.625, not all the way to the data mean 0.75. The prior is still pulling.</figcaption>
+  </figure>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>You have seen a coin land heads once. Is \(P(\text{heads})=1\)? Common sense says no. A prior of Beta(2, 2) says “start at half, with the weight of four imaginary flips”, so one head gives \(3/5=0.6\), not 1.0. The prior is not a claim about the world; it is a variance-control device. Its strength is a dial you can defend and ablate.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Prior \(\mathrm{Beta}(2,2)\); observe \(k=3\) successes in \(n=4\) trials.</p>
+    <p>Posterior: \(\mathrm{Beta}(2+3,\,2+1)=\mathrm{Beta}(5,3)\).</p>
+    <p>Posterior mean: \(5/8=0.625\). Posterior mode: \((5-1)/(8-2)=4/6=0.667\). Data mean: \(0.75\). Prior mean: \(0.5\).</p>
+    <p>The posterior mean sits between prior and data, closer to the prior because the prior has weight 4 and the data have weight 4 — hence exactly halfway between 0.5 and 0.75.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The Beta-Binomial control uses \(p=(2+\sum y_i)/(4+n)\), i.e. \(\mathrm{Beta}(2,2)\) updated online. It is deliberately simple: any neural model that cannot beat it at low budgets is not earning its complexity. The MAP ability fit in <code>adaptation.py</code> is the same idea in logit space, with prior \(\mathcal{N}(0,4)\).</p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2 class="sec" id="s5-h"><span class="num">5</span>Uncertainty, paired tests, and honest error bars</h2>
+  <p class="lede">A difference of 0.003 in Brier ALC is not a result until you know how much the number would move if you reran the experiment.</p>
+
+  <p>An estimator has a <b>standard error</b>: the standard deviation of its sampling distribution. For a mean \(\bar x\) of \(n\) independent observations, \(\mathrm{SE}=\hat\sigma/\sqrt n\). A 95% interval is roughly \(\bar x\pm1.96\,\mathrm{SE}\) for large \(n\), and wider for small \(n\) (use the \(t\) distribution).</p>
+
+  <p>But evaluation data are not independent items. Items cluster inside benchmarks, and repeated trials cluster inside subject–item pairs. The right unit of resampling is the <b>cluster</b> — usually the subject–benchmark task. Two consequences:</p>
+  <ul>
+    <li>Average within a task first, then across tasks (macro-average). Do not let a benchmark with 5,000 items outvote one with 50.</li>
+    <li>Bootstrap <i>tasks</i>, not rows, to get intervals that reflect benchmark-to-benchmark variation.</li>
+  </ul>
+
+  <p>For comparing two models, use <b>paired</b> differences: compute \(d_t=\mathrm{Brier}_A(t)-\mathrm{Brier}_B(t)\) on the same task \(t\). The shared difficulty of the task cancels, and the standard error of \(\bar d\) is usually much smaller than the standard error of either score alone.</p>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>Five tasks, Brier differences \(A-B=(-0.02,-0.01,-0.02,-0.01,-0.01)\).</p>
+    <p>Mean \(=-0.014\). Sample SD \(=0.00548\). \(\mathrm{SE}=0.00548/\sqrt5=0.00245\).</p>
+    <p>\(t=-0.014/0.00245=-5.72\) on 4 degrees of freedom. A 95% interval is about \(-0.014\pm2.78(0.00245)=[-0.021,-0.007]\).</p>
+    <p><b>Read this:</b> the effect is consistent in sign, but five tasks is five tasks. Report the interval, not just the p-value, and do not extrapolate to “all benchmarks”.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Trap</span>
+    <p>Treating 10,000 item predictions as 10,000 independent samples gives absurdly narrow error bars. The effective sample size is closer to the number of independent <i>tasks</i>, which may be 20. This is the most common statistical mistake in benchmark papers.</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2 class="sec" id="s6-h"><span class="num">6</span>Entropy, KL, and the value of a label</h2>
+  <p class="lede">Entropy measures how unsure you are; KL measures how wrong your distribution is; their difference tells you what one more label could buy.</p>
+
+  <p>For a Bernoulli outcome with success probability \(p\), the entropy in nats is</p>
+
+  <div class="eq">\[ H(p)=-p\log p-(1-p)\log(1-p). \]</div>
+
+  <p>It is 0 at \(p=0\) and \(p=1\), and maximal at \(p=0.5\) with \(H=0.693\) nats. Entropy is the average surprise of the <i>true</i> distribution; cross-entropy is the average surprise when you predict \(q\) but the truth is \(p\):</p>
+
+  <div class="eq">\[ H(p,q)=-\sum_y p(y)\log q(y)=H(p)+\mathrm{KL}(p\,\|\,q). \]</div>
+
+  <p>So minimizing log loss is minimizing cross-entropy, and the extra cost over the irreducible entropy is the KL divergence. KL is non-negative, zero only when the distributions match, and <b>asymmetric</b>: \(\mathrm{KL}(p\|q)\neq\mathrm{KL}(q\|p)\) in general.</p>
+
+  <p>For two univariate Gaussians, the formula you will see in the NP objective is</p>
+
+  <div class="eq">\[ \mathrm{KL}\bigl(\mathcal{N}(\mu_1,\sigma_1^2)\,\|\,\mathcal{N}(\mu_2,\sigma_2^2)\bigr) =\log\frac{\sigma_2}{\sigma_1}+\frac{\sigma_1^2+(\mu_1-\mu_2)^2}{2\sigma_2^2}-\frac12. \]</div>
+
+  <div class="box intuition">
+    <span class="tag">Intuition</span>
+    <p>Entropy is how wide your uncertainty is. KL is the price of betting on the wrong distribution. Information gain is the amount by which a label is expected to narrow the width. An item that is always answered correctly by everyone carries almost no information: its outcome is already predictable. An item near 50/50 carries one full bit. This is why acquisition policies prefer uncertain items — but only if the uncertainty is real, not ignorance.</p>
+  </div>
+
+  <div class="box solved">
+    <span class="tag">Solved in 60 seconds</span>
+    <p>\(H(0.9)=-0.9\log0.9-0.1\log0.1=0.105+0.230=0.325\) nats.</p>
+    <p>\(\mathrm{KL}(\mathrm{Bern}(0.9)\,\|\,\mathrm{Bern}(0.5))=0.9\log(0.9/0.5)+0.1\log(0.1/0.5)=0.529-0.161=0.368\) nats.</p>
+    <p>If a label moves your belief from 0.5 to 0.8, the entropy drops from 0.693 to 0.500, an information gain of 0.193 nats.</p>
+  </div>
+
+  <div class="box repo">
+    <span class="tag">In this repo</span>
+    <p>The acquisition ablations compare random, entropy, and Fisher-information orderings. Under 1PL, entropy-greedy and Fisher-greedy rank items identically; under 2PL they diverge only through \(a_j^2\). The predictor is held fixed while the order changes, so the experiment isolates the value of the label stream, not the model.</p>
+  </div>
+</section>

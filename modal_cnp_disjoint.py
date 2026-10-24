@@ -22,6 +22,8 @@ REMOTE_ROOT = Path("/data")
 PROJECT_ROOT = Path(__file__).resolve().parent
 CORPUS_ROOT = REMOTE_ROOT / "datasets" / "full" / "allbench-features-v1"
 RESULT_ROOT = REMOTE_ROOT / "results" / "allbench-disjoint-cnp"
+UNIFORM_ROOT = REMOTE_ROOT / "results" / "allbench-uniform-v1" / "disjoint"
+UNIFORM_FOLDS = 5
 MODES = ("masked", "visible")
 SEEDS = (20261018, 20261019)
 SUBJECT_SLICE = (384, 768)
@@ -52,6 +54,44 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _source_path(name: str) -> Path:
+    mounted = Path("/opt/aims/src") / name
+    if mounted.exists():
+        return mounted
+    return PROJECT_ROOT / "src" / name
+
+
+def _training_signature() -> str:
+    from aims_starter.caching import content_signature
+
+    return content_signature(
+        [_source_path("aims_starter/faithful_np.py")],
+        {
+            "corpus": CORPUS_ROOT.name,
+            "seeds": list(SEEDS),
+            "modes": list(MODES),
+            "steps": 800,
+            "episodes_per_step": 4,
+            "budgets": list(BUDGETS),
+            "disjoint_context_target": True,
+        },
+    )
+
+
+def _result_signature() -> str:
+    from aims_starter.caching import content_signature
+
+    return content_signature(
+        [_source_path("aims_starter/calibration.py")],
+        {
+            "training": _training_signature(),
+            "orders": len(ORDER_SEEDS),
+            "fit_sample_limit": FIT_SAMPLE_LIMIT,
+            "uniform_folds": UNIFORM_FOLDS,
+        },
+    )
 
 
 def _task_batch(train, item_embeddings, subject_embeddings):
@@ -89,11 +129,17 @@ def train_and_score(seed: int, mode: str) -> dict[str, Any]:
     import torch
 
     from aims_starter.faithful_np import score_cnp, train_cnp, write_metrics
-    from aims_starter.metrics import DEFAULT_BUDGETS, DEFAULT_WEIGHTS, calibration_ece
+    from aims_starter.metrics import DEFAULT_BUDGETS
 
     output = RESULT_ROOT / f"seed-{seed}-{mode}.json"
+    training_signature = _training_signature()
     existing = _read_json(output)
     if existing is not None:
+        if existing.get("training_signature") != training_signature:
+            raise RuntimeError(
+                "cached disjoint result was produced by different training code or "
+                f"protocol; remove {output} before rerunning"
+            )
         return existing
 
     manifest = _read_json(CORPUS_ROOT / "manifest.json")
@@ -123,7 +169,10 @@ def train_and_score(seed: int, mode: str) -> dict[str, Any]:
     fold_root = RESULT_ROOT / f"seed-{seed}-{mode}-checkpoints"
     fold_root.mkdir(parents=True, exist_ok=True)
     torch.save(cnp.state_dict(), fold_root / "cnp_airt.pt")
-    write_metrics(fold_root / "cnp-history.json", {"history": cnp_history})
+    write_metrics(
+        fold_root / "cnp-history.json",
+        {"history": cnp_history, "training_signature": training_signature},
+    )
 
     def features(rows):
         return np.concatenate(
@@ -182,6 +231,7 @@ def train_and_score(seed: int, mode: str) -> dict[str, Any]:
         "seed": seed,
         "mode": mode,
         "status": "allbench_disjoint_cnp",
+        "training_signature": training_signature,
         "disjoint_context_target": True,
         "rows": rows,
     }
@@ -217,16 +267,33 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
     from aims_starter.faithful_np import CNPAIRT, binary_auc
     from aims_starter.metrics import DEFAULT_BUDGETS, DEFAULT_WEIGHTS, calibration_ece
 
-    output = RESULT_ROOT / f"calibration-{seed}-{mode}.json"
+    output = UNIFORM_ROOT / f"calibration-{seed}-{mode}.json"
+    result_signature = _result_signature()
     existing = _read_json(output)
     if existing is not None:
+        if existing.get("result_signature") != result_signature:
+            raise RuntimeError(
+                "cached disjoint calibration was produced by different code or "
+                f"protocol; remove {output} before rerunning"
+            )
         return existing
+
+    history_path = RESULT_ROOT / f"seed-{seed}-{mode}-checkpoints" / "cnp-history.json"
+    history = _read_json(history_path)
+    if history is None or history.get("training_signature") != _training_signature():
+        raise RuntimeError(
+            "disjoint checkpoint was produced by different training code or "
+            f"protocol; retrain it before calibrating: {history_path}"
+        )
 
     item_embeddings = np.load(CORPUS_ROOT / "item_embeddings.npy")
     subject_embeddings = np.load(CORPUS_ROOT / "subject_embeddings.npy")
     x_dim = int(item_embeddings.shape[1] + subject_embeddings.shape[1])
     evaluation_items = pd.read_parquet(CORPUS_ROOT / "eval_items.parquet")
     orders = pd.read_parquet(CORPUS_ROOT / "eval_orders.parquet")
+    from aims_starter.uniform_eval import validation_fold_map
+
+    fold_map = validation_fold_map(evaluation_items, n_folds=UNIFORM_FOLDS)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     subject_slice = SUBJECT_SLICE if mode == "masked" else None
     state = torch.load(
@@ -276,6 +343,7 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
                             "benchmark_id": benchmark,
                             "task_id": str(task_id),
                             "order_seed": int(order_seed),
+                            "fold": int(fold_map.get(str(task_id), -1)),
                             "budget": int(budget),
                             "logits": logits.astype("float64"),
                             "labels": y_T.astype("float64"),
@@ -284,20 +352,35 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
                     )
         print(f"seed={seed} mode={mode} split={split} collected", flush=True)
 
+    def _fit_calibrator(samples: list[dict[str, Any]]):
+        logits = np.concatenate([record["logits"] for record in samples])
+        labels = np.concatenate([record["labels"] for record in samples])
+        rates = np.array([context_rate(record["context_labels"]) for record in samples])
+        rates = np.repeat(rates, [len(record["labels"]) for record in samples])
+        budgets = np.repeat(
+            [record["budget"] for record in samples], [len(record["labels"]) for record in samples]
+        )
+        rng = np.random.default_rng(20261019)
+        if len(labels) > FIT_SAMPLE_LIMIT:
+            index = rng.choice(len(labels), size=FIT_SAMPLE_LIMIT, replace=False)
+            logits, labels, rates, budgets = (
+                logits[index],
+                labels[index],
+                rates[index],
+                budgets[index],
+            )
+        return AnchorCalibrator.fit(logits, labels, rates, budgets)
+
     samples = [record for record in records if record["split"] == "validation"]
-    logits = np.concatenate([record["logits"] for record in samples])
-    labels = np.concatenate([record["labels"] for record in samples])
-    rates = np.array([context_rate(record["context_labels"]) for record in samples])
-    rates = np.repeat(rates, [len(record["labels"]) for record in samples])
-    budgets = np.repeat(
-        [record["budget"] for record in samples], [len(record["labels"]) for record in samples]
-    )
-    rng = np.random.default_rng(20261019)
-    if len(labels) > FIT_SAMPLE_LIMIT:
-        index = rng.choice(len(labels), size=FIT_SAMPLE_LIMIT, replace=False)
-        logits, labels, rates, budgets = (logits[index], labels[index], rates[index], budgets[index])
-    calibrator = AnchorCalibrator.fit(logits, labels, rates, budgets)
-    print(f"seed={seed} mode={mode}: calibrator fitted", flush=True)
+    folds = sorted({int(record["fold"]) for record in samples})
+    calibrator = _fit_calibrator(samples)
+    fold_calibrators = {
+        fold: _fit_calibrator(
+            [record for record in samples if int(record["fold"]) != fold]
+        )
+        for fold in folds
+    }
+    print(f"seed={seed} mode={mode}: fold calibrators fitted", flush=True)
 
     def _metrics(probability, y_true) -> tuple[float, float, float]:
         brier = float(np.mean((probability - y_true) ** 2))
@@ -310,7 +393,12 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
 
     rows = []
     for record in records:
-        calibrated = calibrator.transform(
+        selected_calibrator = (
+            fold_calibrators[int(record["fold"])]
+            if record["split"] == "validation"
+            else calibrator
+        )
+        calibrated = selected_calibrator.transform(
             record["logits"], record["budget"], record["context_labels"]
         )
         probability = 1.0 / (1.0 + np.exp(-record["logits"]))
@@ -320,6 +408,7 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
             {
                 "split": record["split"],
                 "mode": record["mode"],
+                "fold": int(record["fold"]),
                 "benchmark_id": record["benchmark_id"],
                 "task_id": record["task_id"],
                 "order_seed": record["order_seed"],
@@ -338,6 +427,11 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
     weights = dict(zip(DEFAULT_BUDGETS, DEFAULT_WEIGHTS, strict=True))
     frame["raw_alc"] = frame["budget"].map(weights) * frame["raw_brier"]
     frame["calibrated_alc"] = frame["budget"].map(weights) * frame["calibrated_brier"]
+    UNIFORM_ROOT.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(
+        UNIFORM_ROOT / f"disjoint-{seed}-{mode}-rows.parquet",
+        index=False,
+    )
 
     by_budget = []
     for (split, budget), group in frame.groupby(["split", "budget"], sort=True):
@@ -402,11 +496,18 @@ def fit_mode(seed: int, mode: str) -> dict[str, Any]:
         }
 
     result = {
-        "status": "allbench_disjoint_cnp_calibration",
+        "status": "allbench_disjoint_cnp_calibration_uniform",
         "seed": seed,
         "mode": mode,
+        "result_signature": result_signature,
         "disjoint_context_target": True,
+        "split_policy": "validation folds are out-of-fold; test uses the full validation fit",
+        "folds": int(UNIFORM_FOLDS),
         "fitted": calibrator.summary(),
+        "fold_fits": {
+            str(fold): fold_calibrator.summary()
+            for fold, fold_calibrator in fold_calibrators.items()
+        },
         "by_budget": by_budget,
         "alc": alc_rows,
         "raw_check": check,
@@ -427,12 +528,17 @@ def aggregate() -> dict[str, Any]:
     import pandas as pd
 
     results = [
-        _read_json(RESULT_ROOT / f"calibration-{seed}-{mode}.json")
+        _read_json(UNIFORM_ROOT / f"calibration-{seed}-{mode}.json")
         for seed in SEEDS
         for mode in MODES
     ]
     if any(result is None for result in results):
         raise FileNotFoundError("disjoint calibration runs incomplete")
+    signatures = {result.get("result_signature") for result in results}
+    if None in signatures or len(signatures) != 1:
+        raise RuntimeError(
+            "disjoint calibration results mix code or protocol versions; rerun them"
+        )
     frame = pd.DataFrame(
         [{**row, "mode": result["mode"]} for result in results for row in result["by_budget"]]
     )
@@ -485,7 +591,7 @@ def aggregate() -> dict[str, Any]:
         },
         "raw_check": [result["raw_check"] for result in results],
     }
-    _write_json(RESULT_ROOT / "metrics-disjoint.json", artifact)
+    _write_json(UNIFORM_ROOT / "summary.json", artifact)
     volume.commit()
     return artifact
 

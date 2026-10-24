@@ -16,8 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "dist/submission.zip")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=ROOT / "submission",
+        help="submission source directory (default: submission)",
+    )
     args = parser.parse_args()
-    source = ROOT / "submission"
+    source = args.source.resolve()
     required = source / "model.py"
     if not required.is_file():
         raise SystemExit("submission/model.py is missing")

@@ -1,0 +1,62 @@
+{
+  "architecture": "online_airt_2pl",
+  "calibration": [
+    {
+      "anchor": 0.0,
+      "bias": 0.16497583931691998,
+      "budget": 0,
+      "fitted": true,
+      "samples": 166725,
+      "scale": -0.1907870978593187
+    },
+    {
+      "anchor": 0.1,
+      "bias": 0.13889891592724282,
+      "budget": 1,
+      "fitted": true,
+      "samples": 166566,
+      "scale": 0.08534895073378593
+    },
+    {
+      "anchor": 0.35000000000000003,
+      "bias": 0.1202728271103568,
+      "budget": 3,
+      "fitted": true,
+      "samples": 166714,
+      "scale": 0.17126456030289203
+    },
+    {
+      "anchor": 0.65,
+      "bias": 0.11995819019882455,
+      "budget": 7,
+      "fitted": true,
+      "samples": 166420,
+      "scale": 0.29023857461943664
+    },
+    {
+      "anchor": 0.8,
+      "bias": 0.10143620308742475,
+      "budget": 15,
+      "fitted": true,
+      "samples": 167074,
+      "scale": 0.48046182297283685
+    },
+    {
+      "anchor": 0.8,
+      "bias": 0.0832085544305508,
+      "budget": 31,
+      "fitted": true,
+      "samples": 166501,
+      "scale": 0.6343855438264254
+    }
+  ],
+  "checkpoint": "online_airt_2pl.pt",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "mode": "masked",
+  "source_checkpoint": "online_airt_2pl-20261018-masked.pt",
+  "subject_slice": [
+    384,
+    768
+  ],
+  "x_dim": 768
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from aims_starter.adaptation import fit_ability_prior
 
@@ -88,7 +89,9 @@ def test_prior_mean_is_clipped_to_map_range() -> None:
 
 
 def test_numpy_ability_map_matches_the_torch_anchor() -> None:
-    import torch
+    torch = pytest.importorskip(
+        "torch", reason="PyTorch is not installed in the lightweight test environment"
+    )
 
     from aims_starter.adaptation import map_ability
     from aims_starter.faithful_np import CNPAIRT

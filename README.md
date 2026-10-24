@@ -43,6 +43,24 @@ PYTHONPATH=src:submission python -m unittest discover -s tests
 
 The submission itself has no third-party dependency.
 
+## Interactive forecaster demo
+
+`demo/forecaster/` is a real-checkpoint demo of budgeted evaluation. It loads
+the selected CNP-AIRT and Online-AIRT checkpoints, freezes MiniLM, and compares
+their forecasts with a Beta baseline on five validation tasks. It is a custom
+FastAPI + vanilla web UI, not Gradio.
+
+```bash
+uv pip install --python .venv/bin/python -r demo/forecaster/requirements.txt
+.venv/bin/python -m uvicorn server:app --app-dir demo/forecaster \
+  --host 127.0.0.1 --port 8787
+```
+
+Open <http://127.0.0.1:8787>. The demo never trains; it reveals 31 acquisition
+labels, forecasts 60 held-out items, and scores the run only when asked. See
+[`demo/forecaster/README.md`](demo/forecaster/README.md) for the scope and the
+custom out-of-distribution probe.
+
 ## Build and check a submission
 
 ```bash
@@ -58,7 +76,7 @@ python scripts/build_neural_submission.py --checkpoint /tmp/cnp_airt.pt --mode m
   --calibration /tmp/calibration-20261018-masked.json --output dist/submission-neural-final.zip
 ```
 
-The generated archive has `model.py` and optional `labeling.py` at its root, as required by the official kit. `dist/submission.zip` is the final Beta-Binomial entry (Codabench `1005155`); `dist/submission-neural-final.zip` is the pre-registered CNP-AIRT entry (`1005187`). Generated ZIPs, results, credentials, and local data are excluded from Git. The calibration JSON listed above is produced by `modal run modal_calibration.py`.
+The generated archive has `model.py` and optional `labeling.py` at its root, as required by the official kit. `dist/submission.zip` is the final Beta-Binomial entry (Codabench `1005155`); `dist/submission-neural-final.zip` is the pre-specified CNP-AIRT entry (`1005187`). Generated ZIPs, results, credentials, and local data are excluded from Git. The calibration JSON listed above is produced by `modal run modal_calibration.py`.
 
 ### Submit to Codabench
 
@@ -298,14 +316,16 @@ Points below are settled unless tagged otherwise. Update this list when a decisi
 ### Protocol
 
 - Primary evaluation: benchmark-held-out episodic evaluation, budgets 0, 1, 3, 7, 15, 31, Brier ALC weights 0.1, 0.2, 0.2, 0.2, 0.2, 0.1.
-- The acquisition order is frozen at build time (seed 20261017). `beaver_episode_items.parquet` is reused by every seed and fold, so seeds cannot disagree on the label stream.
+- Current ablation evidence uses the uniform grid: 104 validation tasks, 10 frozen orders, the Beta-Binomial baseline, and five-fold out-of-fold calibration. Test is read only for the final selected model and the baseline. The binding contract is `docs/ablation-protocol.md`; the audit is `docs/uniform-audit.md`.
+- The acquisition order is frozen at build time (seed 20261017). `beaver_episode_items.parquet` is reused by every seed and fold, so seeds cannot disagree on the label stream. The acquisition ablation uses 10 fixed candidate streams, not the architecture/calibration order grid.
 - The b1 to b3 spike is fold-1 driven. Seeds agree and no code bug was found.
+- Two full-scale seeds (`20261018`, `20261019`) are run. A third seed remains deferred until the uniform harness and report are fully audited; do not describe the two-seed spread as a stable seed variance.
 
 ### Model design
 
 - 2PL only. 3PL is skipped: there is no guessing mechanism on free-form harm labels, and $(a, b, c)$ is not identifiable at 31 labels.
 - $\theta_s$ is never a network output. It is the analytic MAP (Newton, prior $N(0,4)$, clamp $\pm 4$). Networks learn item-side $a(x)$, $b(x)$ and correction terms only.
-- The v1 objective deviation (prior-KL, weight $1/|T|$, escape hatch) caused the latent collapse. The v2 objective is the standard (A)NP objective (ANP Eq. 3): dual likelihood plus $\mathrm{KL}(q(z|s_T) \,\|\, q(z|s_C))$, weight 1. Cite the paper, not a local derivation.
+- The official (A)NP code averages the target log-likelihood and divides the KL by the number of target points. The old v2 path used a mean NLL plus the full KL, which over-weighted KL by roughly $|T|$; that path is retired from the corrected ladder. The corrected latent control uses target-posterior reconstruction and $\mathrm{KL}(q(z|s_T) \,\|\, q(z|s_C)) / |T|$, with no context-posterior NLL. Cite the official objective, not a local derivation.
 - $T \supseteq C$ in training comes from the image experiments in NP and CNP. Their regression setups use disjoint sets, and ANP states disjoint targets in the appendix. Our training now uses disjoint $C$ and $T$.
 - The 1PL row moved up in priority. Truong et al. amortize difficulty only (Rasch), so 1PL isolates what the 2PL discriminations add. For the policy section: under 1PL, entropy-greedy and Fisher-greedy rank items identically; in 2PL they diverge only through $a(x)^2$.
 
@@ -325,6 +345,27 @@ Points below are settled unless tagged otherwise. Update this list when a decisi
 - Budget-0 miscalibration cannot come from MAP, because `map_theta` returns 0 with no context. It came from subject-conditioned target item parameters. In the latent variants, budget 0 also had a prior-sampled `theta_from_z(z)`.
 - Fix: `subject_feature_slice` zeroes the subject block on the item path (`encode_item_x`), and `map_theta` receives item-only encodings. Subject metadata may still inform the prior over $\theta$ through the context encoder. Keep one subject channel; $\theta$ itself remains MAP.
 - All neural metrics recorded before this fix are stale and must not be cited.
+
+### Result versioning (2026-10-22)
+
+`v3-postfix` is the current label: 768-d test-faithful features, MiniLM@512,
+subject block zeroed on the item path (`mode=masked`), 104 validation tasks,
+10 orders, and five-fold OOF calibration. Every `r-c-*` JSON with manifest
+`"arm": "minilm512"` and `mode: masked` is v3-postfix, including the r_C
+ladder, loops, AR, and GP arms. Pre-fix, benchmark-aware, visible-subject, and
+MiniLM@256 rows are retired and must not be mixed with v3-postfix. The binding
+registry is [`docs/result-versioning.md`](docs/result-versioning.md).
+Completed current-campaign tables are in
+[`docs/ablation-results.md`](docs/ablation-results.md). The corrected-protocol
+ladder is specified in
+[`docs/faithful-ablation-ladder.md`](docs/faithful-ablation-ladder.md). Stage 1
+ran; see [`docs/faithful-ladder-stage1.md`](docs/faithful-ladder-stage1.md). No
+rung was promoted, and these results are not part of the v3 tables.
+
+The current v3-postfix ablations are **preliminary**: `800` steps x `4`
+episodes is only 3,200 episodes for 6,702 train tasks. The replacement is the
+v4.1 corrected-protocol ladder (`docs/faithful-ablation-ladder.md`), not another
+v3 patch. Do not compare v3 and v4.1 trainers.
 
 ### Test-time input contract (2026-10-19)
 
@@ -395,6 +436,92 @@ The prior mean is an adaptation-time quantity, so it rescored saved checkpoints 
 - The subject ridge collapses in every model and fold: $\alpha=1000$ (the grid ceiling) and a subject deviation that moves the prior mean by about $0.001$. A label-proxy pre-check agrees. On 96 benchmark-adjusted training tasks, ridge $\alpha$ pins at the ceiling, and 3/5/10/20-nearest-neighbour deviations are worse than predicting zero deviation (LOO MAE 1.32/1.17/1.08/1.02 versus 0.93).
 - The benchmark arm is not a free win either. It leaves Online-AIRT and NP-AIRT unchanged, costs CNP-AIRT 0.011 ALC (worse in all three seeds) and ANP-AIRT 0.016, and is inside seed noise for Stacked and TfNP-D. At budget 0 it improves Online-AIRT (0.273 to 0.267) and NP-AIRT (0.260 to 0.246) but hurts ANP-AIRT (0.243 to 0.256) and CNP-AIRT (0.220 to 0.250). At higher budgets the prior mean anchors the MAP away from the labels; CNP-AIRT at budget 31 (0.175 to 0.163) is the one consistent gain.
 - Reading: the item network already encodes the benchmark-level base rate through $b(x)$, so an explicit benchmark prior double-counts it at budget 0 and fights the likelihood later. Subject metadata carries no usable leniency signal on this corpus, so the sanctioned metadata-to-prior channel is empty here. Keep `prior_mean=0` as the default; `metrics-prior.json` stays as the falsification test.
+
+### Current uniform ablation (2026-10-20)
+
+This is the current evidence source. Every ablation uses the same 104 validation
+tasks, ten frozen orders, budgets `0,1,3,7,15,31`, Brier ALC weights
+`0.1,0.2,0.2,0.2,0.2,0.1`, the Beta-Binomial baseline, and five-fold
+out-of-fold calibration. Test is read only for the final selected model and the
+baseline. The consolidated output is
+`/tmp/opencode/uniform-v1/analysis/summary.json`; the audit is
+[`docs/uniform-audit.md`](docs/uniform-audit.md).
+
+Selected configuration: seed `20261018`, masked. Deltas are paired task
+differences, arm minus Beta, after out-of-fold calibration. Negative is better.
+
+| arm | raw ALC | OOF cal ALC | delta vs Beta | 95% task CI |
+|---|---:|---:|---:|---|
+| Beta-Binomial | 0.2228 | 0.2228 | 0.0000 | fixed |
+| CNP full | 0.2349 | 0.2226 | -0.0003 | [-0.0015,+0.0009] |
+| CNP zero correction | 0.2324 | 0.2225 | -0.0003 | [-0.0015,+0.0009] |
+| CNP retrained, no correction | 0.2355 | 0.2228 | +0.0000 | [-0.0011,+0.0011] |
+| 1PL | 0.2364 | 0.2235 | +0.0007 | [-0.0003,+0.0018] |
+| 2PL | 0.2678 | 0.2233 | +0.0005 | [-0.0006,+0.0016] |
+
+The four-configuration mean is not better: CNP full `0.2231` against Beta
+`0.2228`, delta `+0.0003` with interval `[-0.0007,+0.0013]`. The learned
+ability correction is neutral after calibration (`+0.000014`,
+`[-0.000029,+0.000056]`) and hurts raw ALC (`+0.002553` selected,
+`+0.000999` mean).
+
+Calibration: full BCE is the best submitted-family variant. Context-only
+(`0.2245`), anchor-only (`0.2246`), and Platt-only (`0.2276`) are worse than
+full BCE (`0.2226`). Task-balanced full BCE is `0.2224`, a difference of
+`-0.000123` with interval `[-0.000567,+0.000295]`, so task balancing is not a
+reliable effect. A Brier-loss calibrator reaches `0.2210`, `-0.001579` with
+task interval `[-0.002581,-0.000477]` and benchmark interval
+`[-0.002637,-0.000410]`. It is not adopted: fitted scales are negative at
+budgets 0, 1, 3, and 7 (`-3.03`, `-3.47`, `-6.00`, `-3.81`), the anchor weight
+reaches `0.96`, and the gain comes from inverting a validation ranking that is
+near chance (`AUC 0.48`). Test raw AUC is `0.51` to `0.56`, so the inversion does
+not transfer.
+
+Disjoint-episode control: selected calibrated `0.2227` vs original `0.2226`,
+delta `+0.000130`, interval `[-0.000002,+0.000261]`, a near tie. Raw improves in
+the selected masked cell (`-0.001482`) but worsens in the other three; the mean
+raw delta is `+0.001508`. The four-config calibrated mean delta is `-0.000113`
+with benchmark interval `[-0.000306,+0.000045]`. No consistent win.
+
+Acquisition: no active ranking policy beats random CNP. Seed `20261018`:
+uncertainty `+0.0010`, Fisher `+0.0074` (`[+0.0027,+0.0128]`), disagreement
+`+0.0016`. Seed `20261019`: uncertainty `+0.0011`, Fisher `+0.0043`,
+disagreement `+0.0011`. The seed mean for Fisher is `+0.0058` with task interval
+`[+0.0014,+0.0111]`. The Beta predictor with random order is indistinguishable
+from CNP with random order.
+
+Budget shrinkage: out-of-fold kappa is `4.0` at every budget at or above 1, so
+the tuned arm is exactly the flat Beta prior. Flat and tuned both score
+`0.222837959`, delta zero. This is a null by construction.
+
+Final test: Beta `0.2182`; selected CNP `0.2211` raw and `0.2199` calibrated,
+delta `+0.001754` with task interval `[+0.000401,+0.002998]` and six-benchmark
+cluster interval `[-0.000716,+0.002914]`. Two-seed masked mean `0.2265` raw and
+`0.2197` calibrated, delta `+0.001500` with task interval
+`[+0.000385,+0.002605]`. Test is not an ablation grid.
+
+Commands:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/analyze_uniform_ablations.py
+PYTHONPATH=src .venv/bin/python paper/neurips_2026/plot_uniform.py
+cd paper/neurips_2026 && /tmp/opencode/tectonic main.tex
+```
+
+The report is now 20 pages: main text and references through page 10,
+appendices A-I on pages 11-13, and the filled NeurIPS Paper Checklist on pages
+14-20. The report uses three uniform figures: `figures/uniform-brier.png`,
+`uniform-ladder.png`, and `uniform-acquisition.png`. The plotting script also
+writes `uniform-benchmark-order.png` as a diagnostic, but that figure is not in
+the report.
+
+The results notes below, through the pre-report material, are historical notes
+from earlier mixed validation/test runs. They are kept for provenance and are
+not evidence for any current table. In particular, the old order-0 validation
+numbers, the test-only calibration decomposition, the threshold/reserve
+acquisition table, and the "context-only wins" claim are superseded by the
+uniform grid above. The Report draft section after them describes the current
+20-page report.
 
 ### Full-protocol corpus and pre-registered selection (2026-10-19)
 
@@ -535,7 +662,7 @@ The selected run is `20261018-masked`; the full set is `20261018-masked`, `20261
   --output /tmp/opencode/cnp-ladder/summary-all.md
 ```
 
-Artifacts: `/data/results/allbench-cnp-ladder/cnp-ladder-{seed}-{mode}.json` and `.../seed-{seed}-{mode}-checkpoints/`; local copies in `/tmp/opencode/cnp-ladder/`. The selected run matches the stored CNP calibration run to a maximum absolute Brier difference of $1.2\times10^{-8}$ over 1{,}944 rows. The ladder is post hoc and does not change the pre-registered selection.
+Artifacts: `/data/results/allbench-cnp-ladder/cnp-ladder-{seed}-{mode}.json` and `.../seed-{seed}-{mode}-checkpoints/`; local copies in `/tmp/opencode/cnp-ladder/`. The selected run matches the stored CNP calibration run to a maximum absolute Brier difference of $1.2\times10^{-8}$ over 1{,}944 rows. The ladder is post hoc and does not change the pre-specified selection.
 
 ### Online-AIRT submission (2026-10-20)
 
@@ -591,7 +718,7 @@ The acquisition rules do nothing. Against its own random baseline, `C-D` gains 0
 
 The reason is mechanical. On a random stream, the uncertainty rule rarely fires: the 0.15 threshold is not matched to the calibrated probability scale, so the reserve rule decides almost every purchase. At budget 31, `C-D` selects at mean stream position 0.96, `C-Uβ` at 0.77, and `C-UC` at 0.54, against 0.017 for random. The policies are late-stream reserve rules, not item-information acquisition. The Beta posterior-variance arm is also a stopping rule, because the Beta predictor is constant across items. With item discrimination near chance (test AUC 0.52--0.56), no acquisition rule can create signal that the predictor does not have.
 
-Decision: no acquisition variant improves offline. Keep Codabench `1005155` (Beta-Binomial with the first active policy) as the final entry; its hidden Brier advantage over the neural entries is a predictor effect, not evidence for active acquisition. The report discloses the post-hoc switch from the pre-registered CNP-AIRT selection. Run `modal run modal_active_ablation.py --streams 10`, then `.venv/bin/python scripts/analyze_active_ablation.py <rows.parquet> --output <analysis.json>`. Artifacts: `/data/results/allbench-active-ablation/ablation.json` and `ablation_rows.parquet`. The competition-variant policies are in `submission_variants/`.
+Decision: no acquisition variant improves offline. Keep Codabench `1005155` (Beta-Binomial with the first active policy) as the final entry because it is simpler and the paired offline evidence is at least a tie. The hidden archives received different subject-benchmark groups (9, 9, 8, and 8 groups; `1005155` and `1005187` share no exact group), so the 0.038 Brier gap is unpaired and does not establish a predictor or acquisition advantage. The report discloses the post-hoc switch from the pre-specified CNP-AIRT selection. Run `modal run modal_active_ablation.py --streams 10`, then `.venv/bin/python scripts/analyze_active_ablation.py <rows.parquet> --output <analysis.json>`. Artifacts: `/data/results/allbench-active-ablation/ablation.json` and `ablation_rows.parquet`. The competition-variant policies are in `submission_variants/`.
 
 ### Disjoint-episode control for CNP-AIRT (tested, null; 2026-10-19)
 
@@ -604,9 +731,9 @@ Decision: no acquisition variant improves offline. Keep Codabench `1005155` (Bet
 
 The calibrated endpoint is unchanged (test 0.2194-0.2196 against 0.2196-0.2197 before; validation 0.2224-0.2229 against 0.2225-0.2231). Raw ALC is slightly worse in all four cells (0.0002-0.0030), inside the raw seed spread (masked test sd 0.0098). The budget-0 fitted scale stays negative in all four runs (-0.6 to -1.8), so the budget-0 inversion is a property of the item head on unseen benchmarks, not of the training mismatch. Verdict: the mismatch is not the bottleneck; the submission stays the pre-registered CNP-AIRT masked seed 20261018, and the control is reported as a post-hoc ablation in Appendix H. `train_cnp` gained the `disjoint_context_target` keyword (default `False`, backward compatible).
 
-### Report draft (2026-10-19)
+### Report draft (2026-10-20)
 
-The technical report for the competition lives in `paper/neurips_2026/main.tex` (NeurIPS 2026 template, `[preprint]` option, 26 pages total: main text ends on page 9, references from page 10, appendices A-K, and the filled NeurIPS Paper Checklist, which starts on page 20). It covers the protocol and audits, both full-scale models plus the 1PL and encoder controls, the calibrator, all raw and calibrated results, the negative results including the encoder ladder, the disjoint-episode control, and the active-acquisition ablation, the post-hoc final switch, and the submission artifact. Appendix C includes the post-hoc calibrator decomposition; Appendix G is the encoder ladder; Appendix H is the disjoint-episode control; Appendix J is the acquisition ablation; Appendix K is reproducibility. Appendix E reports per-order ALC raw and calibrated; the calibrated table comes from `modal_order_calibration.py`, which reapplies the stored validation-fitted calibrators to the test logits without refitting (raw cross-check against the runner rows: maximum absolute Brier difference 6e-9). Built PDF: `paper/neurips_2026/main.pdf`. Figures are generated by `/tmp/opencode/plot_results.py` into `figures/` and copied into `paper/neurips_2026/figures/`; the pipeline diagram is TikZ in `paper/neurips_2026/figures/pipeline.tex`.
+The technical report for the competition lives in `paper/neurips_2026/main.tex` (NeurIPS 2026 template, `[preprint]` option, 20 pages total: main text and references through page 10, appendices A-I on pages 11-13, and the filled NeurIPS Paper Checklist on pages 14-20). It is built around the uniform validation grid above and keeps test in a separate final table. The appendices cover the corpus audit, implementation, calibration parameters, per-budget and per-order validation metrics, per-benchmark ALC, per-configuration disjoint differences, acquisition intervals, and the reproducibility inventory. The checklist is `paper/neurips_2026/checklist.tex` and is included with `\input{checklist}`. The report uses three uniform figures, `uniform-brier.png`, `uniform-ladder.png`, and `uniform-acquisition.png`, generated by `paper/neurips_2026/plot_uniform.py`. The script also writes `uniform-benchmark-order.png` as a diagnostic, but the report does not include it. Built PDF: `paper/neurips_2026/main.pdf`. The old 25-page report with mixed validation and test tables is backed up outside the repo at `/tmp/opencode/main-old-20261020.tex` and is not evidence.
 
 Build (no system LaTeX; static tectonic binary):
 
@@ -615,7 +742,7 @@ cd paper/neurips_2026
 /tmp/opencode/tectonic main.tex
 ```
 
-Numbers in the report are per-seed where the appendix says so (Appendix D is the pre-registered selected seed 20261018); headline ALCs are seed means. The figure AUC curves are seed means; per-seed budget-0 values differ (appendix table). The prior-mean and metadata-ridge negative results are summarized in the report from the earlier `metrics-prior.json` work.
+The main ablation tables use the selected seed `20261018` masked. Four-configuration means appear only in the robustness rows and are labeled. Test is reported once for the final selected model and the baseline; it is not an ablation source. The prior-mean and metadata-ridge negative results remain historical notes below and are not evidence for the current report.
 
 ### Results bookkeeping (settled)
 
@@ -625,12 +752,147 @@ Numbers in the report are per-seed where the appendix says so (Appendix D is the
 - The ability-prior work added eval-only `prior_mean` arguments to `faithful_np.py`, so the training signature no longer matches the cached runs. The checkpoints and seed metrics remain valid because the `none` arm reproduces the calibration rescore exactly; rerunning training requires a new result root.
 - `metrics-prior.json` holds the three prior arms. `prior.json` per seed holds the per-fold prior means, ridge penalty, and leave-one-out error. `modal run modal_faithful.py --prior-only` rebuilds both from saved checkpoints without retraining.
 
+### Encoder re-selection: multilinguality and item text (2026-10-24)
+
+Every embedding arm run so far (`minilm`, `minilm512`, `bge_base`, `bge_m3`,
+`llama31_8b`, `bge_base_2pladapt`) shares two properties that a corpus audit
+shows are wrong for this data: the encoded text concatenates `item_features`
+onto `item_content`, and four of the six encoders are English-only. Sources for
+every number below: `modal_field_audit.py`, `modal_feature_diagnostics.py`, and
+the language and content-length audits whose figures are in
+[`docs/language-distribution.pdf`](docs/language-distribution.pdf).
+
+**The corpus is 9% non-English, measured.** Across all 1{,}356{,}312 protocol
+items, 122{,}931 are non-English, spanning 24 languages. Language is read from
+`lang=`-style tags in `item_features` where present and from the dominant
+Unicode script otherwise.
+
+| Language | Items | Benchmarks (of 52) | Items cut at 512 tokens |
+|---|---:|---:|---:|
+| Chinese | 39{,}743 | **9** | 1.7% |
+| Basque | 24{,}817 | 1 | **47.6%** |
+| Amharic | 18{,}054 | 3 | 15.0% |
+| Russian | 6{,}096 | 3 | 5.1% |
+| 20 African languages | ~33{,}000 | 1 | ~0% |
+
+Chinese is the one that is structurally hard to avoid: it appears in nine
+benchmarks (`cmmlu`, `ceval`, `harmbench`, `editbench`, `emoji_attack`,
+`clasheval`, `braveguard`, `disco`, `agentic_review_perturbation`), not just the
+two Chinese-named ones. Every other non-English language sits in one to three
+benchmarks. `afrieval` alone carries 20 African languages, ten of which
+(Nigerian Pidgin, Luganda, Moore, Bambara, Fon, Twi, Ewe, Tswana, Ghomala, Luo)
+appear in no published language list of any encoder considered; those 11{,}133
+items are byte-level noise under every candidate and are a floor, not a choice.
+
+The train/validation/test benchmark split is **our** construction and is not
+used to weight any of this. The competition draws its own subject-benchmark
+pairs, so a language's importance is its corpus-wide presence, not which of our
+splits it landed in.
+
+**Why the current encoders fail.** `all-MiniLM-L6-v2` and `bge-base-en-v1.5` are
+English-only. `Llama-3.1-8B-Instruct` officially supports eight languages
+(en, fr, de, hi, it, pt, es, th), which intersects the list above at **zero** --
+the 4096-dim `llama31_8b` arm cannot represent Chinese, Basque, Amharic,
+Russian, or any African language in the corpus.
+
+**Selection evidence.** Vendor-reported MTEB means were not used. Two
+independent benchmarks were:
+
+| Model | MMTEB (ICLR 2025) | AfriMTEB-Lite (EACL 2026) | MTEB(LLM) (COLM 2026) |
+|---|---:|---:|---:|
+| multilingual-e5-large-instruct | **63.2** (1st of 12) | **62.0** | 69.7 (19th of 26) |
+| AfriE5-large-instruct | -- | **63.7** | -- |
+| bge-m3 | 59.6 | 55.0 | 66.5 |
+| Qwen3-Embedding-8B | 70.6 | 49.7 | 77.0 |
+| Qwen3-Embedding-4B | 69.5 | 46.0 | **75.9** |
+| Qwen3-Embedding-0.6B | 64.3 | **40.7** | 72.5 |
+| LaBSE | 52.1 | -- | -- |
+| EmbeddingGemma-300m | 61.2 | **29.1** | 72.2 |
+| GritLM-7B | 60.9 | 47.3 | 63.1 |
+| e5-mistral-7b-instruct | 60.3 | 45.8 | 64.4 |
+| all-MiniLM-L6-v2 (current) | **41.4** (last) | -- | -- |
+
+Three findings drive the choice. First, advertised language counts are
+uninformative: `mmBERT-base` claims 1{,}800 languages and scores 28.9 on
+AfriMTEB; `EmbeddingGemma-300m` claims 100+ and scores 29.1. Second, parameter
+count does not buy multilinguality -- MMTEB's stated conclusion is that
+Mistral-based 7B embedders lose to a 560M XLM-R model because "Mistral [is]
+predominantly pre-trained on English, while XLM-R targets 100 languages". Third,
+general-purpose quality and multilingual coverage are in tension: mE5 ranks 1st
+on MMTEB and 19th of 26 on MTEB(LLM), and Qwen3 is the reverse. No single model
+wins both, so the arms are chosen to span the trade-off rather than to pick a
+presumed winner.
+
+Two further models were checked and rejected. `jina-embeddings-v5-text-small` is
+built on the Qwen3-0.6B backbone that scores 40.7 on AfriMTEB, is trained on 32
+languages with the list unpublished, and is CC-BY-NC. `EmbeddingGemma 2` moves
+MTEB Multilingual from 61.15 to 61.36 over a predecessor that scored 29.1 on
+African languages, and has no AfriMTEB result.
+
+**Item text changes to `item_content` alone.** The current template is
+`f"item: {content}\nmetadata: {item_features}"`. `item_features` has no shared
+schema across benchmarks; keys are per-harness. Some keys are genuine difficulty
+signal (`prompt_condition=cot` vs `nocot` in `cmmlu`, `lang`, `prompt_variant`),
+but others are per-item fingerprints (`appworld_task_id`, `source_task_id`,
+`datetime`) and at least one is a benchmark label in disguise: every `devbench`
+item carries an identical 180-character `input_scope=` sentence. This is the
+mechanism behind the measured result that item-difficulty $R^2$ is 0.78--0.82
+overall, approximately 0 within a benchmark, and negative on a held-out
+benchmark: the embeddings learn benchmark identity. The new stores encode
+`item_content` only. Parsed `item_features` keys that survive a "present in at
+least two benchmarks" filter are a separate structured channel, not text.
+
+**Planned arms.** Four stores, all reduced to 1024 dimensions so the comparison
+varies encoder and context length but not dimensionality. Native dimensions are
+read from each model's `config.json`.
+
+| Arm | Model | Native dim | Context | 1024-d via |
+|---|---|---:|---:|---|
+| `me5_instruct` | `intfloat/multilingual-e5-large-instruct` | 1024 | 512 (hard) | native |
+| `bge_m3_long` | `BAAI/bge-m3` | 1024 | 8192 | native |
+| `qwen3_4b` | `Qwen/Qwen3-Embedding-4B` | 2560 | 32768 | MRL truncate + renormalize |
+| `qwen3_8b` | `Qwen/Qwen3-Embedding-8B` | 4096 | 32768 | MRL truncate + renormalize |
+
+`me5_instruct` against `bge_m3_long` is the controlled context-length test: same
+XLM-R backbone, same 1024 dimensions, 512 against 8192. `qwen3_4b` tests whether
+Chinese strength outweighs African weakness. `qwen3_8b` is contingent on `4b`
+winning. MRL truncation is self-reported by Qwen and unverified at 1024; if the
+truncated arm underperforms, the full 2560-dim arm separates "MRL lost
+information" from "Qwen is wrong for this corpus".
+
+The 512-token cap is the one thing `me5_instruct` cannot change, since it is
+XLM-R's position-embedding limit. Corpus-wide that cap cuts 10.5% of items and
+20.1% of tokens. The binding case is `bertaqa`, whose median item is **511**
+tokens against the 512 cap, so 47.6% of Basque items are truncated. An earlier
+note in this log that truncation "does not hurt" was measured on the aggregate,
+English-dominated corpus and does not cover that case.
+
+**Encoding plan.** 43.2% of item contents are exact duplicates: 769{,}888
+unique texts among 1{,}356{,}312 items, carrying 59.3% of the characters.
+Encoding unique texts and broadcasting by content hash is exact. With that plus
+length-sorted dynamic batching, a 4096-token cap (99.5% of items whole), bf16,
+and vLLM for the Qwen decoders, the four stores cost roughly three GPU-hours in
+total, about one hour forty wall-clock when run as parallel Modal containers.
+
+| Arm | GPU | Naive | Optimized |
+|---|---|---:|---:|
+| `me5_instruct` | A10G | ~55 min | ~12 min |
+| `bge_m3_long` | A10G | ~70 min | ~15 min |
+| `qwen3_4b` | H100 | ~5 h | ~50 min |
+| `qwen3_8b` | H100 | ~9 h | ~1 h 40 |
+
+Existing stores are kept. `bge_base_2pladapt` remains the best arm measured to
+date (validation calibrated ALC 0.222584 against Beta 0.222838) and the residual
+2PL adapter will be refitted on whichever new store wins, since that adapter is
+the only change that has ever moved the number.
+
 ### Open items
 
 - Shared `x_encoder` for the masked and unmasked paths; the slice `(389, 773)` is hard-coded in ten places in `modal_faithful.py`; the 5 numeric columns are near-dead and unstandardized; the benchmark block is constant within an episode.
 - ANP-AIRT and Stacked-MHSA-ANP-AIRT route $r^*$ into the logits through the decoder residual head at scale 0.1. $r^*$ is computed from subject-masked encodings, and the residual is a post-anchor correction; $r^*$ must not enter the MAP fit because context items would attend to their own labels.
 - Pilot runs use 32-dim hashed item features and the main runs use the 1157-dim mixed features. Their numbers are not comparable.
 - Order of work: deterministic track rerun on all benchmarks (Online-AIRT, CNP-AIRT, Beta-Binomial, 2 seeds), AnchorCalibrator on existing artifacts, organizer baselines plus a Codabench smoke submission, then one latent-track run.
+- Encoder re-selection is specified but not run: build the four 1024-dim `item_content`-only stores, refit the residual 2PL adapter on the winner, and extract `item_features` as a structured channel with the per-item fingerprint keys dropped. The `minilm`, `bge_base`, and `llama31_8b` arms are superseded; their stores are kept for the published tables.
 - The metadata-to-prior channel is closed by the ability-prior ablation; do not reopen it without new subject features. The budget 0-3 level gap remains, but it is not a metadata problem: the benchmark level is already represented by the item net, and the pilot's four subjects make the leave-one-out mean anti-correlated with the held-out subject's base rate.
 
 ## Presentation-selection strategy
