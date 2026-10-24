@@ -1,0 +1,2246 @@
+# Claude Code session - aims-neurips
+# Exported with /export, then scrubbed: credential-shaped strings,
+# email addresses, and absolute home paths are redacted.
+
+ ▐▛███▛█   Claude Code v2.1.310
+▝▜██████▀  Opus 5 · Claude Pro
+ ▝▝   ▝▝   ~/aims-neurips
+
+
+● CNP paper trains the model to re-predict the points it was just shown, plus 
+  the new ones.
+
+  Show it 5 points → it must predict all 20, including those same 5.
+
+  Why: it's a sanity check. If you tell the model f(3) = 7 and it can't output 7
+  at x=3, its aggregation is broken.
+
+  You don't do that — you only score the held-out ones. Which is right for your
+  task, since the competition never asks you to re-predict an acquired item.
+
+✻ Cogitated for 4s · done 2:58 PM
+
+※ recap: Goal is beating the Beta baseline on the AIMS forecasting task. We established the item encoder isn't the bottleneck; the model and training are. Next action is reading the torch_measure AmortizedIRT run that's finishing on Modal to see its validation ALC.
+  ⎿  Read docs/feature-engineering.md (124 lines)
+  ⎿  Read modal_field_audit.py (141 lines)
+  ⎿  Referenced file scripts/information_ceiling.py
+  ⎿  Referenced file scripts/analyze_benchmark_errors.py
+  ⎿  Read modal_feature_diagnostics.py (294 lines)
+
+● Task "cat > /tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-
+  472871f97afc/scratchpad/tmrun.py <<'EOF' import modal, json from pathlib 
+  import Path app=modal.App("aims-torchmeasure") vol=moda… [+5444 chars]" still 
+  running in background
+  ⎿  Plan file referenced (~/.claude/plans/lucky-plotting-garden.md)
+
+● Compacted while idle, before the prompt cache expired · turn off with 
+  "idleCompaction": false in settings.json
+
+❯ Show me all the data and their attributes in a table with a real example      
+  please.                                                                       
+
+  Listed 2 directories, ran 1 shell command (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Sorry I meanjt the data schema, attributes for subject and items please. We   
+  have descriptions about this somewhere, including rela examples of these.     
+
+  Searched for 4 patterns, listed 2 directories, ran 4 shell commands (ctrl+o to expand)
+
+● Here's the schema. Source of truth: reference/starting_kit/README.md:9-33.
+  Real example: a task from demo/forecaster/assets/tasks.json (Claude 3 Haiku on
+  AfriMed-QA).
+
+  What predict() receives
+
+  predict(input=[subject, item], labeled=[[[subject, item], label], ...]) ->
+  float
+
+  All values are plain strings. Blank = "", never None. Exactly 8 subject keys +
+  4 item keys. Nothing else.
+
+  Subject — 8 fields
+
+  Field: normalized_name
+  Fill: 66%
+  Bridges benchmarks: 32%
+  Real example: Anthropic Claude 3 Haiku
+  ────────────────────────────────────────
+  Field: provider
+  Fill: 66%
+  Bridges benchmarks: 65%
+  Real example: Anthropic
+  ────────────────────────────────────────
+  Field: release_date
+  Fill: 40%
+  Bridges benchmarks: 39%
+  Real example: 2024-03-04
+  ────────────────────────────────────────
+  Field: access_date
+  Fill: 1%
+  Bridges benchmarks: 0%
+  Real example: ""
+  ────────────────────────────────────────
+  Field: harness
+  Fill: 100%
+  Bridges benchmarks: 7%
+  Real example: Petavue NL2SQL-Benchmark
+  ────────────────────────────────────────
+  Field: reasoning_effort
+  Fill: 0%
+  Bridges benchmarks: 0%
+  Real example: ""
+  ────────────────────────────────────────
+  Field: harness_version
+  Fill: 6%
+  Bridges benchmarks: 0%
+  Real example: ""
+  ────────────────────────────────────────
+  Field: subject_features_extra
+  Fill: 100%
+  Bridges benchmarks: ~0%
+  Real example: instruction_size=11;protocol_reference=https://github.com/petavu
+  e/...;serving_environment=amazon-bedrock;shot_size=0;source_model=anthropic.cl
+  aude-3-haiku-20240307-v1:0
+
+  Fill/bridge rates from docs/feature-engineering.md:25-34 (measured, 8,104
+  subjects).
+
+  A "subject" = base model + its eval settings. Same model, different harness →
+  different subject.
+
+  Item — 4 fields
+
+  Field: item_content
+  What it is: the task text
+  Real example: ###Instruction: You should directly answer the question by 
+  choosing ONLY the correct option... ###Question: A middle-aged  man 
+  presents... (602 chars)
+  ────────────────────────────────────────
+  Field: item_features
+  What it is: k=v;k=v metadata
+  Real example: lang=en
+  ────────────────────────────────────────
+  Field: interactors
+  What it is: other agents/tools in the eval
+  Real example: "" (empty in nearly all of our corpus)
+  ────────────────────────────────────────
+  Field: benchmark_id
+  What it is: stable anonymous alias
+  Real example: benchmark_274926 (internally afrimedqa)
+
+  Item text length: p50 251 tokens, p90 620, p99 2031, max 255,270.
+
+  What you do NOT get
+
+  Benchmark name, description, domain, grading criteria, asset manifests. Our
+  local corpus has them ({"name": "AfriMed-QA", "description": "Released model 
+  responses to multiple-choice medical questions in African healthcare 
+  contexts.", "domain": "['medicine']", "response_type": "binary"}) — the 
+  competition does not. benchmark_id is an opaque six-digit alias, but stable
+  across submissions, so you can recognize a benchmark you've seen.
+
+  labeled
+
+  [[[subject_dict, item_dict], 1], [[subject_dict, item_dict], 0], ...]
+
+  Same alias accompanies targets and acquired observations → you can match
+  evidence by subject and benchmark. Label is int, 1 = correct. Empty list at
+  budget 0.
+
+  How this becomes our features
+
+  ┌─────────┬────────────────────────────────────┬──────────────────────────┐
+  │ Channel │             Built from             │     Current encoding     │
+  ├─────────┼────────────────────────────────────┼──────────────────────────┤
+  │ item    │ f"item: {item_content}\nmetadata:  │ MiniLM-L6-v2 → 384-d,    │
+  │         │ {item_features}"                   │ capped 256/512 tokens    │
+  ├─────────┼────────────────────────────────────┼──────────────────────────┤
+  │ subject │ all 8 fields newline-joined        │ MiniLM-L6-v2 → 384-d     │
+  └─────────┴────────────────────────────────────┴──────────────────────────┘
+
+  Two measured problems with that: subject_features_extra is a near-unique 
+  fingerprint (7,951 distinct values out of 8,104 subjects) and dominates the
+  subject text; and reasoning_effort is 100% empty but still occupies a line.
+
+✻ Brewed for 1m 3s · done 7:28 PM
+
+❯ Can you tell me what do we usually have in item_features again? I want few    
+  more examples subject-item thingies.                                          
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● item_features — it's a k=v;k=v string, and the keys are per-benchmark
+
+  There is no shared schema. Each benchmark's harness dumped whatever it had.
+  Real examples, one per benchmark:
+
+  ┌───────┬────────────────────────────────────────────────────────────┬─────┐
+  │ Bench │                  item_features (verbatim)                  │ Key │
+  │ mark  │                                                            │  s  │
+  ├───────┼────────────────────────────────────────────────────────────┼─────┤
+  │ AfriM │ lang=en                                                    │ 1   │
+  │ ed-QA │                                                            │     │
+  ├───────┼────────────────────────────────────────────────────────────┼─────┤
+  │ CMMLU │ category=nutrition;prompt_condition=cot                    │ 2   │
+  ├───────┼────────────────────────────────────────────────────────────┼─────┤
+  │ AppWo │ appworld_task_id=b6d1104_3;datetime=2023-05-31T19:40:40.99 │ 4   │
+  │ rld   │ 9999;db_version=0.1.0;split=test_normal                    │     │
+  ├───────┼────────────────────────────────────────────────────────────┼─────┤
+  │ CRUXE │ prompt_source=reconstructed_from_released_template;prompt_ │ 4   │
+  │ val   │ variant=phind_output;source_task_id=sample_240;task=output │     │
+  ├───────┼────────────────────────────────────────────────────────────┼─────┤
+  │       │ component=lex-viz_vocab;input_scope=Original manifest text │     │
+  │ DevBe │  and ordered image choices. The array stores scores for    │ 2   │
+  │ nch   │ constituent image-text comparisons, not a full historical  │     │
+  │       │ API transcript.                                            │     │
+  └───────┴────────────────────────────────────────────────────────────┴─────┘
+
+  Three things to notice:
+
+  1. lang, category, prompt_condition, task are real difficulty signal — CMMLU's
+     prompt_condition=cot vs nocot is literally a difficulty manipulation on
+     the same question.
+  2. appworld_task_id, source_task_id, datetime are per-item fingerprints — zero
+     generalization, pure memorization fuel. Same failure mode as
+     subject_features_extra.
+  3. DevBench's input_scope is a 180-char English sentence, identical for every 
+     item in the benchmark. It is a benchmark label in disguise. This is exactly
+     how the embeddings learn benchmark identity instead of difficulty
+     (docs/feature-engineering.md: within-benchmark R² ≈ 0).
+
+  Five real subject–item pairs
+
+  1. AfriMed-QA — medical MCQ, label 0
+
+  subject: normalized_name=Anthropic Claude 3 Haiku | provider=Anthropic
+           release_date=2024-03-04 | harness=Petavue NL2SQL-Benchmark
+
+  extra=instruction_size=11;protocol_reference=https://github.com/petavue/...;
+                 serving_environment=amazon-bedrock;shot_size=0;
+                 source_model=anthropic.claude-3-haiku-20240307-v1:0
+  item:    features=lang=en  (602 chars)
+    ###Instruction: You should directly answer the question by choosing ONLY the
+    correct option... ###Question: A middle-aged man presents...
+
+  2. AppWorld — agentic tool use, label 1
+
+  subject: normalized_name="" | provider="" | release_date=""   <- 3 blanks
+           harness=BABILong
+           extra=model_identifier=google/gemini-2.0-flash-lite;
+                 released_configuration={"chat_template": true, 
+  "generation_parameters":
+                 {"max_output_tokens": 20, "temperature": 1, "top_k": 40, 
+  "top_p": 0.95}}
+  item:    features=appworld_task_id=b6d1104_3;datetime=...;db_version=0.1.0;spl
+  it=test_normal
+    "I maintain a log of my monthly venmo expense in SimpleNote note. Update it
+     with an entry for this month."   (104 chars)
+
+  This is the ~35% unbridged case. Name and provider are empty — but
+  model_identifier=google/gemini-2.0-flash-lite is sitting right there in
+  subject_features_extra. That's the regex-mining win still unimplemented.
+
+  3. CMMLU — Chinese MCQ, agent scaffold subject, label 1
+
+  subject: normalized_name=Agent: igg-interrogation_plus_sa | provider=(agent 
+  scaffold)
+           harness=Anthropic alignment-faking RL evaluation
+           extra=experiment_name=Interrogation + SA;initialised_from=IGG;
+                 intervention=Interrogation w/ definition + SA;
+                 model_identifier=IGG-Interrogation_plus_SA;training_step=13
+  item:    features=category=nutrition;prompt_condition=cot
+    请回答以下关于营养学的单项选择题... 以下食物，每100g可食部含维生素C最高的是
+    A) 土豆 B) 油菜 C) 白菜 D) 青椒   (130 chars)
+
+  provider=(agent scaffold) is a literal string, not a company. And MiniLM-L6-v2
+  is English-only — it is near-useless on this text.
+
+  4. CRUXEval — Python output prediction, fine-tuned subject, label 0
+
+  subject: normalized_name="" | 
+  harness_version=9af6ce2f5df8171a64d58ced2032761396bfb2ad
+           harness=Bridging-the-Gap paper evaluation
+           extra=fine_tuned=True;source_model_identifier=unsloth/llama-3-70b-Ins
+  truct-bnb-4bit;
+
+  training_data=mmlu-college_medicine;training_fraction=25%;training_id=ft-089;
+
+  training_language=ig;training_partition=full;training_quality=high;
+                 training_size=16
+  item:    features=prompt_source=reconstructed_from_released_template;
+
+  prompt_variant=phind_output;source_task_id=sample_668;task=output
+    "Based on the given Python code, which may contain errors, complete the 
+  assert
+     statement with the output..."   (465 chars)
+
+  Rare non-empty harness_version — it's a git SHA. prompt_variant=phind_output
+  vs direct_output is a real difficulty knob.
+
+  5. DevBench — multimodal JSON, label 0
+
+  subject: normalized_name=Anthropic Claude Sonnet | provider=Anthropic | 
+  release_date=2024-03-04
+           harness=Anthropic alignment-faking RL evaluation
+           extra=experiment_name=Interrogation;initialised_from=Reward Hack 
+  Sonnet;
+                 intervention=Interrogation w/ definition;
+
+  model_identifier=Reward_Hack_Sonnet-Interrogation;training_step=14
+  item:    features=component=lex-viz_vocab;input_scope=Original manifest text 
+  and ordered...
+    {"multimedia_elements": [{"content_type": "text/plain", "text": "cassette"},
+     {"content_type": "image/jpeg", "location": 
+  "lex-viz_vocab/images/cassette.jpg"}...
+    (392 chars)
+
+  item_content is raw JSON with image paths you cannot open. A text encoder sees
+  cassette.jpg and nothing else.
+
+  ---
+
+  Two caveats on the above:
+
+  - These come from demo/forecaster/assets/tasks.json, which is 5 validation
+    tasks exported by scripts/export_forecaster_tasks.py. The subject join there
+    is positional (subjects.iloc[int(first.subject_index)],
+    export_forecaster_tasks.py:48). The harness values look wrong — Claude 3
+    Haiku on AfriMed-QA tagged Petavue NL2SQL-Benchmark, Gemini tagged BABILong.
+    Either the corpus genuinely carries unrelated harness strings, or that
+    .iloc is misaligned. The item_features and item_content values are 
+    unaffected — they come from the items table via a separate join — but I
+    would not trust the subject↔item pairing until that .iloc is checked against
+    subjects.parquet row order.
+  - interactors is empty in all of these.
+
+✻ Brewed for 54s · done 7:35 PM
+
+❯ OK tell me which embeddings contain what/how were eachy of the embeddings     
+  created using what atttributes from items. Use a table to show me that.       
+
+  Searched for 3 patterns, listed 1 directory, ran 5 shell commands (ctrl+o to expand)
+
+● Six embedding stores exist. Every one uses the exact same two item attributes
+  — only the encoder and token cap differ.
+
+  The item text is identical across all arms
+
+  f"item: {content}\nmetadata: {item_features}"
+
+  modal_allbench.py:246 and modal_embedding_ablation.py:546 — byte-identical
+  template. So:
+
+  ┌──────────────────────┬──────────────────────────────────────────────────┐
+  │    Item attribute    │                In the embedding?                 │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ item_content →       │ ✅ yes, after item:                              │
+  │ content              │                                                  │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ item_features        │ ✅ yes, after \nmetadata:                        │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ interactors          │ ❌ never encoded                                 │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ benchmark_id         │ ❌ not in text (leaks implicitly via             │
+  │                      │ item_features strings)                           │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ item_id /            │ ❌ not encoded                                   │
+  │ raw_item_id          │                                                  │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ content_chars        │ ❌ not encoded                                   │
+  └──────────────────────┴──────────────────────────────────────────────────┘
+
+  So interactors is in the competition input and in our parquet, and no arm has
+  ever seen it. It's empty in nearly everything, so probably no loss — but it's
+  untested.
+
+  The six arms
+
+  Arm: minilm
+  Encoder: all-MiniLM-L6-v2
+  Dim: 384
+  Cap: 256
+  How built: reused v1 store, no re-encode (source: "existing")
+  Item attrs used: content + item_features
+  Calibrated ALC: 0.222894
+  ────────────────────────────────────────
+  Arm: minilm512
+  Encoder: all-MiniLM-L6-v2
+  Dim: 384
+  Cap: 512
+  How built: re-encode, ST mean pooling
+  Item attrs used: same
+  Calibrated ALC: 0.223095
+  ────────────────────────────────────────
+  Arm: bge_base
+  Encoder: BAAI/bge-base-en-v1.5
+  Dim: 768
+  Cap: 512
+  How built: re-encode, ST mean pooling
+  Item attrs used: same
+  Calibrated ALC: 0.222822
+  ────────────────────────────────────────
+  Arm: bge_m3
+  Encoder: BAAI/bge-m3
+  Dim: 1024
+  Cap: 512
+  How built: re-encode, ST mean pooling
+  Item attrs used: same
+  Calibrated ALC: 0.223662
+  ────────────────────────────────────────
+  Arm: llama31_8b
+  Encoder: Meta-Llama-3.1-8B-Instruct
+  Dim: 4096
+  Cap: 512
+  How built: decoder, last non-padding token, bf16 fwd → fp16 store
+  Item attrs used: same
+  Calibrated ALC: —
+  ────────────────────────────────────────
+  Arm: bge_base_2pladapt
+  Encoder: bge_base + trained residual adapter
+  Dim: 768
+  Cap: 512
+  How built: see below
+  Item attrs used: same + training labels
+  Calibrated ALC: 0.222584
+
+  Beta-Binomial reference: 0.222838. Nothing beats it by more than noise.
+
+  bge_base_2pladapt is the only arm that is not pure text
+
+  It takes frozen bge_base vectors and learns a residual MLP on top
+  (modal_embedding_ablation.py:1145):
+
+  norm = LayerNorm(768);  fc1 = Linear(768→256);  fc2 = Linear(256→768)  # fc2 
+  init to ZERO
+  forward(x) = x + fc2(gelu(fc1(norm(x))))
+
+  ┌──────────────┬──────────────────────────────────────────────────────────┐
+  │              │                                                          │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Objective    │ 2PL BCE: Amortized2PL, one free ability θ per training   │
+  │              │ task                                                     │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Extra loss   │ + 1e-3 · θ², and θ -= θ.mean() after every step          │
+  │              │ (identifiability)                                        │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Optimizer    │ Adam, lr 1e-3, wd 1e-4, grad clip 1.0, 800 steps, batch  │
+  │              │ 2048                                                     │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Input        │ adapted item vector ⊕ raw subject vector (concatenated)  │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Base encoder │ frozen                                                   │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ After        │ adapter frozen, fresh AIRT + CNP heads trained on        │
+  │ fitting      │ adapted table                                            │
+  └──────────────┴──────────────────────────────────────────────────────────┘
+
+  fc2 initialized to zero means it starts as exact identity — a
+  strictly-no-worse-than-bge_base initialization. And it does end up best: R² 
+  0.62, corr 0.79 predicting item difficulty on anchor items (n ≥ 20), vs
+  bge_base's raw text embedding.
+
+  The subject side (same for all arms)
+
+  All eight fields, newline-joined key: value, through the same encoder as
+  items:
+
+  normalized_name: Anthropic Claude 3 Haiku
+  provider: Anthropic
+  release_date: 2024-03-04
+  access_date:
+  harness: Petavue NL2SQL-Benchmark
+  reasoning_effort:
+  harness_version:
+  subject_features_extra: instruction_size=11;protocol_reference=https://...
+
+  Two lines are always blank (reasoning_effort 0% fill, access_date 1%), and the
+  last line is a 7,951-distinct-value fingerprint that dominates the string.
+  Under masked mode — which is how all the numbers above were measured — the
+  subject half of the concatenated vector is zeroed anyway, and CNPAIRT.logits
+  never reads it.
+
+  What this table says
+
+  The encoder ladder spans 384-d paraphrase-tuned → 4096-d Llama, 256 → 512
+  tokens, English-only → multilingual. Calibrated ALC moves 0.0008 total.
+  Headroom is +0.062. The item attributes going in have not changed once across
+  six arms, and the only arm that improved was the one that stopped relying on
+  text alone and fit response labels directly.
+
+✻ Churned for 1m 1s · done 7:41 PM
+
+❯ very very very very short answer: okay bro then I guess each embedding should 
+  probably only have the item content not the item features. Because otherwise  
+  the embedding is not encoding about item, it is encoding ig about the         
+  benchmark which can cause confounding i guess...also I guess we do need       
+  multilingual embeddings. We shouldn't truncate the inputs yk. I am not sure   
+  if "miniLM" is useful because it was trained for sentence similarity. SO now, 
+  how should we re-embed things again? Think about it and make a small table.   
+
+● Yes on all three — and one of your points is sharper than you think.
+
+  bge_m3 natively does 8192 tokens. We ran it at 512. So "multilingual lost" was
+  measured with its one advantage switched off.
+
+  ┌────────────────────┬─────────────────────────────────────────┬─────────┐
+  │       Change       │                   Why                   │  Cost   │
+  ├────────────────────┼─────────────────────────────────────────┼─────────┤
+  │                    │ input_scope=... is a 180-char constant  │         │
+  │ Drop item_features │ per benchmark → embedding learns        │ free    │
+  │  from the text     │ benchmark ID. This is your point and    │         │
+  │                    │ it's right.                             │         │
+  ├────────────────────┼─────────────────────────────────────────┼─────────┤
+  │ Feed item_features │ prompt_condition=cot, lang, task=output │         │
+  │  as a separate     │  are real difficulty knobs. Parse k=v,  │ ~1 day  │
+  │ parsed channel     │ keep keys seen in ≥2 benchmarks, drop   │         │
+  │                    │ *_task_id/datetime.                     │         │
+  ├────────────────────┼─────────────────────────────────────────┼─────────┤
+  │ Multilingual,      │ CMMLU is Chinese; MiniLM is             │ —       │
+  │ uncapped           │ English-only.                           │         │
+  ├────────────────────┼─────────────────────────────────────────┼─────────┤
+  │                    │ p99 = 2031 tokens. 4096 keeps ~99% of   │ ~3×     │
+  │ Cap 4096, not 512  │ items.                                  │ encode  │
+  │                    │                                         │ time    │
+  ├────────────────────┼─────────────────────────────────────────┼─────────┤
+  │ Drop MiniLM        │ paraphrase-similarity objective;        │ free    │
+  │                    │ nothing to do with difficulty.          │         │
+  └────────────────────┴─────────────────────────────────────────┴─────────┘
+
+  Encoder: Qwen3-Embedding-0.6B — multilingual, 32k context, decoder-based (not
+  similarity-tuned), 1024-d. Fallback bge-m3 at 4096.
+
+  Then re-fit the 2PL residual adapter on top. That was the only thing that ever
+  moved the number.
+
+  One honest caveat: truncation at 512 measurably did not hurt difficulty
+  prediction. Fixing it is correct hygiene, not a predicted win. The
+  item_features removal is the change with an actual mechanism behind it.
+
+✻ Brewed for 15s · done 7:47 PM
+
+❯ very very very very short answer: Go look at all usable benchmarks and their  
+  languages.                                                                    
+
+  Searched for 6 patterns, read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+❯ Use agrover112 for this please.                                               
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● That's the right workspace — the aims-neurips profile has an empty/different
+  volume. Re-running under agrover112:
+
+  Ran 4 shell commands (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Bro okay switch to agrover112 workspace.                                      
+
+  Ran 1 shell command (ctrl+o to expand)
+● Switched — agrover112 is now the active profile for the session.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● 52 usable benchmarks (chi_bench, haiid have 0 tasks). Non-English is much
+  bigger than it looks, because script detection misses Latin-script African
+  languages.
+
+  Non-Latin script
+
+  ┌──────────────┬────────────┬───────┬─────────────────┬──────────┐
+  │  Benchmark   │   Split    │ Tasks │ Non-Latin items │  Script  │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ cmmlu        │ validation │    22 │            100% │ CJK 68%  │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ ceval        │ train      │     2 │           98.5% │ CJK 60%  │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ editbench    │ train      │    44 │           22.8% │ Cyrillic │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ helm_afr     │ train      │    22 │           20.8% │ Ethiopic │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ braveguard   │ train      │     2 │           15.0% │ CJK      │
+  ├──────────────┼────────────┼───────┼─────────────────┼──────────┤
+  │ bridging_gap │ train      │   417 │           11.5% │ Ethiopic │
+  └──────────────┴────────────┴───────┴─────────────────┴──────────┘
+
+  Latin script, still not English (found via lang= tags)
+
+  ┌───────────┬────────────┬───────┬─────────────────────────────┐
+  │ Benchmark │   Split    │ Tasks │          Languages          │
+  ├───────────┼────────────┼───────┼─────────────────────────────┤
+  │ afrieval  │ train      │   948 │ kin, ibo, yor, swa (+ more) │
+  ├───────────┼────────────┼───────┼─────────────────────────────┤
+  │ bertaqa   │ test       │     6 │ en 52% / eu 48% (Basque)    │
+  ├───────────┼────────────┼───────┼─────────────────────────────┤
+  │ afrimedqa │ validation │    32 │ en 100%                     │
+  └───────────┴────────────┴───────┴─────────────────────────────┘
+
+  Verdict
+
+  22 of 104 validation tasks (21%) are Chinese. MiniLM-L6-v2 is English-only.
+  That alone justifies multilingual.
+
+  Train side: afrieval (948 tasks) + bridging_gap (417) + editbench (44) +
+  helm_afr (22) = ~1,430 of 6,702 train tasks are non-English — 21%, same ratio.
+
+  Test side is clean Latin except bertaqa (Basque, 6 of 22 tasks).
+
+  So: multilingual is required, and bge-m3 was the right instinct — we just ran 
+  it at 512 tokens. Low-resource African language coverage is the
+  differentiator; bge-m3 and Qwen3-Embedding both cover Swahili/Yoruba/Igbo far
+  better than MiniLM, which covers none.
+
+  One caveat: my script-ratio test is a heuristic on a 400-item sample per
+  benchmark, and lang= tags exist in only 3 benchmarks. Benchmarks with no tag
+  and Latin script could still be non-English and I'd have scored them 0%.
+
+✻ Baked for 1m 46s · done 7:53 PM
+
+❯ Can you please make a PDF, where you add a plot related to distribution of    
+  languages in the benchmark quikcly.                                           
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(cat > /tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-4
+      72871f97afc/scratchpad/make_lang_pdf.py <<'PY'
+      import json, sys…)
+  ⎿  wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+
+● Panel C's labels are clipped. Fixing the margins:
+
+● Bash(S=/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py && python3 - "$S" <<'EOF'
+      import sys…)
+  ⎿  patched
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+❯ Okay, hmm so which embeddings models should we use? What about the            
+  LLama-Instruct-8B model is it multilingula? besides Qwen-3-Embedding? what    
+  are the best embedding models for various tasks on average that are           
+  multilingual that you can find based on embedding benchmarks online.          
+
+  Read 1 file (ctrl+o to expand)
+
+● PDF is clean now. ~/aims-neurips/docs/language-distribution.pdf (2
+  pages: figure + full 52-benchmark table). PNG alongside at
+  docs/figures-language-distribution.png.
+
+  Now on your encoder question — let me check the current leaderboard rather
+  than answer from memory.
+
+● Web Search("MTEB multilingual leaderboard top embedding models 2026")
+  ⎿  Did 1 search in 7s
+
+● Web Search("Llama-3.1-8B-Instruct multilingual supported languages official")
+  ⎿  Did 1 search in 4s
+
+● Fetch(https://arxiv.org/pdf/2510.23896)
+  ⎿  Received 1MB (200 OK)
+
+● Web Search("Qwen3-Embedding vs bge-m3 vs multilingual-e5 MMTEB multilingual
+            benchmark scores context length")
+  ⎿  Did 1 search in 7s
+
+● Fetch(https://arxiv.org/abs/2510.23896)
+  ⎿  Received 41KB (200 OK)
+
+● Fetch(https://qwenlm.github.io/blog/qwen3-embedding/)
+  ⎿  Received 27.4KB (200 OK)
+
+● Figure's fixed, and the search turned up something that directly bites one of
+  our existing arms.
+
+  🚨 Llama-3.1-8B does not support Chinese
+
+  Meta's official card lists 8 languages: English, French, German, Hindi,
+  Italian, Portuguese, Spanish, Thai. No Chinese, no
+  Swahili/Yoruba/Igbo/Amharic.
+
+  Our llama31_8b arm (4096-d, the Truong et al. replication) is therefore blind 
+  on cmmlu — 22 of 104 validation tasks. Meta explicitly "strongly discourages"
+  use on unsupported languages without finetuning. That arm was never going to
+  work for our corpus.
+
+  Candidates
+
+  ┌──────────────────────────────┬──────┬────────┬──────┬────────┬──────┐
+  │                              │      │ Contex │ Lang │ Licens │ MMTE │
+  │            Model             │ Dim  │   t    │  s   │   e    │  B   │
+  │                              │      │        │      │        │ mean │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │                              │ 1024 │        │      │ Apache │ 64.3 │
+  │ Qwen3-Embedding-0.6B         │  (MR │    32K │ 100+ │  2.0   │    3 │
+  │                              │   L) │        │      │        │      │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │                              │ 2560 │        │      │ Apache │ 69.4 │
+  │ Qwen3-Embedding-4B           │  (MR │    32K │ 100+ │  2.0   │    5 │
+  │                              │   L) │        │      │        │      │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │                              │ 4096 │        │      │ Apache │ 70.5 │
+  │ Qwen3-Embedding-8B           │  (MR │    32K │ 100+ │  2.0   │    8 │
+  │                              │   L) │        │      │        │      │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │ multilingual-e5-large-instru │ 1024 │    512 │  ~94 │ MIT    │ 63.2 │
+  │ ct                           │      │        │      │        │    2 │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │ bge-m3 (ours)                │ 1024 │   8192 │ 100+ │ MIT    │ 59.5 │
+  │                              │      │        │      │        │    6 │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │ llama31_8b (ours)            │ 4096 │   128K │    8 │ Llama  │    — │
+  │                              │      │        │      │ CL     │      │
+  ├──────────────────────────────┼──────┼────────┼──────┼────────┼──────┤
+  │                              │ 384  │        │      │        │      │
+  │ minilm / bge-base (ours)     │   /  │    512 │    1 │ —      │    — │
+  │                              │  768 │        │      │        │      │
+  └──────────────────────────────┴──────┴────────┴──────┴────────┴──────┘
+
+  Scores are Qwen's own MMTEB table. Note bge-m3 is the weakest multilingual 
+  option on the list — so its last-place finish in our ablation wasn't only the
+  512-token cap.
+
+  My pick: Qwen3-Embedding-0.6B
+
+  - 1024-d — only +33% over bge_base's 768, so the adapter and CNP heads barely
+    change
+  - 32K context kills the truncation question outright (our p99 is 2,031 tokens)
+  - MRL → you can truncate to 768-d for free and compare apples-to-apples
+    against bge_base
+  - Instruction-aware → you can prompt it with "Encode this evaluation item for 
+    difficulty prediction" instead of the generic similarity objective, which is
+    exactly your MiniLM complaint
+  - 0.6B runs on an L4; no A100 needed
+
+  Step up to 4B only if 0.6B shows a real gain. 8B is 4096-d and reintroduces
+  the dimensionality problem for ~1 MMTEB point over 4B.
+
+  For the African-language block, there's a better option
+
+  afrieval (948 tasks) + bridging_gap (417) + helm_afr (22) = ~1,390 train
+  tasks. A paper from this month, AfriMTEB and AfriE5
+  (https://arxiv.org/abs/2510.23896) (Uemura, Zhang, Adelani), built a
+  59-African-language benchmark and found AfriE5 — mE5-instruct adapted via
+  cross-lingual contrastive distillation — beats both Gemini-Embeddings and mE5.
+  Weights: github.com/LLMforLRL/FlagEmbedding-AfriE5.
+
+  That's a train-split win only (bertaqa/Basque is the only non-English test
+  benchmark), so it helps meta-training, not the scored split. Lower priority
+  than the main encoder swap.
+
+  Caveats
+
+  - The "who is #1 on MTEB" blogs contradict each other — harrier-oss-v1-27b at
+    74.27, KaLM-Embedding-Gemma3-12B at 72.32, Qwen3-8B at 70.58, all claimed as
+    top. Different boards, different versions. I'd check the live HF
+    leaderboard before trusting any of them, and none of these are small enough
+    to matter for us anyway.
+  - Qwen's "#1" claim is dated June 2025 — 16 months stale.
+  - One German analysis found 4B beat 8B on its language despite the lower MMTEB
+    mean. Aggregate MMTEB does not predict per-language behavior, and our
+    corpus is Chinese + African languages, not the MMTEB mix. Treat the table as
+    a shortlist, not a ranking.
+
+  Want me to run the qwen3_0.6b arm through modal_embedding_ablation.py? It's a
+  new entry in the MODELS dict plus the content-only text change you called out.
+
+  Sources: Qwen3-Embedding blog (https://qwenlm.github.io/blog/qwen3-embedding/)
+  · Qwen3-Embedding GitHub (https://github.com/QwenLM/Qwen3-Embedding) ·
+  AfriMTEB/AfriE5 (https://arxiv.org/abs/2510.23896) · Meta Llama 3.1 8B
+  Instruct card (https://ai.azure.com/catalog/models/Meta-Llama-3.1-8B-Instruct)
+  · NVIDIA Llama 3.1 8B listing
+  (https://build.nvidia.com/meta/llama-3_1-8b-instruct.md) · Embedding
+  leaderboard roundup
+  (https://app.ailog.fr/en/blog/news/embedding-models-leaderboard-2026) · German
+  embedding comparison
+  (https://wz-it.com/en/blog/best-embedding-models-german/)
+
+✻ Sautéed for 2m 25s · done 7:58 PM
+
+※ recap: We audited benchmark languages and found 21% of validation tasks are Chinese, which Llama-3.1-8B can't handle. Language distribution PDF is written to docs/. Next: add a Qwen3-Embedding-0.6B arm to modal_embedding_ablation.py, encoding item content only.
+
+❯ So which are top non-englishh languages do we have that?                      
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Measured on the full 1,356,312-item corpus — and afrieval carries 22 explicit 
+  language tags my first pass truncated away.
+
+  Top non-English languages
+
+  ┌─────┬─────────────┬──────┬────────┬────────────────────────┬────────────┐
+  │  #  │  Language   │ Code │ Items  │         Where          │   Split    │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │     │             │      │        │ cmmlu (23,160), ceval  │            │
+  │   1 │ Chinese     │ zh   │ 39,743 │ (13,885), harmbench,   │ validation │
+  │     │             │      │        │ braveguard             │            │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   2 │ Basque      │ eu   │ 24,817 │ bertaqa                │ test       │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   3 │ Amharic     │ amh  │ 17,560 │ helm_afr (9,245),      │ train      │
+  │     │             │      │        │ bridging_gap (8,309)   │            │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   4 │ Russian     │ ru   │  6,106 │ harmbench (5,850),     │ train      │
+  │     │             │      │        │ editbench              │            │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   5 │ Kinyarwanda │ kin  │  2,929 │ afrieval               │ train      │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   6 │ Igbo        │ ibo  │  2,849 │ afrieval               │ train      │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   7 │ Yoruba      │ yor  │  2,799 │ afrieval               │ train      │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   8 │ Swahili     │ swa  │  2,620 │ afrieval               │ train      │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │   9 │ Nigerian    │ pcm  │  2,375 │ afrieval               │ train      │
+  │     │ Pidgin      │      │        │                        │            │
+  ├─────┼─────────────┼──────┼────────┼────────────────────────┼────────────┤
+  │  10 │ Hausa       │ hau  │  2,267 │ afrieval               │ train      │
+  └─────┴─────────────┴──────┴────────┴────────────────────────┴────────────┘
+
+  Then the long afrieval tail: lug 1,920 · wol 1,916 · sna 1,773 · nya 1,770 ·
+  zul 1,670 · xho 1,608 · mos 1,294 · bam 1,274 · fon 1,237 · twi 1,210 · ewe
+  996 · tsn 995 · bbj 954 · luo 249.
+
+  Trace amounts: Japanese 283, Korean 252, Arabic 171, Thai 103, Hebrew 93,
+  Hindi 68 — ignorable.
+
+  What actually matters
+
+  Chinese is #1 and it's in validation. cmmlu is 100% Han, 22 of 104 validation
+  tasks. This is the one that moves your scored number.
+
+  Basque is #2 and it's in test. bertaqa is 6 of 22 test tasks, half its items
+  Basque. Basque is a language isolate — genuinely hard, and the thing most
+  models are worst at.
+
+  Amharic is #3, and it's Ethiopic script, which MiniLM/bge-base cannot
+  represent at all.
+
+  afrieval is 24 African languages across 948 train tasks — the largest
+  linguistic diversity block, though modest in item count. Several (bbj
+  Ghomala', mos Mooré, fon Fon, wol Wolof) are outside most multilingual
+  encoders' training sets entirely.
+
+  Consequences for the encoder choice
+
+  ┌─────────────────────────────┬─────┬─────┬─────┬─────┬───────────────────┐
+  │            Model            │ zh  │ eu  │ amh │ ru  │ the 24 Afri langs │
+  ├─────────────────────────────┼─────┼─────┼─────┼─────┼───────────────────┤
+  │ minilm / bge-base (current) │ ❌  │ ❌  │ ❌  │ ❌  │        ❌         │
+  ├─────────────────────────────┼─────┼─────┼─────┼─────┼───────────────────┤
+  │ llama31_8b (ours)           │ ❌  │ ❌  │ ❌  │ ❌  │        ❌         │
+  ├─────────────────────────────┼─────┼─────┼─────┼─────┼───────────────────┤
+  │ bge-m3                      │ ✅  │ ✅  │ ✅  │ ✅  │      partial      │
+  ├─────────────────────────────┼─────┼─────┼─────┼─────┼───────────────────┤
+  │ Qwen3-Embedding             │ ✅  │ ✅  │ ✅  │ ✅  │      partial      │
+  ├─────────────────────────────┼─────┼─────┼─────┼─────┼───────────────────┤
+  │ AfriE5                      │ ❌  │ ❌  │ ✅  │ ❌  │      ✅ best      │
+  └─────────────────────────────┴─────┴─────┴─────┴─────┴───────────────────┘
+
+  Llama-3.1's 8 supported languages (en/fr/de/hi/it/pt/es/th) intersect this
+  list at zero. Not one of our top-10 non-English languages is covered.
+
+  Caveat on Amharic: that's inferred from Ethiopic script in
+  helm_afr/bridging_gap, which carry no lang= tag. Ethiopic also writes Tigrinya
+  and Oromo, so the 17,560 may be a mix. The script finding is solid; the
+  language label is my inference.
+
+✻ Cogitated for 2m 31s · done 8:06 PM
+
+❯ Please make a plot for the tables you made man and then add it to the given   
+  PDF.                                                                          
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py"…)
+  ⎿  syntax ok
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+     wrote ~/aims-neurips/docs/figures-language-ranking.png
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py"…)
+  ⎿  ok
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+     … +2 lines (ctrl+o to expand)
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+
+● Done. ~/aims-neurips/docs/language-distribution.pdf — 3 pages:
+
+  ┌──────┬───────────────────────────────────────────────────────────────────┐
+  │ Page │                              Content                              │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │      │ Benchmark-level: tasks & items by split stacked by language       │
+  │ 1    │ category, plus every non-English benchmark ranked by non-Latin    │
+  │      │ share                                                             │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ 2    │ New — language ranking by item count (colour = split) + encoder   │
+  │      │ coverage matrix                                                   │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ 3    │ Full 52-benchmark table                                           │
+  └──────┴───────────────────────────────────────────────────────────────────┘
+
+  PNGs alongside: docs/figures-language-distribution.png,
+  docs/figures-language-ranking.png.
+
+  The new page makes the argument visually in one shot: the only two coloured
+  bars — Chinese (validation) and Basque (test) — are the two that touch your
+  scored number, and the first two encoder rows, including the one we already
+  paid to build, are solid "no" across every column.
+
+  Regenerate anytime with:
+  .venv/bin/python /tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-
+  82af-472871f97afc/scratchpad/make_lang_pdf.py
+
+  That script reads lang-audit.json and lang-top.json from the same scratchpad
+  dir — both also committed to the Modal volume at
+  /data/results/feature-diagnostics/. Want me to move the generator into
+  scripts/ so it survives the session?
+
+✻ Cooked for 1m 32s · done 8:10 PM
+
+❯ So look there in docs/language-distribution.pdf I did some data-analysis on   
+  the distribution of languages available in our data. Looks like we are cooked 
+  if we use non-multilingual models. Go online, find models that support most   
+  of these languages. Do not just look at advertrised numbers. Use an unbiased  
+  source/benchmark for this please.                                             
+
+● Let me research this properly — independent benchmarks, not vendor claims.
+
+● Web Search("AfriMTEB AfriE5 results table LaBSE bge-m3 multilingual-e5 Qwen3
+            African languages scores")
+  ⎿  Did 1 search in 8s
+
+● Web Search("MMTEB Massive Multilingual Text Embedding Benchmark paper 1000
+            languages results which models best low-resource")
+  ⎿  Did 1 search in 6s
+
+● Fetch(https://arxiv.org/html/2510.23896v1)
+  ⎿  Received 320.1KB (200 OK)
+
+● Web Search("LaBSE 109 languages list Yoruba Igbo Basque Amharic vs XLM-RoBERTa
+            100 languages coverage")
+  ⎿  Did 1 search in 7s
+
+● Found it — and it reverses the recommendation I gave you earlier. Let me
+  verify the scored-split languages too.
+
+● Web Search("MTEB Chinese C-MTEB multilingual-e5-large-instruct vs bge-m3 vs
+            Qwen3-Embedding scores comparison")
+  ⎿  Did 1 search in 8s
+
+● Web Search("Basque embedding model benchmark MTEB eu BertaQA low-resource
+            retrieval multilingual-e5 XLM-R")
+  ⎿  Did 1 search in 6s
+
+● Fetch(https://arxiv.org/html/2502.13595v3)
+  ⎿  Received 1.1MB (200 OK)
+
+● Web Search("bge-m3 C-MTEB Chinese retrieval score multilingual compare e5
+            independent evaluation")
+  ⎿  Did 1 search in 9s
+
+● Two genuinely independent benchmarks exist, and both contradict the
+  recommendation I gave you earlier.
+
+  I was wrong about Qwen3-Embedding-0.6B. I picked it off Qwen's own MMTEB mean
+  — exactly the advertised number you told me not to trust.
+
+  Source 1: MMTEB (ICLR 2025, community-built, 500+ tasks, 250+ languages)
+
+  ┌───────────┬────────────────────────────────┬────────┬────────────────────┐
+  │   Rank    │             Model              │ Params │ MTEB(Multilingual) │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │         1 │ multilingual-e5-large-instruct │   560M │               63.2 │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │         2 │ GritLM-7B                      │     7B │               60.9 │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │         3 │ e5-mistral-7b-instruct         │     7B │               60.3 │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │         4 │ multilingual-e5-large          │   560M │               58.6 │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │         8 │ LaBSE                          │   471M │               52.1 │
+  ├───────────┼────────────────────────────────┼────────┼────────────────────┤
+  │ 12 (last) │ all-MiniLM-L6 ← ours           │    22M │               41.4 │
+  └───────────┴────────────────────────────────┴────────┴────────────────────┘
+
+  The authors' stated conclusion: "Mistral [is] predominantly pre-trained on 
+  English, while XLM-R targets 100 languages." Size loses to language coverage.
+  A 560M model beats every 7B model.
+
+  Source 2: AfriMTEB (EACL 2026, Adelani et al. — 59 African languages, 
+  vendor-independent)
+
+  ┌────────────────────────────────────────┬───────────────┬───────────────┐
+  │                 Model                  │ AfriMTEB-Lite │ AfriMTEB-Full │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ AfriE5-large-instruct                  │          63.7 │          62.4 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ Gemini Embedding-001                   │          63.1 │          60.6 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ multilingual-e5-large-instruct         │          62.0 │          61.3 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ multilingual-e5-large                  │          57.8 │          57.2 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ bge-m3                                 │          55.0 │          55.8 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ Qwen3-Embedding-8B                     │          49.7 │          50.5 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ gte-Qwen2-7B-instruct                  │          47.5 │          50.9 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ Qwen3-Embedding-4B                     │          46.0 │          48.2 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ Qwen3-Embedding-0.6B ← my earlier pick │          40.7 │          43.7 │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ EmbeddingGemma 300m                    │          29.1 │             — │
+  ├────────────────────────────────────────┼───────────────┼───────────────┤
+  │ mmBERT-base (1,800 languages!)         │          28.9 │          26.6 │
+  └────────────────────────────────────────┴───────────────┴───────────────┘
+
+  Qwen3-0.6B is 21 points below mE5-large-instruct and 14 below bge-m3 on your
+  African languages. And mmBERT advertises 1,800 languages while scoring dead
+  last — advertised language counts mean nothing.
+
+  The one real conflict
+
+  Chinese is your #1 language and it's in validation (scored). MMTEB
+  deliberately excludes Chinese — C-MTEB is a separate board.
+
+  ┌────────────────────────────────┬─────────────┐
+  │             Model              │ C-MTEB mean │
+  ├────────────────────────────────┼─────────────┤
+  │ Qwen3-Embedding-0.6B           │       66.33 │
+  ├────────────────────────────────┼─────────────┤
+  │ multilingual-e5-large-instruct │       58.08 │
+  └────────────────────────────────┴─────────────┘
+
+  That's self-reported by Qwen, and Chinese is their home turf, so take it with
+  salt — but an 8-point gap is probably real in direction. I could not find an
+  independent bge-m3 C-MTEB number.
+
+  Recommendation
+
+  Primary arm: multilingual-e5-large-instruct (1024-d, 560M, MIT)
+
+  - #1 on MMTEB overall, #3 on AfriMTEB, and the only model in the top 3 of both
+  - Covers Chinese, Basque, Amharic, Russian via XLM-R
+  - 560M → runs on an L4, cheaper than what we're already doing with Llama-8B
+  - 1024-d, close to bge_base's 768, so the adapter and CNP heads barely change
+
+  Its one weakness is 512 tokens (XLM-R position limit) — and your own
+  measurement says truncation at 512 does not hurt difficulty prediction. The
+  one thing it's bad at is the one thing we proved doesn't matter.
+
+  ┌────────────────────────┬──────┬─────────┬───────────────────────────────┐
+  │                        │ Dim  │ Context │              Why              │
+  ├────────────────────────┼──────┼─────────┼───────────────────────────────┤
+  │ 1. mE5-large-instruct  │ 1024 │     512 │ best on both independent      │
+  │                        │      │         │ benchmarks                    │
+  ├────────────────────────┼──────┼─────────┼───────────────────────────────┤
+  │ 2.                     │ 1024 │     32K │ only because Chinese is       │
+  │ Qwen3-Embedding-0.6B   │      │         │ 39,743 scored items           │
+  ├────────────────────────┼──────┼─────────┼───────────────────────────────┤
+  │ 3.                     │ 1024 │     512 │ drop-in, same arch;           │
+  │ AfriE5-large-instruct  │      │         │ train-split signal only       │
+  ├────────────────────────┼──────┼─────────┼───────────────────────────────┤
+  │ ~~bge-m3~~             │ 1024 │    8192 │ mid on both; keep only as the │
+  │                        │      │         │  long-context control         │
+  └────────────────────────┴──────┴─────────┴───────────────────────────────┘
+
+  Run 1 and 2 as two arms — this is a genuine empirical question
+  (Chinese-in-validation vs everything else) and we already have the harness.
+  AfriE5 is a free third arm since it's architecturally identical to mE5.
+
+  Caveats
+
+  - AfriMTEB-Lite covers 9 languages (amh, orm, ibo, yor, hau, swa, kin, xho,
+    zul). Your corpus has 24, including Fon, Ghomala', Mooré, Wolof, Bambara —
+    not benchmarked by anyone. The 62.0 vs 40.7 gap is measured on the overlap,
+    extrapolated to the rest.
+  - AfriE5 was adapted on only those 9 languages, so its win may not extend to
+    the other 15.
+  - No independent Basque embedding benchmark exists that I could find. Basque
+    is 24,817 test items. XLM-R includes Basque; Qwen3's coverage there is
+    unverified.
+  - The arXiv v1 and ACL versions of AfriMTEB report different Full averages
+    (62.4 vs 64.6) for AfriE5. Ordering is unaffected.
+
+  Want me to add these two tables as a 4th page to the PDF, and wire
+  me5_instruct + qwen3_06b into modal_embedding_ablation.py?
+
+  Sources: MMTEB (ICLR 2025) (https://arxiv.org/html/2502.13595v3) ·
+  AfriMTEB/AfriE5 (EACL 2026) (https://arxiv.org/html/2510.23896v1) · AfriMTEB
+  ACL version (https://aclanthology.org/2026.eacl-long.171.pdf) · AfriE5 weights
+  (https://github.com/LLMforLRL/FlagEmbedding-AfriE5) · Qwen3-Embedding paper
+  (https://arxiv.org/html/2506.05176v1) · C-MTEB leaderboard
+  (https://pypi.org/project/C-MTEB/) · KinyaEmbed (independent LaBSE/bge-m3
+  check) (https://arxiv.org/html/2608.26941)
+
+✻ Sautéed for 2m 15s · done 8:15 PM
+
+❯ Ok make a table first to check which of these models from Top-10 of all the   
+  benchmarks you just checked covers most of the languages. Finally also        
+  provide their score.                                                          
+
+● Let me get the actual supported-language lists rather than recall them.
+
+● Fetch(https://huggingface.co/sentence-transformers/LaBSE)
+  ⎿  Received 267KB (200 OK)
+
+● Fetch(https://huggingface.co/intfloat/multilingual-e5-large-instruct)
+  ⎿  Received 2.1MB (200 OK)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Got authoritative lists for the XLM-R family and LaBSE from the HF API.
+  Computing exact coverage against our 24 corpus languages:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Language coverage vs. benchmark score
+
+  24 corpus languages · 122,931 non-English items · 64,560 of them in scored
+  splits (Chinese + Basque)
+
+  ┌──────────────────────────┬──────────┬──────┬──────┬──────┬────────────┐
+  │                          │          │      │ % sc │      │            │
+  │          Model           │  Langs   │ % it │ ored │ MMTE │ AfriMTEB-L │
+  │                          │ covered  │ ems  │  ite │  B   │    ite     │
+  │                          │          │      │  ms  │      │            │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ LaBSE                    │    14/24 │  90% │ 100% │ 52.1 │          — │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ multilingual-e5-large-in │     7/24 │  77% │ 100% │ 63.2 │       62.0 │
+  │ struct                   │          │      │      │      │            │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ AfriE5-large-instruct    │     7/24 │  77% │ 100% │    — │       63.7 │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ multilingual-e5-large    │     7/24 │  77% │ 100% │ 58.6 │       57.8 │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ bge-m3                   │     7/24 │  77% │ 100% │    — │       55.0 │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ Qwen3-Embedding-0.6B     │ undisclo │    ? │    ? │ 64.3 │       40.7 │
+  │                          │      sed │      │      │    * │            │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ llama31_8b (ours)        │     0/24 │   0% │   0% │    — │          — │
+  ├──────────────────────────┼──────────┼──────┼──────┼──────┼────────────┤
+  │ minilm / bge_base (ours) │     0/24 │   0% │   0% │ 41.4 │          — │
+  └──────────────────────────┴──────────┴──────┴──────┴──────┴────────────┘
+
+  Coverage is computed from the published language tags — XLM-R's 94 (which mE5,
+  AfriE5, and bge-m3 all inherit as their backbone) and LaBSE's 110, both
+  pulled from the HF API. Not from marketing copy.
+
+  * Qwen's self-reported number.
+
+  The two findings that matter
+
+  1. Coverage and quality point in opposite directions.
+
+  LaBSE covers twice as many of our languages — it's the only model on the list
+  with Igbo, Yoruba, Kinyarwanda, Zulu, Shona, Chichewa, Wolof — and scores 11 
+  points below mE5-large-instruct on MMTEB. Broad shallow coverage loses to
+  narrow deep coverage. Same lesson as mmBERT (1,800 languages, 28.9 on
+  AfriMTEB).
+
+  2. Coverage stops mattering where your score is computed.
+
+  Every multilingual model on the list covers 100% of scored-split items,
+  because the scored non-English languages are just Chinese (validation) and
+  Basque (test), and all of them have both. The 17-language gap is entirely
+  train-split — it degrades meta-training signal, not the leaderboard number
+  directly.
+
+  So the coverage column is a tiebreaker, not the decision. The decision is the 
+  score column, and there multilingual-e5-large-instruct wins MMTEB outright and
+  takes 3rd on AfriMTEB while being the only model in the top 3 of both.
+
+  What nobody covers
+
+  10 languages — 11,133 items — are in no model's list: Nigerian Pidgin,
+  Luganda, Mooré, Bambara, Fon, Twi, Ewe, Tswana, Ghomala', Luo. All afrieval,
+  all train-split. Those items will be encoded as byte-level noise whatever we
+  pick. That's a floor, not a choice.
+
+  Caveats
+
+  - Qwen3 and bge-m3 publish no language list at all — the HF API returns
+    nothing for either. bge-m3's 7/24 is inferred from its XLM-R backbone;
+    Qwen3's row is genuinely unknown, which is why its AfriMTEB score (40.7,
+    worst of the serious models) is the only evidence we have about it.
+  - A language appearing in XLM-R's CommonCrawl mix is a weak guarantee. Amharic
+    and Basque are in the list but are at the thin end of it; "covered" ≠
+    "good."
+  - MMTEB and AfriMTEB-Lite are different benchmarks on different languages —
+    the two score columns are not comparable to each other, only within a
+    column.
+
+  Pick stands: multilingual-e5-large-instruct primary, Qwen3-Embedding-0.6B as
+  the Chinese-specific second arm, AfriE5 free third arm. LaBSE isn't worth an
+  arm — it loses on quality everywhere it's been measured.
+
+✻ Worked for 1m 36s · done 8:20 PM
+
+❯ Add/check Jina-embeddings-v4/v5 as well please AND newest Gemma embeddings?   
+  Bro do you think we should split data differently then or what?               
+
+● Web Search("jina-embeddings-v4 v5 multilingual languages MTEB score context
+            length parameters")
+  ⎿  Did 1 search in 8s
+● Web Search("EmbeddingGemma 300m newest Gemma embedding model 2026 multilingual
+            MTEB benchmark")
+  ⎿  Did 1 search in 7s
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Fetch(https://jina.ai/models/jina-embeddings-v5-text-small/)
+  ⎿  Received 176KB (200 OK)
+
+● Fetch(https://huggingface.co/google/embeddinggemma-2)
+  ⎿  Received 248.2KB (200 OK)
+
+● Jina v4/v5 and Gemma — checked
+
+  ┌──────────────┬───────────┬─────┬─────┬─────────┬───────┬─────┬─────────┐
+  │    Model     │ Backbone  │ Dim │ Ctx │ Trained │ AfriM │ MMT │ License │
+  │              │           │     │     │  langs  │  TEB  │ EB  │         │
+  ├──────────────┼───────────┼─────┼─────┼─────────┼───────┼─────┼─────────┤
+  │              │           │ 102 │     │ 32 (93  │       │     │         │
+  │ jina-v5-text │ Qwen3-0.6 │  4  │ 32K │ "suppor │     — │ 67. │ CC-BY-N │
+  │ -small       │ B-Base    │ (MR │     │   ted") │       │   0 │ C-4.0   │
+  │              │           │  L) │     │         │       │     │         │
+  ├──────────────┼───────────┼─────┼─────┼─────────┼───────┼─────┼─────────┤
+  │ jina-v5-text │ EuroBERT- │     │ 819 │ 32 (108 │       │ 65. │         │
+  │ -nano        │ 210M      │ 768 │   2 │  "suppo │     — │   5 │ —       │
+  │              │           │     │     │  rted") │       │     │         │
+  ├──────────────┼───────────┼─────┼─────┼─────────┼───────┼─────┼─────────┤
+  │ jina-embeddi │ Qwen2.5-V │ 204 │ 32K │       — │     — │   — │ CC-BY-N │
+  │ ngs-v4       │ L-3B      │   8 │     │         │       │     │ C       │
+  ├──────────────┼───────────┼─────┼─────┼─────────┼───────┼─────┼─────────┤
+  │ EmbeddingGem │           │ 768 │ 204 │         │       │ 61. │ Gemma   │
+  │ ma-300m      │ Gemma 3   │  (M │   8 │  "100+" │  29.1 │  15 │ terms   │
+  │              │           │ RL) │     │         │       │     │         │
+  ├──────────────┼───────────┼─────┼─────┼─────────┼───────┼─────┼─────────┤
+  │ EmbeddingGem │           │ 768 │ 819 │ "100+"  │       │ 61. │ Apache  │
+  │ ma 2         │ Gemma 3   │  (M │   2 │ (140 in │     — │  36 │ 2.0     │
+  │              │           │ RL) │     │   data) │       │     │         │
+  └──────────────┴───────────┴─────┴─────┴─────────┴───────┴─────┴─────────┘
+
+  Both are bad bets for your corpus, for traceable reasons:
+
+  - jina-v5-small is built on Qwen3-0.6B-Base — the exact model that scored 40.7
+    on AfriMTEB, worst of every serious option. And it's trained on only 32 
+    languages, with 93 merely "supported." Jina hides the list behind a UI
+    control; neither the model page nor the HF API will tell you which 32. A
+    model that won't publish its language list, built on a backbone we measured
+    as weak on your languages, is not a candidate.
+  - jina-v5-nano is EuroBERT-210M — a European-language backbone. Wrong
+    continent for Amharic, wrong script for Chinese.
+  - EmbeddingGemma-300m scored 29.1 on AfriMTEB while advertising "100+
+    languages." That is the single clearest demonstration in this whole search
+    that advertised language counts are worthless. EmbeddingGemma 2 is the same
+    270M text tower; its MTEB Multilingual moved 61.15 → 61.36 (+0.2), and
+    nobody has run it on AfriMTEB. No reason to expect the African collapse is
+    fixed.
+  - Licensing: jina v4 and v5 are CC-BY-NC. Non-commercial. Probably fine for a
+    research competition, but it's a constraint mE5 (MIT) doesn't have.
+
+  Nothing changes the pick. multilingual-e5-large-instruct still wins both
+  independent benchmarks.
+
+  ---
+
+  Should you split the data differently?
+
+  Yes — but not the competition split. Your internal selection split.
+
+  The competition's 41/5/6 benchmark hold-out is fixed; you can't touch it. But
+  you chose to select models on those 5 validation benchmarks, and that choice
+  is now actively hurting you:
+
+  Problem: 4 usable clusters, not 5
+  Detail: devbench has 1 task. Your benchmark-cluster bootstrap effectively
+  resamples 4 things. ablation-protocol.md:142 already flags this.
+  ────────────────────────────────────────
+  Problem: One multilingual benchmark
+  Detail: cmmlu is the only non-English validation benchmark. An encoder swap's
+  entire multilingual benefit routes through 22 tasks.
+  ────────────────────────────────────────
+  Problem: Unfalsifiable
+  Detail: If cmmlu improves, you cannot distinguish "multilingual encoder works"
+
+  from "one benchmark got lucky." n=1 cluster.
+  ────────────────────────────────────────
+  Problem: Train is where the languages are
+  Detail: 8 of 41 train benchmarks are non-English — afrieval (948 tasks, 24
+  langs), bridging_gap (417), editbench (44), harmbench (33), helm_afr (22),
+  ceval, braveguard, averimatec. ~1,469 tasks you're currently using only as
+  training fuel.
+
+  What I'd do:
+
+  1. Build a leave-one-benchmark-out grid over the 41 train benchmarks for
+     encoder selection. 41 clusters instead of 4, and it contains Chinese,
+     Amharic, Russian and 24 African languages. This is the honest way to
+     measure "does multilingual encoding help."
+  2. Demote the 5-benchmark validation to a confirmatory readout, used once
+     after selection — treat it like test.
+  3. Report ALC split by language group, not just aggregate. An encoder that
+     fixes Chinese and does nothing elsewhere should be visible as exactly that.
+  4. Do not resplit to move cmmlu into train. It's your only scored multilingual
+     signal.
+
+  One honest caveat: docs/ablation-protocol.md is a pre-registration, and the
+  104-task validation grid is the pre-registered selection set. Adding a LOBO
+  selection protocol after seeing results is a protocol change. It's defensible
+  — the stated reason is a known, documented limitation, not a result you didn't
+  like — but it has to be declared as a protocol amendment in the report, with
+  the original validation numbers still shown. Otherwise it reads as post-hoc
+  selection.
+
+  Want me to build the LOBO grid, or wire up the me5_instruct arm first?
+
+✻ Sautéed for 1m 36s · done 8:23 PM
+
+❯ TO MUCH TALKING I DONT UNDERSTAND ADHD SHORT RESPONSE OTHERWISE I GO CRAZY.   
+  PLEASE TABLE WHICH MODELS                                                     
+
+● Use this one: multilingual-e5-large-instruct
+
+  ┌────────────────────┬──────┬───────┬─────────────────────┐
+  │       Model        │ Afri │ MMTEB │       Verdict       │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ mE5-large-instruct │ 62.0 │  63.2 │ ✅ USE              │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ AfriE5             │ 63.7 │     — │ ✅ free 2nd arm     │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ Qwen3-0.6B         │ 40.7 │  64.3 │ ⚠️ only for Chinese │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ bge-m3             │ 55.0 │     — │ ❌ mid              │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ jina-v5            │    — │  67.0 │ ❌ Qwen3 inside     │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ EmbeddingGemma     │ 29.1 │  61.2 │ ❌ dead             │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ LaBSE              │    — │  52.1 │ ❌ weak             │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ minilm (ours)      │    — │  41.4 │ ❌ last place       │
+  ├────────────────────┼──────┼───────┼─────────────────────┤
+  │ llama31_8b (ours)  │    — │     — │ ❌ 0 languages      │
+  └────────────────────┴──────┴───────┴─────────────────────┘
+
+  Split question: yes, change it. Select on 41 train benchmarks, not 5
+  validation ones.
+
+✻ Worked for 5s · done 8:28 PM
+
+❯ Suggest models with highest coverage and general purpose performance. Read    
+  this paper in docs and think: file://wsl.localhost/Ubuntu~/aims-neu 
+  rips/literature/LLM_Embeddings.pdf                                            
+
+  Ran 9 shell commands (ctrl+o to expand)
+
+● Read it — COLM 2026, El Assadi/Muennighoff/Lee, MTEB(LLM), 37 tasks. No model 
+  wins both.
+
+  ┌───────────────┬───────────────────┬──────────────────┬───────────────────┐
+  │     Model     │     General       │    Multiling     │     African       │
+  │               │    (MTEB-LLM)     │     (MMTEB)      │    (AfriMTEB)     │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ Octen-8B      │           77.2 🥇 │                — │                 — │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ Qwen3-E-8B    │              77.0 │             70.6 │              49.7 │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ Qwen3-E-4B    │              75.9 │             69.5 │              46.0 │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ Jina-v5-S     │              74.4 │             67.0 │                 — │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ Qwen3-E-0.6B  │              72.5 │             64.3 │           40.7 ❌ │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ EmbGemma-300M │              72.2 │             61.2 │           29.1 ❌ │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ mE5-L-Inst    │       69.7 (19th) │          63.2 🥇 │           62.0 🥇 │
+  ├───────────────┼───────────────────┼──────────────────┼───────────────────┤
+  │ BGE-M3        │              66.5 │             59.6 │              55.0 │
+  └───────────────┴───────────────────┴──────────────────┴───────────────────┘
+
+  The trade-off is real: mE5-L-Inst is #1 multilingual, 19th of 26
+  general-purpose. Qwen3 is the reverse.
+
+  Pick 2 arms:
+  - multilingual-e5-large-instruct — coverage
+  - Qwen3-Embedding-4B — general purpose + Chinese
+
+  Bonus from the paper: LLM-as-embedder costs 1,431× more for +0.4 points.
+  That's the final nail in llama31_8b.
+
+✻ Cogitated for 1m 33s · done 8:31 PM
+
+❯ Give me in the pdf a distribution of Language vs benchmark count dist I guess 
+  AND Language vs item count distr.                                             
+
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py"…)
+  ⎿  ok
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+     … +2 lines (ctrl+o to expand)
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+
+● Two bugs: Amharic split across two rows, and English is tag-only (2) which is
+  misleading. Fixing:
+
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py"…)
+  ⎿  ok
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+     … +3 lines (ctrl+o to expand)
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/make_lang_pdf.py"…)
+  ⎿  ok
+     rebuilt
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+  Read 1 file (ctrl+o to expand)
+
+● Added. docs/language-distribution.pdf is now 4 pages — the new one is page 3.
+
+  ┌────────────────────┬─────────────────────────────────────────────────────┐
+  │        Side        │                        Shows                        │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ A. Benchmark count │ how many of the 52 benchmarks contain each language │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ B. Item count      │ how many items, log scale                           │
+  └────────────────────┴─────────────────────────────────────────────────────┘
+
+  Same row order, same colours, so you read across.
+
+  The two panels disagree, and that's the point:
+
+  ┌───────────────────────────┬────────────┬──────────────┐
+  │         Language          │ Benchmarks │    Items     │
+  ├───────────────────────────┼────────────┼──────────────┤
+  │ Chinese                   │          9 │       39,743 │
+  ├───────────────────────────┼────────────┼──────────────┤
+  │ Basque                    │          1 │       24,817 │
+  ├───────────────────────────┼────────────┼──────────────┤
+  │ Amharic                   │          3 │       18,054 │
+  ├───────────────────────────┼────────────┼──────────────┤
+  │ Russian                   │          3 │        6,096 │
+  ├───────────────────────────┼────────────┼──────────────┤
+  │ each of the 20 Afri langs │          1 │ ~1,000–2,900 │
+  └───────────────────────────┴────────────┴──────────────┘
+
+  - Chinese is broad — 9 benchmarks. It leaks into harmbench, emoji_attack,
+    editbench, clasheval, disco, not just cmmlu/ceval. Can't dodge it.
+  - Basque is 24,817 items in exactly 1 benchmark. All of bertaqa. One benchmark
+    failure = all of it gone.
+  - Every African language sits in 1 benchmark (afrieval). 20 languages, one
+    source. Concentrated risk.
+
+  Fixes applied: Amharic was double-counted (Ethiopic script + amh tag) →
+  merged, 18,054. English dropped — it's only detectable where a lang= tag
+  exists (2 benchmarks), so its count isn't comparable. Languages under 50 items
+  cut, matching the tag threshold.
+
+✻ Sautéed for 1m 57s · done 8:33 PM
+
+❯ OK BRO NO FKING IDEA WHICH MODELS SHOULD I CHOSE THEN FOR EMBEDDINGS......... 
+
+● Use these two. Stop reading.
+
+  ┌─────┬─────────────────────────────────────────┬────────────────────┐
+  │  #  │                  Model                  │        Why         │
+  ├─────┼─────────────────────────────────────────┼────────────────────┤
+  │ 1   │ intfloat/multilingual-e5-large-instruct │ handles everything │
+  ├─────┼─────────────────────────────────────────┼────────────────────┤
+  │ 2   │ Qwen/Qwen3-Embedding-4B                 │ better at Chinese  │
+  └─────┴─────────────────────────────────────────┴────────────────────┘
+
+  Run both. Keep whichever scores lower ALC.
+
+  Delete these: minilm, bge-base, llama31_8b, bge-m3.
+
+  Want me to wire both into modal_embedding_ablation.py and launch?
+
+✻ Baked for 4s · done 8:37 PM
+
+● Background shell command didn't finish before the previous session ended
+
+❯ Yes we should use                                                             
+  intfloat/multilingual-e5-large-instruct,Qwen/Qwen3-Embedding-4B/8B,           
+  BAAI/bge-m3. Let's lock this in for now. Before we code anything. Tell me     
+  what is the context-length of these models.                                   
+
+  Read 1 file (ctrl+o to expand)
+
+● Locked in. Context lengths:
+
+  ┌────────────────────┬─────────┬──────┬────────┐
+  │       Model        │ Context │ Dim  │ Params │
+  ├────────────────────┼─────────┼──────┼────────┤
+  │ mE5-large-instruct │  512 ⚠️ │ 1024 │   560M │
+  ├────────────────────┼─────────┼──────┼────────┤
+  │ Qwen3-Embedding-4B │  32,768 │ 2560 │     4B │
+  ├────────────────────┼─────────┼──────┼────────┤
+  │ Qwen3-Embedding-8B │  32,768 │ 4096 │     8B │
+  ├────────────────────┼─────────┼──────┼────────┤
+  │ bge-m3             │   8,192 │ 1024 │   568M │
+  └────────────────────┴─────────┴──────┴────────┘
+
+  Your items: p50 251 · p90 620 · p99 2,031 tokens.
+
+  ┌────────────────────┬──────────────────┐
+  │       Model        │ Items kept whole │
+  ├────────────────────┼──────────────────┤
+  │ mE5-large-instruct │             ~85% │
+  ├────────────────────┼──────────────────┤
+  │ bge-m3             │           ~99.5% │
+  ├────────────────────┼──────────────────┤
+  │ Qwen3 (both)       │            ~100% │
+  └────────────────────┴──────────────────┘
+
+  mE5 is capped at 512 by XLM-R's position embeddings — cannot be raised. But we
+  measured that truncation at 512 doesn't hurt difficulty prediction, so it's a
+  clean confound test: if bge-m3/Qwen3 don't beat it, context length truly
+  doesn't matter here.
+
+  Note: Qwen3-8B is 4096-d — same dimensionality problem as the llama arm. Start
+  with 4B.
+
+  Unrelated: that old torch_measure Modal run (tmrun.py) from the previous
+  session died with exit 1, never reported. Say the word and I'll rerun it.
+
+✻ Sautéed for 16s · done 8:42 PM
+
+❯ So now in the same PDF. I want you to add what is the distribution of         
+  item-content. Item-content wrt benchmarks and aggregate measures (some of     
+  this is probably already done I guess). Also do this based on the language I  
+  guess.                                                                        
+
+● Need real token counts for that — launching the measurement, then I'll build
+  the pages.
+
+  Ran 3 shell commands (ctrl+o to expand)
+● Measurement is running on Modal — tokenizing all 1,356,312 item contents with
+  both the XLM-R tokenizer (shared by mE5 and bge-m3) and the Qwen3 tokenizer.
+
+  What the new pages will show:
+
+  ┌────────────────┬────────────────────────────────────────────────────────┐
+  │      Page      │                        Content                         │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Item length —  │ CDF of content tokens with the 512 / 8192 / 32768 cut  │
+  │ aggregate      │ lines, XLM-R vs Qwen3 side by side                     │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ By benchmark   │ per-benchmark length boxes, sorted, coloured by split, │
+  │                │  with % truncated at 512                               │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │                │ same boxes per language — this is where Chinese        │
+  │ By language    │ matters, since Han characters tokenize very            │
+  │                │ differently from Latin                                 │
+  └────────────────┴────────────────────────────────────────────────────────┘
+
+  This is measuring item_content alone, not the item: {content}\nmetadata: 
+  {features} template the old token-lengths.json covered — so it isolates the
+  text from the metadata you want dropped.
+
+  I'll build the pages when it finishes.
+
+✻ Sautéed for 1m 17s · done 8:44 PM
+
+❯ very very very very short answer: Wait. What did the Stanford paper say about 
+  mistral models?                                                               
+
+● MMTEB (Muennighoff, Stanford): Mistral-based embedders —
+  e5-mistral-7b-instruct, GritLM-7B — lose to a 560M model on multilingual.
+
+  Reason, their words: "Mistral [is] predominantly pre-trained on English, while
+  XLM-R targets 100 languages."
+
+  7B params, English backbone → beaten by 560M mE5-large-instruct.
+
+  Same author's COLM paper puts them dead last of 26 embedders: GritLM-7B 63.1,
+  E5-Mistral 64.4.
+
+  Mistral is out either way.
+
+✻ Worked for 5s · done 8:45 PM
+
+❯ How many unique subject_id's do we have?                                      
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 8,060 unique subject_uid — that's the real count.
+
+  ┌───────────────────────────────┬───────┐
+  │             Thing             │ Count │
+  ├───────────────────────────────┼───────┤
+  │ subject_uid (what we use)     │ 8,060 │
+  ├───────────────────────────────┼───────┤
+  │ rows in subjects.parquet      │ 8,104 │
+  ├───────────────────────────────┼───────┤
+  │ subject_id                    │ 8,102 │
+  ├───────────────────────────────┼───────┤
+  │ actually used in the protocol │ 6,826 │
+  ├───────────────────────────────┼───────┤
+  │ — train                       │ 6,701 │
+  ├───────────────────────────────┼───────┤
+  │ — validation                  │   104 │
+  ├───────────────────────────────┼───────┤
+  │ — test                        │    22 │
+  ├───────────────────────────────┼───────┤
+  │ distinct display_name         │ 2,476 │
+  ├───────────────────────────────┼───────┤
+  │ distinct normalized_name      │   438 │
+  └───────────────────────────────┴───────┘
+
+  Two things worth knowing:
+
+  1,234 subjects are never used (8,060 − 6,826). They're in the feature store,
+  not in any split.
+
+  8,060 uids → only 438 model names. One model becomes ~18 subjects because
+  subject_uid hashes name + provider + date + harness + effort + version. That's
+  the identifiability problem: the model bridges benchmarks, the uid never
+  does.
+
+  Also: train has 6,702 tasks but 6,701 subjects — so exactly one subject
+  appears in two train tasks. Everywhere else it's 1 subject = 1 task.
+
+✻ Churned for 33s · done 8:46 PM
+
+❯ very very very very short answer: Why are 1,234 subjects never used.          
+
+● Haven't measured it — but the likely causes:
+
+  1. Dropped benchmarks — chi_bench + haiid have 0 eligible tasks; their
+     subjects stay in the store.
+  2. Too few items — build_episode_index drops tasks below the minimum item
+     count.
+  3. Empty evaluation pool — acquisition_count = (n+1)//2, so tiny tasks leave
+     nothing to score.
+
+  Want me to check which?
+
+✻ Sautéed for 6s · done 8:50 PM
+
+● Background command "Wait for content distribution job" completed (exit code 0)
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● Results are in — and Basque breaks mE5's 512 cap: median length is 511 tokens,
+  47.6% exceed it. Building the pages.
+
+● Bash(cat > /tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-4
+      72871f97afc/scratchpad/page_content.py <<'PY'
+      # Pages 5-6 of docs/language-distribution…)
+  ⎿  ok
+     wrote ~/aims-neurips/docs/language-distribution.pdf
+     wrote ~/aims-neurips/docs/figures-language-distribution.png
+     … +2 lines (ctrl+o to expand)
+  ⎿  3 files changed (binary, mode only or too large to show)
+
+  Read 2 files (ctrl+o to expand)
+
+● Bash(python3 - <<'PYEOF'
+      p="/tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-47287
+      1f97afc/scratchpad/page_content.py"…)
+  ⎿  ok
+     pages: 6
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+● Added — docs/language-distribution.pdf is now 6 pages, new ones are 4 and 5.
+
+  The result changes the encoder decision
+
+  Measured on all 1,356,312 item contents, both tokenizers:
+
+  ┌────────────────────┬─────────────────────┬───────────────────┐
+  │                    │ XLM-R (mE5, bge-m3) │       Qwen3       │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ mean               │                 328 │               280 │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ p50 / p90 / p99    │   230 / 519 / 2,072 │ 184 / 484 / 2,061 │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ max                │             240,196 │           156,019 │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ items cut @512     │               10.5% │              8.1% │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ tokens lost @512   │               20.1% │             21.9% │
+  ├────────────────────┼─────────────────────┼───────────────────┤
+  │ tokens lost @8,192 │                2.3% │              1.9% │
+  └────────────────────┴─────────────────────┴───────────────────┘
+
+  🚨 Basque breaks mE5
+
+  ┌─────────────────────┬───────────┬─────────┬──────┬─────────┬───────────┐
+  │      Language       │     n     │   p50   │ p90  │  cut    │  tokens   │
+  │                     │           │         │      │  @512   │   lost    │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ Basque              │    24,817 │     511 │  547 │   47.6% │      2.1% │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ Chinese             │    38,067 │      95 │  162 │    1.7% │     40.2% │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ Russian             │     2,056 │      85 │  354 │    5.1% │     42.1% │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ Amharic             │    18,054 │     376 │  637 │   15.0% │      6.9% │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ Yoruba              │     2,799 │     294 │  556 │   18.3% │      4.6% │
+  ├─────────────────────┼───────────┼─────────┼──────┼─────────┼───────────┤
+  │ the other 18 Afri   │    ~1–3k  │ 120–230 │ <300 │    0.0% │      0.0% │
+  │ langs               │      each │         │      │         │           │
+  └─────────────────────┴───────────┴─────────┴──────┴─────────┴───────────┘
+
+  bertaqa has a median item length of 511 tokens. Against a 512 cap. That is not
+  a coincidence — the benchmark was built to a 512-token budget, and it sits
+  exactly on mE5's hard ceiling. 48% of Basque items get cut, and Basque is test
+  split.
+
+  Chinese is the opposite shape: very short median (95 tokens — Han chars are
+  dense) but a heavy tail, so 512 still throws away 40% of all Chinese tokens.
+
+  What this does to the shortlist
+
+  mE5's 512 limit is not raisable — it's XLM-R's position embeddings. So:
+
+  ┌────────────────────────────────┬─────────────────────────────────────────┐
+  │                                │                 Verdict                 │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ multilingual-e5-large-instruct │ best quality, but cuts half of Basque   │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ bge-m3                         │ 8,192 ctx fixes Basque/Chinese, quality │
+  │                                │  7 pts lower                            │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ Qwen3-Embedding-4B             │ 32K ctx, best Chinese, worst African    │
+  └────────────────────────────────┴─────────────────────────────────────────┘
+
+  I earlier said mE5's 512 cap "doesn't matter because truncation doesn't hurt."
+  That measurement was on the aggregate English corpus. It does not cover a
+  test-split language whose median sits on the cap. bge-m3 is back in as a real
+  contender, not just a control — it's the only option that is both broadly
+  multilingual and long-context.
+
+  Per-benchmark panel (page 4C) shows the spread: agentic_review_perturbation
+  and alignment_faking run to 10⁴–10⁵ tokens, while evouna, crow, beavertails
+  sit under 30.
+
+✻ Brewed for 2m 6s · done 8:52 PM
+
+❯ OkAY look do not be biased based on train/val/test set. That is what WE MADE  
+  please.                                                                       
+
+● Fair — the split is ours, so colouring by it builds in an assumption the real
+  competition won't honour.
+
+  Unbiased view, whole corpus:
+
+  ┌───────────────┬─────────┬────────────────┬──────────┐
+  │   Language    │  Items  │ Benchmarks /52 │ cut @512 │
+  ├───────────────┼─────────┼────────────────┼──────────┤
+  │ Chinese       │  39,743 │              9 │     1.7% │
+  ├───────────────┼─────────┼────────────────┼──────────┤
+  │ Basque        │  24,817 │              1 │    47.6% │
+  ├───────────────┼─────────┼────────────────┼──────────┤
+  │ Amharic       │  18,054 │              3 │    15.0% │
+  ├───────────────┼─────────┼────────────────┼──────────┤
+  │ Russian       │   6,096 │              3 │     5.1% │
+  ├───────────────┼─────────┼────────────────┼──────────┤
+  │ 20 Afri langs │ ~33,000 │              1 │      ~0% │
+  └───────────────┴─────────┴────────────────┴──────────┘
+
+  Non-English = 9% of all items. Truncation @512 = 10.5% of items, 20% of 
+  tokens, corpus-wide.
+
+  Chinese is the one that matters — 9 of 52 benchmarks. Everything else is 1–3.
+
+  Pick unchanged: mE5-large-instruct + Qwen3-4B, bge-m3 as the long-context
+  control.
+
+  Want me to regenerate the PDF without split colouring?
+
+✻ Cooked for 16s · done 8:57 PM
+
+❯ So what are the models we should chose now?                                   
+
+● Three arms:
+
+  ┌─────┬───────────────────────────────────────┬─────┬─────┬─────────────┐
+  │  #  │                 Model                 │ Ctx │ Dim │     Why     │
+  ├─────┼───────────────────────────────────────┼─────┼─────┼─────────────┤
+  │     │ intfloat/multilingual-e5-large-instru │     │ 102 │ best multil │
+  │ 1   │ ct                                    │ 512 │   4 │ ingual      │
+  │     │                                       │     │     │ quality     │
+  ├─────┼───────────────────────────────────────┼─────┼─────┼─────────────┤
+  │     │                                       │     │     │ best        │
+  │ 2   │ Qwen/Qwen3-Embedding-4B               │ 32K │ 256 │ Chinese +   │
+  │     │                                       │     │   0 │ no          │
+  │     │                                       │     │     │ truncation  │
+  ├─────┼───────────────────────────────────────┼─────┼─────┼─────────────┤
+  │     │                                       │     │     │ long        │
+  │ 3   │ BAAI/bge-m3                           │ 819 │ 102 │ context +   │
+  │     │                                       │   2 │   4 │ broad       │
+  │     │                                       │     │     │ coverage    │
+  └─────┴───────────────────────────────────────┴─────┴─────┴─────────────┘
+
+  Drop: minilm, bge-base, llama31_8b.
+
+  1 vs 3 isolates context length (same backbone, same dim, different cap). 2
+  tests whether Chinese strength beats African weakness.
+
+  Ready to wire these into modal_embedding_ablation.py?
+
+✻ Churned for 5s · done 8:58 PM
+
+❯ does qwen not have 1024 embedding size btw.                                   
+
+● Yes — two ways:
+
+  ┌──────────────────────┬────────────┬─────────────────────┐
+  │        Model         │ Native dim │        1024?        │
+  ├──────────────────────┼────────────┼─────────────────────┤
+  │ Qwen3-Embedding-0.6B │       1024 │ native              │
+  ├──────────────────────┼────────────┼─────────────────────┤
+  │ Qwen3-Embedding-4B   │       2560 │ MRL truncate → 1024 │
+  ├──────────────────────┼────────────┼─────────────────────┤
+  │ Qwen3-Embedding-8B   │       4096 │ MRL truncate → 1024 │
+  └──────────────────────┴────────────┴─────────────────────┘
+
+  Qwen3 supports MRL (Matryoshka), so you slice the first 1024 dims and
+  renormalise. No retraining.
+
+  Do that — use 4B at 1024-d. Then all three arms are 1024-d and the comparison
+  is clean: only encoder and context differ.
+
+  (Don't use 0.6B — it scored 40.7 on AfriMTEB vs 4B's 46.0.)
+
+✻ Worked for 6s · done 8:59 PM
+
+❯ Damn we should use MRL to truncate this 1024 for Qwen3-Embedding-4B/8B what   
+  are the embedding dimension of othe rmodels.                                  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Verified from each model's config.json:
+
+  ┌──────────────────────┬────────────┬──────┬─────────────┐
+  │        Model         │ Native dim │ MRL? │   At 1024   │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ mE5-large-instruct   │       1024 │ no   │ native ✅   │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ bge-m3               │       1024 │ no   │ native ✅   │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ Qwen3-Embedding-4B   │       2560 │ yes  │ truncate ✅ │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ Qwen3-Embedding-8B   │       4096 │ yes  │ truncate ✅ │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ Qwen3-Embedding-0.6B │       1024 │ yes  │ native      │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ AfriE5               │       1024 │ no   │ native      │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ LaBSE                │        768 │ no   │ —           │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ EmbeddingGemma 2     │        768 │ yes  │ —           │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ jina-v5-small        │       1024 │ yes  │ native      │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ bge_base (ours)      │        768 │ no   │ —           │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ minilm (ours)        │        384 │ no   │ —           │
+  ├──────────────────────┼────────────┼──────┼─────────────┤
+  │ llama31_8b (ours)    │       4096 │ no   │ —           │
+  └──────────────────────┴────────────┴──────┴─────────────┘
+
+  Lucky break: mE5 and bge-m3 are already 1024 natively. Only Qwen3-4B needs
+  MRL.
+
+  So all three arms land at 1024-d with one truncation. Fully controlled
+  comparison — encoder and context length vary, dimensionality doesn't.
+
+  MRL truncation is: take emb[:1024], then L2-renormalise. Two lines.
+
+  One caveat worth testing: Qwen's MRL claim is self-reported, and nobody has
+  independently measured Qwen3-4B at 1024 vs 2560. If 1024 looks bad, run full
+  2560 as a fourth arm to separate "MRL lost information" from "Qwen is wrong
+  for this corpus."
+
+✻ Cooked for 21s · done 9:04 PM
+
+❯ Ok let's make embedding for our dataset using these for the non-native ones   
+  use MRL Truncation.                                                           
+  mE5-large-instruct   │       1024 │ no   │ native ✅   │                      
+  ├──────────────────────┼────────────┼──────┼─────────────┤                    
+  │ bge-m3               │       1024 │ no   │ native ✅   │                    
+  ├──────────────────────┼────────────┼──────┼─────────────┤                    
+  │ Qwen3-Embedding-4B   │       2560 │ yes  │ truncate ✅ │                    
+  ├──────────────────────┼────────────┼──────┼─────────────┤                    
+  │ Qwen3-Embedding-8B   │       4096 │ yes  │ truncate ✅                      
+  How long will this take? How can you speed it up? Remember we should just use 
+  item-content. Just remember this.                                             
+
+● Let me measure the one thing that could cut this a lot — duplicate content.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Big win: 43% of item contents are exact duplicates. Only 769,888 unique texts,
+  and they carry 59% of the characters. Encode unique, broadcast by hash —
+  exact, no approximation.
+
+  Time estimate
+
+  ┌─────────────────────┬──────┬─────────┬───────────┬────────┐
+  │         Arm         │ GPU  │  Naive  │ Optimized │  Cost  │
+  ├─────────────────────┼──────┼─────────┼───────────┼────────┤
+  │ mE5-large-instruct  │ A10G │ ~55 min │   ~12 min │ ~$0.25 │
+  ├─────────────────────┼──────┼─────────┼───────────┼────────┤
+  │ bge-m3              │ A10G │ ~70 min │   ~15 min │ ~$0.30 │
+  ├─────────────────────┼──────┼─────────┼───────────┼────────┤
+  │ Qwen3-4B → MRL 1024 │ H100 │    ~5 h │   ~50 min │    ~$5 │
+  ├─────────────────────┼──────┼─────────┼───────────┼────────┤
+  │ Qwen3-8B → MRL 1024 │ H100 │    ~9 h │   ~1 h 40 │   ~$10 │
+  ├─────────────────────┼──────┼─────────┼───────────┼────────┤
+  │ All four            │      │   ~15 h │      ~3 h │   ~$16 │
+  └─────────────────────┴──────┴─────────┴───────────┴────────┘
+
+  Parallel across 4 Modal containers → wall clock ≈ 1h40 (bounded by the 8B).
+
+  The five speedups
+
+  ┌─────┬─────────────────────────────────────────────────────────┬─────────┐
+  │  #  │                          Trick                          │  Saves  │
+  ├─────┼─────────────────────────────────────────────────────────┼─────────┤
+  │ 1   │ Dedup by content hash — 769,888 unique instead of       │    −43% │
+  │     │ 1,356,312                                               │         │
+  ├─────┼─────────────────────────────────────────────────────────┼─────────┤
+  │     │ Length-sorted batching — p50 is 230 tokens, max is      │         │
+  │ 2   │ 240k. Fixed batches pad everything to the longest.      │    −60% │
+  │     │ Sort, then bucket.                                      │         │
+  ├─────┼─────────────────────────────────────────────────────────┼─────────┤
+  │     │ Cap at 2048, not 8192/32K — costs 1.0% of items, 8% of  │ −40% on │
+  │ 3   │ tokens; attention is quadratic so the tail dominates    │    Qwen │
+  │     │ runtime                                                 │         │
+  ├─────┼─────────────────────────────────────────────────────────┼─────────┤
+  │ 4   │ vLLM for Qwen3 instead of HF transformers               │ −50% on │
+  │     │                                                         │    Qwen │
+  ├─────┼─────────────────────────────────────────────────────────┼─────────┤
+  │ 5   │ bf16 + SDPA/flash, torch.inference_mode                 │    −20% │
+  └─────┴─────────────────────────────────────────────────────────┴─────────┘
+
+  Two decisions I need from you
+
+  1. The 2048 cap (#3) partly defeats the experiment. The whole point of
+  bge-m3/Qwen3 is long context — capping at 2048 means you're no longer testing
+  8192 vs 32K. But 99% of items fit in 2048 anyway, and the ones that don't are
+  mostly alignment_faking and agentic_review_perturbation outliers.
+
+  My call: cap at 4096. Keeps 99.5% of items whole, still 2× past mE5's hard
+  512, and avoids paying quadratic attention for a 240k-token outlier. The
+  mE5-vs-bge-m3 contrast (512 vs 4096) still cleanly answers "does context
+  matter."
+
+  2. Qwen3-8B costs 2× the 4B for ~1 AfriMTEB point. I'd skip it and run 4B only
+  — add 8B later if 4B wins.
+
+  Confirmed on both: item_content only, no metadata: suffix, no item_features in
+  the text.
+
+  Say go and I'll write it.
+
+✻ Sautéed for 1m 20s · done 9:12 PM
+❯ Please update the fucking README.md to include why we chose what including    
+  the new thingy we are going to do with embedding modles, item-content,        
+  multilinguality.                                                              
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Adding a new decision-log section before Open items:
+
+● Bash(cat > /tmp/claude-1000/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-4
+      72871f97afc/scratchpad/readme_section.md <<'MDEOF'
+      ### Encoder re-selection: multilingu…)
+  ⎿  inserted before '### Open items'
+     755:### Encoder re-selection: multilinguality and item text (2026-10-2
+     4)
+     1161 README.md
+  ⎿  Updated README.md (+134 -0)
+      752  - The ability-prior work added eval-only `prior_mean` argument
+           s to `faithful_np.py`, so the training signature no longer mat
+           ches the cached runs. The checkpoints and seed metrics remain 
+           valid because the `none` arm reproduces the calibration rescor
+           e exactly; rerunning training requires a new result root.
+      753  - `metrics-prior.json` holds the three prior arms. `prior.json
+           ` per seed holds the per-fold prior means, ridge penalty, and 
+           leave-one-out error. `modal run modal_faithful.py --prior-only
+           ` rebuilds both from saved checkpoints without retraining.
+      754  
+      755 +### Encoder re-selection: multilinguality and item text (2026-
+          +10-24)                                                        
+      756 +                                                              
+      757 +Every embedding arm run so far (`minilm`, `minilm512`, `bge_ba
+          +se`, `bge_m3`,                                                
+      758 +`llama31_8b`, `bge_base_2pladapt`) shares two properties that 
+          +a corpus audit                                                
+      759 +shows are wrong for this data: the encoded text concatenates `
+          +item_features`                                                
+      760 +onto `item_content`, and four of the six encoders are English-
+          +only. Sources for                                             
+      761 +every number below: `modal_field_audit.py`, `modal_feature_dia
+          +gnostics.py`, and                                             
+      762 +the language and content-length audits whose figures are in   
+      763 +[`docs/language-distribution.pdf`](docs/language-distribution.
+          +pdf).                                                         
+      764 +                                                              
+      765 +**The corpus is 9% non-English, measured.** Across all 1{,}356
+          +{,}312 protocol                                               
+      766 +items, 122{,}931 are non-English, spanning 24 languages. Langu
+          +age is read from                                              
+      767 +`lang=`-style tags in `item_features` where present and from t
+          +he dominant                                                   
+      768 +Unicode script otherwise.                                     
+      769 +                                                              
+      770 +| Language | Items | Benchmarks (of 52) | Items cut at 512 tok
+          +ens |                                                         
+      771 +|---|---:|---:|---:|                                          
+      772 +| Chinese | 39{,}743 | **9** | 1.7% |                         
+      773 +| Basque | 24{,}817 | 1 | **47.6%** |                         
+      774 +| Amharic | 18{,}054 | 3 | 15.0% |                            
+      775 +| Russian | 6{,}096 | 3 | 5.1% |                              
+      776 +| 20 African languages | ~33{,}000 | 1 | ~0% |                
+      777 +                                                              
+      778 +Chinese is the one that is structurally hard to avoid: it appe
+          +ars in nine                                                   
+      779 +benchmarks (`cmmlu`, `ceval`, `harmbench`, `editbench`, `emoji
+          +_attack`,                                                     
+      780 +`clasheval`, `braveguard`, `disco`, `agentic_review_perturbati
+          +on`), not just the                                            
+      781 +two Chinese-named ones. Every other non-English language sits 
+          +in one to three                                               
+      782 +benchmarks. `afrieval` alone carries 20 African languages, ten
+          + of which                                                     
+      783 +(Nigerian Pidgin, Luganda, Moore, Bambara, Fon, Twi, Ewe, Tswa
+          +na, Ghomala, Luo)                                             
+      784 +appear in no published language list of any encoder considered
+          +; those 11{,}133                                              
+      785 +items are byte-level noise under every candidate and are a flo
+          +or, not a choice.                                             
+      786 +                                                              
+      787 +The train/validation/test benchmark split is **our** construct
+          +ion and is not                                                
+      788 +used to weight any of this. The competition draws its own subj
+          +ect-benchmark                                                 
+      789 +pairs, so a language's importance is its corpus-wide presence,
+          + not which of our                                             
+      790 +splits it landed in.                                          
+      791 +                                                              
+     … 100 more lines (ctrl+o to expand)
+
+● Bash(python3 - <<'PYEOF'
+      from pathlib import Path…)
+  ⎿  open-items bullet added
+     - Pilot runs use 32-dim hashed item features and the main runs use the
+      1157-dim mixed features. Their numbers are not comparable.
+     … +15 lines (ctrl+o to expand)
+  ⎿  Updated README.md (+1 -0)
+      892  - ANP-AIRT and Stacked-MHSA-ANP-AIRT route $r^*$ into the logi
+           ts through the decoder residual head at scale 0.1. $r^*$ is co
+           mputed from subject-masked encodings, and the residual is a po
+           st-anchor correction; $r^*$ must not enter the MAP fit because
+            context items would attend to their own labels.
+      893  - Pilot runs use 32-dim hashed item features and the main runs
+            use the 1157-dim mixed features. Their numbers are not compar
+           able.
+      894  - Order of work: deterministic track rerun on all benchmarks (
+           Online-AIRT, CNP-AIRT, Beta-Binomial, 2 seeds), AnchorCalibrat
+           or on existing artifacts, organizer baselines plus a Codabench
+            smoke submission, then one latent-track run.
+      895 +- Encoder re-selection is specified but not run: build the fou
+          +r 1024-dim `item_content`-only stores, refit the residual 2PL 
+          +adapter on the winner, and extract `item_features` as a struct
+          +ured channel with the per-item fingerprint keys dropped. The `
+          +minilm`, `bge_base`, and `llama31_8b` arms are superseded; the
+          +ir stores are kept for the published tables.                  
+      896  - The metadata-to-prior channel is closed by the ability-prior
+            ablation; do not reopen it without new subject features. The 
+           budget 0-3 level gap remains, but it is not a metadata problem
+           : the benchmark level is already represented by the item net, 
+           and the pilot's four subjects make the leave-one-out mean anti
+           -correlated with the held-out subject's base rate.
+      897  
+      898  ## Presentation-selection strategy
+
+● README updated — new section "Encoder re-selection: multilinguality and item 
+  text (2026-10-24)" at line 755, plus an Open-items bullet.
+
+  What it records:
+
+  ┌───────────────────┬─────────────────────────────────────────────────────┐
+  │                   │                                                     │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │                   │ 9% non-English, 24 languages; Chinese in 9 of 52    │
+  │ Corpus facts      │ benchmarks; Basque median 511 tokens vs mE5's 512   │
+  │                   │ cap                                                 │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Why current       │ MiniLM/bge-base English-only; Llama-3.1's 8         │
+  │ encoders fail     │ languages intersect our list at zero                │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Selection         │ MMTEB + AfriMTEB + MTEB(LLM) table, all independent │
+  │ evidence          │  — no vendor means                                  │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Why item_content  │ input_scope= is a 180-char constant per devbench    │
+  │ only              │ item; explains R²=0.80 overall but ~0               │
+  │                   │ within-benchmark                                    │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ The four arms     │ all 1024-d, MRL for Qwen3, with what each one       │
+  │                   │ isolates                                            │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Encoding plan     │ 43.2% duplicate content, ~3 GPU-hours, ~1h40 wall   │
+  │                   │ clock                                               │
+  └───────────────────┴─────────────────────────────────────────────────────┘
+
+  Three things I wrote in explicitly because they're easy to lose:
+
+  - The split is ours and isn't used to weight anything. Stated in the section
+    so nobody re-derives the biased ranking later.
+  - I corrected my own earlier claim. The log now says truncation "does not
+    hurt" was measured on the aggregate English corpus and misses bertaqa.
+  - MRL at 1024 is Qwen's self-report, unverified — with the fallback arm that
+    would separate "MRL lost information" from "Qwen is wrong here."
+
+  Existing stores stay; bge_base_2pladapt is still the best measured arm
+  (0.222584) and the note says the adapter gets refit on whichever new store
+  wins.
+
+  Want me to write the encoding job now?
+
+✻ Crunched for 1m 21s · done 9:20 PM
+
+❯ Please push everything to GitHub please.                                      
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Clean — no secrets, no credential files. Committing on a branch rather than
+  straight to main so it's reviewable:
+
+  Pushed to encoder-reselection-and-audits, ran 2 shell commands (ctrl+o to expand)
+  ⎿  PostToolUse:Bash says: Tip: Run /ultrareview before you push to catch bugs 
+     with a cloud-based multi-agent review — 3 free reviews left.
+
+● Pushed. 385 files, 101,714 insertions → branch encoder-reselection-and-audits.
+
+  https://github.com/Agrover112/aims-neurips/pull/new/encoder-reselection-and-au
+  dits
+
+  ┌─────────┬─────────────────────────────────────────────────┐
+  │  Check  │                     Result                      │
+  ├─────────┼─────────────────────────────────────────────────┤
+  │ Secrets │ none — no .env, no credentials, no key patterns │
+  ├─────────┼─────────────────────────────────────────────────┤
+  │ Repo    │ private                                         │
+  ├─────────┼─────────────────────────────────────────────────┤
+  │ Size    │ 41.8 MB                                         │
+  └─────────┴─────────────────────────────────────────────────┘
+
+  I put it on a branch rather than main so you can look before it lands. Want me
+  to merge it to main? One command.
+
+  Two things worth knowing:
+
+  28 MB of the 41.8 MB is literature/*.pdf — 7 third-party papers. Private repo
+  so it's fine legally, but git history is permanent, and that's most of the
+  repo's weight. Say the word and I'll pull them out into .gitignore before this
+  merges — much easier now than later.
+
+  docs/guide/ carried 3.6 MB of vendored MathJax (tex-svg-full.js,
+  tex-chtml-full.js). Probably intentional for offline rendering, but flagging
+  it since it's build output.
+
+✻ Churned for 1m 34s · done 9:22 PM
+
+❯ No fuck no, not on the fucking branch in MAIN.                                
+
+  Pushed to main, ran 1 shell command (ctrl+o to expand)
+
+● On main. eb4d0a6..1f81f9f pushed, temp branch deleted, working tree clean.
+
+  https://github.com/Agrover112/aims-neurips
+
+  Next: write the encoding job?
+
+✻ Cooked for 19s · done 9:23 PM
+
+❯ Ok is there a possibility to share this Claude Code chat? or the OpenCode     
+  chat? or Codex chat? How can we do that.                                      
+
+  Listed 2 directories, ran 5 shell commands (ctrl+o to expand)
+
+● Checked all three. None has a hosted "share link" from the CLI. Here's the
+  actual state:
+
+  Tool: Claude Code
+  Share/export: /export inside the session (slash command, not a CLI flag)
+  Where transcripts live: ~/.claude/projects/<slug>/<session-id>.jsonl
+  ────────────────────────────────────────
+  Tool: OpenCode
+  Share/export: opencode session export → JSON
+  Where transcripts live: ~/.local/share/opencode/
+  ────────────────────────────────────────
+  Tool: Codex
+  Share/export: no export subcommand
+  Where transcripts live: ~/.codex/sessions/2026/...
+
+  This session is already a file:
+  ~/.claude/projects/-home-agrov-aims-neurips/6b98ee46-f61c-48ba-82af-
+  472871f97afc.jsonl   (17.8 MB)
+
+  Your options
+
+  1. /export — type it in this session. Built-in, zero work. Gives you the
+  conversation as text.
+
+  2. OpenCode's round-trip — opencode session export produces JSON and opencode 
+  session import accepts a file or a URL. So: export → gist → anyone with the
+  link runs import. That's the closest thing to real sharing any of the three
+  has, and it's OpenCode-only.
+
+  3. Let me convert this JSONL to a readable HTML/Markdown page. 17.8 MB of
+  JSONL isn't readable by a human — it's full of tool-call blobs and base64
+  images. I can render it to something with the actual conversation, collapsible
+  tool calls, and the figures inline. Then it's a file you can commit, email,
+  or publish.
+
+  4. Commit the transcript to the repo. It's private, so this is viable:
+  docs/transcripts/. But 17.8 MB of raw JSONL in git history is the same bloat
+  problem as the literature PDFs.
+
+  My suggestion: option 3, output to a single self-contained HTML file. Want me
+  to build it?
+
+  One caveat worth knowing before you share any of these: the transcript
+  contains your full file paths, the repo contents I read, and your email
+  ([email]) from the session metadata. If it's going anywhere
+  outside your team, I'd strip those first — tell me and I'll filter them in the
+  conversion.
+
+✻ Baked for 52s · done 9:25 PM
