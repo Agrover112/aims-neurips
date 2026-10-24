@@ -20,6 +20,8 @@ Typical commands
 modal run modal_bayesian_mirt.py --action inspect
 modal run modal_bayesian_mirt.py --action run --arm bge_base --dims 1,2
 modal run modal_bayesian_mirt.py --action run --arm bge_m3 --dims 1,2
+modal run modal_bayesian_mirt.py --action run --arm me5_instruct --dims 1,2
+modal run modal_bayesian_mirt.py --action compare --arm me5_instruct --dims 2
 
 The ``smoke`` action runs a small synthetic check of the sampler and predictor
 without touching the Modal volume.
@@ -97,7 +99,21 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _compact_root(arm: str) -> Path:
-    return EMBEDDING_ROOT / f"allbench-embed-{arm}-v1"
+    """Resolve a compact store for an arm.
+
+    Legacy v1 stores are already compact.  The v2 encoder stores are raw
+    full-corpus tables, so they must first be sliced with
+    ``modal_compact_store.py`` into ``allbench-train-<arm>-<cap>-v2``.
+    """
+
+    legacy = EMBEDDING_ROOT / f"allbench-embed-{arm}-v1"
+    if (legacy / "train_tasks.parquet").exists():
+        return legacy
+    for suffix in ("cap128", "uncapped"):
+        compact = EMBEDDING_ROOT / f"allbench-train-{arm}-{suffix}-v2"
+        if (compact / "train_tasks.parquet").exists():
+            return compact
+    return legacy
 
 
 def _logit(probability: float | np.ndarray) -> float | np.ndarray:
@@ -143,6 +159,7 @@ def inspect(arm: str = "bge_base") -> dict[str, Any]:
     task_item_counts = train.groupby("task_id").size()
     summary = {
         "arm": arm,
+        "store": str(root),
         "manifest": manifest,
         "train": {
             "rows": len(train),
@@ -472,7 +489,9 @@ def _split_rhat(chains):
     within = variances.mean(dim=0)
     between = half * means.var(dim=0, unbiased=True)
     variance = ((half - 1) / half) * within + between / half
-    return torch.sqrt(variance / within.clamp_min(1e-12))
+    # Float32 cancellation can make an exactly constant parameter's variance
+    # a tiny negative number; clamp before the square root.
+    return torch.sqrt(variance.clamp_min(0.0) / within.clamp_min(1e-12))
 
 
 def _fit_bayesian_mirt(
@@ -868,6 +887,118 @@ def _paired(task_alc: list[dict[str, Any]], split: str, first: str, second: str)
     return output
 
 
+def _bootstrap_ci(
+    delta: np.ndarray, n_bootstrap: int, seed: int
+) -> tuple[float, float]:
+    rng = np.random.default_rng(seed)
+    n = len(delta)
+    if n == 0:
+        return float("nan"), float("nan")
+    index = rng.integers(0, n, size=(n_bootstrap, n))
+    means = delta[index].mean(axis=1)
+    return float(np.quantile(means, 0.025)), float(np.quantile(means, 0.975))
+
+
+def _bootstrap_paired(
+    task_alc: list[dict[str, Any]],
+    split: str,
+    first: str,
+    second: str,
+    *,
+    n_bootstrap: int = 10_000,
+    seed: int = 20261025,
+):
+    """Task-level paired bootstrap for ALC deltas.
+
+    The t interval in ``_paired`` is the primary interval.  This bootstrap is
+    a distribution-free sensitivity check over the same 104 tasks.
+    """
+
+    rows = [row for row in task_alc if row["split"] == split]
+    first_rows = {row["task_id"]: row for row in rows if row["arm"] == first}
+    second_rows = {row["task_id"]: row for row in rows if row["arm"] == second}
+    tasks = sorted(set(first_rows) & set(second_rows))
+    output = {
+        "split": split,
+        "first": first,
+        "second": second,
+        "tasks": len(tasks),
+        "n_bootstrap": n_bootstrap,
+    }
+    for metric in ("weighted_raw", "weighted_cal"):
+        delta = np.asarray(
+            [first_rows[task][metric] - second_rows[task][metric] for task in tasks],
+            dtype=float,
+        )
+        ci_low, ci_high = _bootstrap_ci(delta, n_bootstrap, seed)
+        output[metric] = {
+            "mean": float(delta.mean()),
+            "se": float(delta.std(ddof=1) / np.sqrt(len(delta))),
+            "ci_low": ci_low,
+            "ci_high": ci_high,
+            "wins": int((delta < 0.0).sum()),
+            "tasks": len(delta),
+        }
+    return output
+
+
+def _per_budget_paired(
+    metric_rows: list[dict[str, Any]],
+    split: str,
+    first: str,
+    second: str,
+    *,
+    n_bootstrap: int = 10_000,
+    seed: int = 20261025,
+):
+    """Paired per-budget Brier deltas, averaged over acquisition orders."""
+
+    import pandas as pd
+
+    frame = pd.DataFrame(metric_rows)
+    frame = frame[frame["split"] == split]
+    task_budget = (
+        frame.groupby(["arm", "task_id", "budget"], sort=False)[
+            ["brier_raw", "brier_cal"]
+        ]
+        .mean()
+        .reset_index()
+    )
+    first_rows = task_budget[task_budget["arm"] == first].set_index(
+        ["task_id", "budget"]
+    )
+    second_rows = task_budget[task_budget["arm"] == second].set_index(
+        ["task_id", "budget"]
+    )
+    output = []
+    for budget in BUDGETS:
+        first_budget = first_rows.xs(budget, level="budget")
+        second_budget = second_rows.xs(budget, level="budget")
+        tasks = sorted(first_budget.index.intersection(second_budget.index))
+        row = {
+            "first": first,
+            "second": second,
+            "split": split,
+            "budget": int(budget),
+            "tasks": len(tasks),
+        }
+        for metric in ("brier_raw", "brier_cal"):
+            delta = (
+                first_budget.loc[tasks, metric] - second_budget.loc[tasks, metric]
+            ).to_numpy(dtype=float)
+            ci_low, ci_high = _bootstrap_ci(delta, n_bootstrap, seed + budget)
+            row[metric] = {
+                "first": float(first_budget.loc[tasks, metric].mean()),
+                "second": float(second_budget.loc[tasks, metric].mean()),
+                "delta": float(delta.mean()),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "wins": int((delta < 0.0).sum()),
+            }
+        output.append(row)
+    return output
+
+
 def _evaluate_arm(
     z_all,
     draws,
@@ -1140,6 +1271,455 @@ def run(arm: str = "bge_base", dims: str = "1,2") -> dict[str, Any]:
     return result
 
 
+@app.function(
+    image=image,
+    gpu="H100",
+    cpu=8,
+    memory=65_536,
+    volumes={str(REMOTE_ROOT): volume},
+    timeout=3 * 60 * 60,
+)
+def compare(
+    arm: str = "me5_instruct",
+    dims: str = "2",
+    n_bootstrap: int = 10_000,
+) -> dict[str, Any]:
+    """Score Beta-Binomial and saved MIRT draws on identical tasks.
+
+    Beta-Binomial is embedding-free: it only consumes the revealed context
+    labels.  This action recomputes both predictors from the same compact
+    store, validation tasks, acquisition orders, budgets, and folds, then
+    reports paired task-level Brier ALC deltas with t and bootstrap intervals.
+    """
+
+    import pandas as pd
+    import torch
+
+    from aims_starter.uniform_eval import validation_fold_map
+
+    root = _compact_root(arm)
+    if not (root / "manifest.json").exists():
+        raise FileNotFoundError(f"missing compact store for {arm}: {root}")
+    dim_values = tuple(sorted({int(value) for value in dims.split(",") if value.strip()}))
+    if not dim_values or any(value < 1 for value in dim_values):
+        raise ValueError("dims must be a comma-separated list of positive integers")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"loading {arm} on {device}", flush=True)
+    train = pd.read_parquet(root / "train_tasks.parquet")
+    evaluation = pd.read_parquet(root / "eval_items.parquet")
+    orders = pd.read_parquet(root / "eval_orders.parquet")
+    item_embeddings = np.load(root / "item_embeddings.npy", mmap_mode="r")
+    train_item_indices = np.unique(train["item_index"].to_numpy(dtype=np.int64))
+    z_all, pca_metadata = _fit_pca(
+        item_embeddings, train_item_indices, PCA_DIM, device
+    )
+    print(f"PCA ready: {pca_metadata['pca_fit_items']} training items", flush=True)
+
+    validation = evaluation[evaluation["split"] == "validation"].copy()
+    validation["task_id"] = validation["task_id"].astype(str)
+    orders = orders.copy()
+    orders["task_id"] = orders["task_id"].astype(str)
+    fold_map = validation_fold_map(validation, n_folds=5)
+
+    all_records: list[dict[str, Any]] = []
+    all_records.extend(
+        _evaluate_beta(
+            arm=arm,
+            validation=validation,
+            orders=orders,
+            fold_map=fold_map,
+        )
+    )
+    draw_metadata: dict[str, Any] = {}
+    for dim in dim_values:
+        draw_path = RESULT_ROOT / f"draws-{arm}-d{dim}.npz"
+        if not draw_path.exists():
+            raise FileNotFoundError(f"missing posterior draws: {draw_path}")
+        payload = np.load(draw_path, allow_pickle=False)
+        draws = torch.as_tensor(
+            payload["draws"], dtype=torch.float32, device=device
+        )
+        shapes = [
+            tuple(int(x) for x in shape)
+            for shape in json.loads(str(payload["shapes_json"].item()))
+        ]
+        draw_metadata[f"mirt{dim}"] = {
+            "path": str(draw_path),
+            "chains": int(draws.shape[0]),
+            "draws": int(draws.shape[1]),
+            "parameters": int(draws.shape[2]),
+        }
+        all_records.extend(
+            _evaluate_arm(
+                z_all,
+                draws,
+                shapes,
+                arm=arm,
+                model_name=f"mirt{dim}",
+                dim=dim,
+                validation=validation,
+                orders=orders,
+                fold_map=fold_map,
+                device=device,
+            )
+        )
+
+    calibrators = _fit_calibrators(all_records)
+    metric_rows = _metric_rows(all_records, calibrators)
+    by_budget, alc, task_alc = _summarize(metric_rows)
+
+    pairs = [(f"mirt{dim}", "beta") for dim in dim_values]
+    if len(dim_values) > 1:
+        pairs.append((f"mirt{max(dim_values)}", f"mirt{min(dim_values)}"))
+    paired_t = [_paired(task_alc, "validation", first, second) for first, second in pairs]
+    paired_bootstrap = [
+        _bootstrap_paired(
+            task_alc,
+            "validation",
+            first,
+            second,
+            n_bootstrap=n_bootstrap,
+            seed=SEED,
+        )
+        for first, second in pairs
+    ]
+    per_budget_paired = []
+    for first, second in pairs:
+        per_budget_paired.extend(
+            _per_budget_paired(
+                metric_rows,
+                "validation",
+                first,
+                second,
+                n_bootstrap=n_bootstrap,
+                seed=SEED,
+            )
+        )
+
+    order0_rows = [row for row in metric_rows if row["order_seed"] == 0]
+    order0_by_budget, order0_alc, order0_task_alc = _summarize(order0_rows)
+    order0_paired_t = [
+        _paired(order0_task_alc, "validation", first, second)
+        for first, second in pairs
+    ]
+    order0_paired_bootstrap = [
+        _bootstrap_paired(
+            order0_task_alc,
+            "validation",
+            first,
+            second,
+            n_bootstrap=n_bootstrap,
+            seed=SEED,
+        )
+        for first, second in pairs
+    ]
+    order0_per_budget_paired = []
+    for first, second in pairs:
+        order0_per_budget_paired.extend(
+            _per_budget_paired(
+                order0_rows,
+                "validation",
+                first,
+                second,
+                n_bootstrap=n_bootstrap,
+                seed=SEED,
+            )
+        )
+
+    result = {
+        "status": "mirt_beta_comparison",
+        "arm": arm,
+        "store": str(root),
+        "manifest": _read_json(root / "manifest.json"),
+        "dims": list(dim_values),
+        "orders": 10,
+        "split": "validation",
+        "tasks": int(validation["task_id"].nunique()),
+        "n_bootstrap": int(n_bootstrap),
+        "pca": pca_metadata,
+        "draws": draw_metadata,
+        "by_budget": by_budget,
+        "alc": alc,
+        "paired_t": paired_t,
+        "paired_bootstrap": paired_bootstrap,
+        "per_budget_paired": per_budget_paired,
+        "order0": {
+            "by_budget": order0_by_budget,
+            "alc": order0_alc,
+            "paired_t": order0_paired_t,
+            "paired_bootstrap": order0_paired_bootstrap,
+            "per_budget_paired": order0_per_budget_paired,
+        },
+        "fits": {
+            key: {
+                "full": value["full"].summary(),
+                "folds": {
+                    str(fold): calibrator.summary()
+                    for fold, calibrator in value["folds"].items()
+                },
+            }
+            for key, value in calibrators.items()
+        },
+    }
+    RESULT_ROOT.mkdir(parents=True, exist_ok=True)
+    output_path = RESULT_ROOT / f"comparison-{arm}.json"
+    _write_json(output_path, result)
+    pd.DataFrame(metric_rows).to_parquet(
+        output_path.with_suffix(".rows.parquet"), index=False
+    )
+    volume.commit()
+    print(json.dumps(result, indent=2, sort_keys=True), flush=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Prediction-level convergence diagnostics
+# ---------------------------------------------------------------------------
+
+RHAT_DRAWS = 40
+RHAT_SOBOL = 16
+
+
+@app.function(
+    image=image,
+    gpu="H100",
+    cpu=8,
+    memory=65_536,
+    volumes={str(REMOTE_ROOT): volume},
+    timeout=3 * 60 * 60,
+)
+def prediction_rhat(
+    arm: str = "bge_base",
+    dims: str = "1,2",
+    max_tasks: int = 0,
+    order_seeds: str = "0",
+) -> dict[str, Any]:
+    """Split R-hat on per-draw target probabilities, by chain.
+
+    Raw-parameter R-hat is sensitive to MIRT sign/rotation symmetry.  This
+    diagnostic asks the question that matters for deployment: do the chains
+    agree on the probability assigned to the same target item, for the same
+    task/order/budget?  The same Sobol points are used for every chain so the
+    check isolates posterior variation rather than integration noise.
+    """
+
+    import pandas as pd
+    import torch
+
+    root = _compact_root(arm)
+    dim_values = tuple(sorted({int(value) for value in dims.split(",") if value.strip()}))
+    order_values = tuple(
+        sorted({int(value) for value in order_seeds.split(",") if value.strip()})
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"loading {arm} on {device}", flush=True)
+
+    train = pd.read_parquet(root / "train_tasks.parquet")
+    evaluation = pd.read_parquet(root / "eval_items.parquet")
+    orders = pd.read_parquet(root / "eval_orders.parquet")
+    item_embeddings = np.load(root / "item_embeddings.npy", mmap_mode="r")
+    train_item_indices = np.unique(train["item_index"].to_numpy(dtype=np.int64))
+    z_all, pca_metadata = _fit_pca(
+        item_embeddings, train_item_indices, PCA_DIM, device
+    )
+    print(f"PCA ready: {pca_metadata['pca_fit_items']} training items", flush=True)
+
+    validation = evaluation[evaluation["split"] == "validation"].copy()
+    validation["task_id"] = validation["task_id"].astype(str)
+    orders = orders.copy()
+    orders["task_id"] = orders["task_id"].astype(str)
+    task_ids = sorted(validation["task_id"].unique())
+    if max_tasks > 0:
+        task_ids = task_ids[:max_tasks]
+
+    def summarize(values: list[float]) -> dict[str, float | int]:
+        array = np.asarray(values, dtype=float)
+        array = np.where(array == 0.0, 1.0, array)
+        finite = array[np.isfinite(array)]
+        positive_inf = np.isposinf(array)
+        nan = np.isnan(array)
+        # Infinite R-hat means zero within-chain variance but nonzero
+        # between-chain variance: the worst possible disagreement.
+        comparable = np.concatenate([finite, np.full(int(positive_inf.sum()), 1e6)])
+        return {
+            "n": int(array.size),
+            "n_nan": int(nan.sum()),
+            "n_posinf": int(positive_inf.sum()),
+            "median": float(np.median(finite)) if finite.size else float("nan"),
+            "p95": float(np.quantile(finite, 0.95)) if finite.size else float("nan"),
+            "max": float(np.max(finite)) if finite.size else float("nan"),
+            "frac_gt_1_01": float((comparable > 1.01).mean()) if comparable.size else float("nan"),
+            "frac_gt_1_05": float((comparable > 1.05).mean()) if comparable.size else float("nan"),
+        }
+
+    result: dict[str, Any] = {
+        "status": "prediction_rhat",
+        "arm": arm,
+        "dims": list(dim_values),
+        "tasks": len(task_ids),
+        "order_seeds": list(order_values),
+        "n_chains": N_CHAINS,
+        "n_draws_per_chain": RHAT_DRAWS,
+        "n_sobol": RHAT_SOBOL,
+        "pca": pca_metadata,
+        "by_dim": {},
+    }
+
+    for dim in dim_values:
+        draw_path = RESULT_ROOT / f"draws-{arm}-d{dim}.npz"
+        payload = np.load(draw_path, allow_pickle=False)
+        draws = torch.as_tensor(
+            payload["draws"], dtype=torch.float32, device=device
+        )
+        shapes = [
+            tuple(int(x) for x in shape)
+            for shape in json.loads(str(payload["shapes_json"].item()))
+        ]
+        index = torch.linspace(
+            0, draws.shape[1] - 1, RHAT_DRAWS, device=device
+        ).long()
+        selected = draws[:, index, :]
+        chain_parameters = []
+        for chain in range(selected.shape[0]):
+            blocks = [_unpack(row, shapes, device) for row in selected[chain]]
+            chain_parameters.append(
+                (
+                    torch.stack([block[1] for block in blocks], dim=0),
+                    torch.stack([block[2] for block in blocks], dim=0),
+                    torch.stack([block[3].squeeze() for block in blocks], dim=0),
+                )
+            )
+
+        by_budget: dict[int, list[float]] = {budget: [] for budget in BUDGETS}
+        nonfinite_by_budget: dict[int, int] = {budget: 0 for budget in BUDGETS}
+        overall: list[float] = []
+        for task_number, task_id in enumerate(task_ids, start=1):
+            task_rows = validation[validation["task_id"] == task_id]
+            target_rows = task_rows[task_rows["pool"] == "evaluation"].reset_index(
+                drop=True
+            )
+            target_item_index = torch.as_tensor(
+                target_rows["item_index"].to_numpy(dtype=np.int64),
+                dtype=torch.long,
+                device=device,
+            )
+            target_embedding = z_all[target_item_index]
+            alpha_targets = []
+            beta_targets = []
+            for W_alpha, w_beta, mu in chain_parameters:
+                alpha_targets.append(
+                    torch.einsum("nm,smd->snd", target_embedding, W_alpha)
+                )
+                beta_targets.append(
+                    torch.einsum("nm,sm->sn", target_embedding, w_beta)
+                    + mu[:, None]
+                )
+
+            lookup = task_rows.drop_duplicates("item_index").set_index("item_index")[
+                "label"
+            ]
+            task_orders = orders[orders["task_id"] == task_id]
+            for order_seed in order_values:
+                order_rows = (
+                    task_orders[task_orders["order_seed"] == order_seed]
+                    .sort_values("acquisition_rank")
+                    .reset_index(drop=True)
+                )
+                if len(order_rows) == 0:
+                    continue
+                context_item_index = torch.as_tensor(
+                    order_rows["item_index"].to_numpy(dtype=np.int64),
+                    dtype=torch.long,
+                    device=device,
+                )
+                context_embedding = z_all[context_item_index]
+                context_labels = np.asarray(
+                    lookup.loc[order_rows["item_index"].to_numpy()], dtype=np.float32
+                )
+                alpha_contexts = []
+                beta_contexts = []
+                for W_alpha, w_beta, mu in chain_parameters:
+                    alpha_contexts.append(
+                        torch.einsum("nm,smd->snd", context_embedding, W_alpha)
+                    )
+                    beta_contexts.append(
+                        torch.einsum("nm,sm->sn", context_embedding, w_beta)
+                        + mu[:, None]
+                    )
+
+                for budget in BUDGETS:
+                    labels_context = torch.as_tensor(
+                        context_labels[:budget],
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                    per_chain = []
+                    with torch.no_grad():
+                        for chain in range(len(chain_parameters)):
+                            _, per_draw = _predict_context(
+                                alpha_targets[chain],
+                                beta_targets[chain],
+                                alpha_contexts[chain][:, :budget],
+                                beta_contexts[chain][:, :budget],
+                                labels_context,
+                                n_sobol=RHAT_SOBOL,
+                                seed=SEED + order_seed * 1000 + budget,
+                                device=device,
+                            )
+                            if not torch.isfinite(per_draw).all():
+                                nonfinite_by_budget[budget] += 1
+                            per_chain.append(per_draw)
+                    # 1e-8 rounds to 1.0 in float32, which makes logit(1)=inf.
+                    # 1e-6 is safely representable below one.
+                    logits = torch.logit(
+                        torch.stack(per_chain, dim=0).clamp(1e-6, 1.0 - 1e-6)
+                    )
+                    rhat = _split_rhat(logits)
+                    if torch.isnan(rhat).any():
+                        print(
+                            f"NaN rhat task={task_id} order={order_seed} "
+                            f"budget={budget} n={int(torch.isnan(rhat).sum())} "
+                            f"logits_finite={bool(torch.isfinite(logits).all())} "
+                            f"logits_min={float(logits.min()):.3f} "
+                            f"logits_max={float(logits.max()):.3f}",
+                            flush=True,
+                        )
+                    rhat = rhat.detach().cpu().numpy()
+                    by_budget[budget].extend(rhat.tolist())
+                    overall.extend(rhat.tolist())
+            if task_number % 10 == 0:
+                print(
+                    f"{arm} mirt{dim}: rhat {task_number}/{len(task_ids)} tasks",
+                    flush=True,
+                )
+
+        result["by_dim"][f"mirt{dim}"] = {
+            "overall": summarize(overall),
+            "by_budget": {
+                str(budget): summarize(values)
+                for budget, values in sorted(by_budget.items())
+            },
+            "nonfinite_contexts": {
+                str(budget): int(count)
+                for budget, count in sorted(nonfinite_by_budget.items())
+            },
+        }
+        print(
+            f"{arm} mirt{dim} prediction R-hat: "
+            f"median={result['by_dim'][f'mirt{dim}']['overall']['median']:.4f} "
+            f"max={result['by_dim'][f'mirt{dim}']['overall']['max']:.4f}",
+            flush=True,
+        )
+
+    RESULT_ROOT.mkdir(parents=True, exist_ok=True)
+    output_path = RESULT_ROOT / f"prediction-rhat-{arm}.json"
+    _write_json(output_path, result)
+    volume.commit()
+    print(json.dumps(result, indent=2, sort_keys=True), flush=True)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Synthetic smoke test
 # ---------------------------------------------------------------------------
@@ -1242,14 +1822,41 @@ def smoke() -> dict[str, Any]:
 
 
 @app.local_entrypoint()
-def main(action: str = "inspect", arm: str = "bge_base", dims: str = "1,2") -> None:
+def main(
+    action: str = "inspect",
+    arm: str = "bge_base",
+    dims: str = "1,2",
+    max_tasks: int = 0,
+    order_seeds: str = "0",
+    n_bootstrap: int = 10_000,
+) -> None:
     if action == "inspect":
         print(json.dumps(inspect.remote(arm), indent=2, sort_keys=True, default=str))
         return
     if action == "run":
         print(json.dumps(run.remote(arm, dims), indent=2, sort_keys=True, default=str))
         return
+    if action == "rhat":
+        print(
+            json.dumps(
+                prediction_rhat.remote(arm, dims, max_tasks, order_seeds),
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        )
+        return
+    if action == "compare":
+        print(
+            json.dumps(
+                compare.remote(arm, dims, n_bootstrap),
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        )
+        return
     if action == "smoke":
         print(json.dumps(smoke(), indent=2, sort_keys=True))
         return
-    raise ValueError("action must be inspect, run, or smoke")
+    raise ValueError("action must be inspect, run, compare, rhat, or smoke")

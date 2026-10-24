@@ -1147,3 +1147,242 @@ class GPContextIRT(nn.Module):
         x_T: torch.Tensor,
     ) -> torch.Tensor:
         return torch.sigmoid(self.forward(x_C, y_C, x_T))
+
+
+class MultidimContextIRT(nn.Module):
+    """Multidimensional-ability counterparts of the three best scalar rungs.
+
+    The scalar ladder gives every subject one ability number, so two subjects
+    with the same overall accuracy are indistinguishable even when one is
+    strong at code and weak at multilingual knowledge and the other is the
+    reverse. With ``ability_dim = D`` the item head emits a discrimination
+    *vector* ``a_i`` in R^D and an intercept ``d_i``, and the response model
+    becomes the compensatory MIRT logit
+
+        ``z_i = a_i . theta - d_i``,
+
+    with ``theta`` in R^D solved by a Newton MAP on the acquired context, the
+    same way the scalar rungs solve for a single ability.
+
+    ``D = 1`` is a reparametrization of the scalar model (``a theta - d``
+    rather than ``a (theta - b)``), not a bit-identical copy of it, so the
+    D = 1 arm is a control for the parametrization and the D > 1 arms test
+    whether extra ability dimensions buy anything.
+
+    ``mode`` and ``loops`` mirror the scalar ladder so the comparison is
+    like-for-like:
+
+    ``scalar``       pooled r_C adds one offset vector to theta.
+    ``additive_ab``  pooled r_C offsets the target (a, d); the ability anchor
+                     deliberately ignores r_C, as in ContextConditionedIRT.
+    ``direct_ab``    pooled r_C parameterizes (a, d) outright.
+
+    ``loops`` repeats one shared pre-norm transformer block over the target
+    set, refining all target logits in parallel; ``loops = 0`` is the
+    parameter-matched control.
+    """
+
+    MODES = ("scalar", "additive_ab", "direct_ab")
+    PRIOR_VARIANCE = 4.0
+
+    def __init__(
+        self,
+        x_dim: int,
+        *,
+        mode: str,
+        ability_dim: int = 2,
+        loops: int = 0,
+        d_model: int = 128,
+        n_heads: int = 4,
+        subject_feature_slice: tuple[int, int] | None = None,
+    ):
+        super().__init__()
+        if mode not in self.MODES:
+            raise ValueError(f"unknown mode: {mode}")
+        if ability_dim < 1:
+            raise ValueError("ability_dim must be positive")
+        if loops < 0:
+            raise ValueError("loops must be non-negative")
+        self.mode = mode
+        self.ability_dim = int(ability_dim)
+        self.loops = int(loops)
+        self.subject_feature_slice = subject_feature_slice
+        out_dim = self.ability_dim + 1
+
+        self.item_encoder = nn.Sequential(
+            nn.Linear(x_dim, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model),
+        )
+        self.item_head = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, out_dim),
+        )
+        self.context_encoder = nn.Sequential(
+            nn.Linear(d_model + 1, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model),
+        )
+        if mode == "scalar":
+            self.theta_head = nn.Sequential(
+                nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, self.ability_dim)
+            )
+            nn.init.zeros_(self.theta_head[-1].weight)
+            nn.init.zeros_(self.theta_head[-1].bias)
+        else:
+            self.ab_head = nn.Sequential(
+                nn.Linear(2 * d_model, d_model), nn.ReLU(), nn.Linear(d_model, out_dim)
+            )
+            if mode == "additive_ab":
+                nn.init.zeros_(self.ab_head[-1].weight)
+                nn.init.zeros_(self.ab_head[-1].bias)
+
+        if self.loops:
+            self.token_proj = nn.Linear(2 * d_model + 2, d_model)
+            self.block = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=n_heads,
+                dim_feedforward=4 * d_model,
+                dropout=0.0,
+                activation="gelu",
+                batch_first=True,
+                norm_first=True,
+            )
+            self.loop_head = nn.Linear(d_model, 1)
+            nn.init.zeros_(self.loop_head.weight)
+            nn.init.zeros_(self.loop_head.bias)
+
+    def encode_item(self, x: torch.Tensor) -> torch.Tensor:
+        if self.subject_feature_slice is not None:
+            start, stop = self.subject_feature_slice
+            x = torch.cat(
+                [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]],
+                dim=-1,
+            )
+        return self.item_encoder(x)
+
+    def _split(self, raw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Discrimination vector (positive) and scalar intercept."""
+
+        a = torch.nn.functional.softplus(raw[..., : self.ability_dim]) + 0.05
+        return a, raw[..., self.ability_dim]
+
+    def _context_repr(
+        self, x_C: torch.Tensor, y_C: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        h_C = self.encode_item(x_C)
+        if h_C.shape[0] == 0:
+            return h_C, h_C.new_zeros((h_C.shape[-1],))
+        context = self.context_encoder(torch.cat([h_C, y_C[:, None]], dim=-1))
+        return h_C, context.mean(dim=0)
+
+    def _anchor_parameters(self, h_C: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Item-only parameters for the ability MAP.
+
+        Context-conditioned offsets are target-side corrections; feeding them
+        back into the ability estimate would make the additive rung circular.
+        """
+
+        return self._split(self.item_head(h_C))
+
+    def _head_parameters(
+        self, h: torch.Tensor, r_C: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        base = self.item_head(h)
+        if self.mode == "scalar":
+            return self._split(base)
+        enriched = torch.cat([h, r_C.unsqueeze(0).expand(h.shape[0], -1)], dim=-1)
+        offset = self.ab_head(enriched)
+        if self.mode == "additive_ab":
+            return self._split(base + offset)
+        return self._split(offset)
+
+    @staticmethod
+    def map_theta(
+        a_C: torch.Tensor,
+        d_C: torch.Tensor,
+        y_C: torch.Tensor,
+        *,
+        prior_mean: torch.Tensor | None = None,
+        steps: int = 12,
+        prior_variance: float = PRIOR_VARIANCE,
+    ) -> torch.Tensor:
+        """Newton MAP for a D-dimensional ability.
+
+        Mirrors the scalar solve in ``ContextConditionedIRT.map_theta``: the
+        same prior variance, the same step count, the same trust-region clamp
+        on the update and the same box clamp on theta, generalized to a full
+        Hessian. The context parameters are detached for the same reason as
+        the scalar version -- the ability estimate is an inference step, not a
+        path the item network should be trained through.
+        """
+
+        dim = a_C.shape[-1]
+        theta = (
+            a_C.new_zeros(dim)
+            if prior_mean is None
+            else prior_mean.to(device=a_C.device, dtype=a_C.dtype).reshape(dim)
+        )
+        prior = theta
+        if a_C.shape[0] == 0:
+            return theta
+        a_C = a_C.detach()
+        d_C = d_C.detach()
+        y_C = y_C.to(dtype=a_C.dtype)
+        eye = torch.eye(dim, device=a_C.device, dtype=a_C.dtype)
+        for _ in range(steps):
+            probability = torch.sigmoid(a_C @ theta - d_C)
+            weight = probability * (1.0 - probability)
+            gradient = a_C.transpose(0, 1) @ (probability - y_C) + (theta - prior) / prior_variance
+            hessian = (a_C.transpose(0, 1) * weight) @ a_C + eye / prior_variance
+            # Jitter keeps the solve well posed when every context item loads
+            # on the same few dimensions, which is common at small budgets.
+            step = torch.linalg.solve(hessian + 1e-4 * eye, gradient)
+            norm = step.norm().clamp_min(1e-12)
+            step = step * (norm.clamp(max=1.0) / norm)
+            theta = (theta - step).clamp(-4.0, 4.0)
+        return theta
+
+    def forward(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        h_C, r_C = self._context_repr(x_C, y_C)
+        if self.mode == "additive_ab":
+            a_C, d_C = self._anchor_parameters(h_C)
+        else:
+            a_C, d_C = self._head_parameters(h_C, r_C)
+        theta = self.map_theta(a_C, d_C, y_C)
+        if self.mode == "scalar":
+            theta = theta + self.theta_head(r_C)
+
+        h_T = self.encode_item(x_T)
+        a_T, d_T = self._head_parameters(h_T, r_C)
+        logits = a_T @ theta - d_T
+        if not self.loops:
+            return logits
+
+        expanded = r_C.unsqueeze(0).expand(h_T.shape[0], -1)
+        for _ in range(self.loops):
+            probability = torch.sigmoid(logits)
+            tokens = self.token_proj(
+                torch.cat(
+                    [h_T, expanded, logits.unsqueeze(-1), probability.unsqueeze(-1)], dim=-1
+                )
+            )
+            refined = self.block(tokens.unsqueeze(0)).squeeze(0)
+            logits = logits + self.loop_head(refined).squeeze(-1)
+        return logits
+
+    @torch.no_grad()
+    def predict_proba(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.sigmoid(self.forward(x_C, y_C, x_T))

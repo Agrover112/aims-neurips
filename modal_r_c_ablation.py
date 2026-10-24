@@ -57,6 +57,17 @@ RUNGS = {
     "nr_2pl_prior": ("neural", "nr", True),
     "u_nr_2pl": ("neural", "u_nr", False),
     "u_nr_2pl_prior": ("neural", "u_nr", True),
+    # Multidimensional-ability counterparts of the three best scalar rungs.
+    # Tuple is (kind, mode, ability_dim, loops).
+    "mirt_additive_loop3_d1": ("mirt", "additive_ab", 1, 3),
+    "mirt_additive_loop3_d4": ("mirt", "additive_ab", 4, 3),
+    "mirt_additive_loop3_d8": ("mirt", "additive_ab", 8, 3),
+    "mirt_direct_loop0_d1": ("mirt", "direct_ab", 1, 0),
+    "mirt_direct_loop0_d4": ("mirt", "direct_ab", 4, 0),
+    "mirt_direct_loop0_d8": ("mirt", "direct_ab", 8, 0),
+    "mirt_scalar_d1": ("mirt", "scalar", 1, 0),
+    "mirt_scalar_d4": ("mirt", "scalar", 4, 0),
+    "mirt_scalar_d8": ("mirt", "scalar", 8, 0),
 }
 HELDOUT_ONLY_RUNGS = {
     "additive_ar",
@@ -104,8 +115,18 @@ def _logit(probability: float) -> float:
     return math.log(clipped / (1.0 - clipped))
 
 
-def _compact_root() -> Path:
-    return EMBEDDING_ROOT / f"allbench-embed-{ARM}-v1"
+def _compact_root(corpus: str = "") -> Path:
+    """Resolve the feature store a run reads.
+
+    The default keeps every published r_C number reproducible; passing a store
+    name selects another one, which is how the v2 item_content-only arms are
+    evaluated without editing a module constant.
+    """
+
+    if not corpus:
+        return EMBEDDING_ROOT / f"allbench-embed-{ARM}-v1"
+    root = EMBEDDING_ROOT / corpus
+    return root
 
 
 def _features(rows, item_embeddings, subject_embeddings):
@@ -167,6 +188,7 @@ def _make_model(
         DeterministicCNP,
         GPContextIRT,
         LoopedContextIRT,
+        MultidimContextIRT,
         NeuralResidualIRT,
     )
 
@@ -196,6 +218,17 @@ def _make_model(
             x_dim,
             mode=mode,
             loops=int(flags[0]),
+            d_model=128,
+            n_heads=8,
+            subject_feature_slice=subject_feature_slice,
+        )
+    if kind == "mirt":
+        ability_dim, loops = int(flags[0]), int(flags[1])
+        return MultidimContextIRT(
+            x_dim,
+            mode=mode,
+            ability_dim=ability_dim,
+            loops=loops,
             d_model=128,
             n_heads=8,
             subject_feature_slice=subject_feature_slice,
@@ -359,7 +392,7 @@ def _summarize(rows):
                 "split": "validation",
                 "brier_alc": float(group["weighted"].mean()),
                 "se": float(group["weighted"].std(ddof=1) / np.sqrt(len(group))),
-                "tasks": int(len(group)),
+                "tasks": len(group),
             }
         )
     task_records = task_alc.to_dict(orient="records")
@@ -368,13 +401,13 @@ def _summarize(rows):
     return alc, task_records
 
 
-def _score_validation(model, seed: int, mode: str, orders: int = 10):
+def _score_validation(model, seed: int, mode: str, orders: int = 10, corpus: str = ""):
     import pandas as pd
     import torch
 
     from aims_starter.uniform_eval import validation_fold_map
 
-    root = _compact_root()
+    root = _compact_root(corpus)
     item_embeddings = np.load(root / "item_embeddings.npy")
     subject_embeddings = np.load(root / "subject_embeddings.npy")
     evaluation = pd.read_parquet(root / "eval_items.parquet")
@@ -450,6 +483,7 @@ def run(
     seed: int = 20261018,
     mode: str = "masked",
     resume: bool = False,
+    corpus: str = "",
 ) -> dict[str, Any]:
     if rung not in RUNGS:
         raise ValueError(f"rung must be one of {tuple(RUNGS)}")
@@ -457,7 +491,8 @@ def run(
         raise ValueError(f"seed must be one of {SEEDS}")
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
-    output = RESULT_ROOT / f"r-c-{rung}-{seed}-{mode}.json"
+    tag = f"-{corpus}" if corpus else ""
+    output = RESULT_ROOT / f"r-c-{rung}-{seed}-{mode}{tag}.json"
     existing = _read_json(output)
     if existing is not None:
         return existing
@@ -465,7 +500,7 @@ def run(
     import pandas as pd
     import torch
 
-    root = _compact_root()
+    root = _compact_root(corpus)
     manifest = _read_json(root / "manifest.json")
     if manifest is None:
         raise FileNotFoundError(f"compact corpus missing: {root}")
@@ -493,11 +528,11 @@ def run(
         episodes_per_step=4,
         heldout_only=rung in HELDOUT_ONLY_RUNGS,
     )
-    checkpoint_root = RESULT_ROOT / f"seed-{seed}-{mode}" / f"{rung}-checkpoints"
+    checkpoint_root = RESULT_ROOT / f"seed-{seed}-{mode}{tag}" / f"{rung}-checkpoints"
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), checkpoint_root / "model.pt")
 
-    records, beta_records = _score_validation(model, seed, mode, orders=10)
+    records, beta_records = _score_validation(model, seed, mode, orders=10, corpus=corpus)
     calibrators = _calibrators(records)
     rows = _metric_rows(records, calibrators, rung) + _metric_rows(
         beta_records, calibrators, "beta"
@@ -527,6 +562,7 @@ def main(
     seeds: str = "20261018,20261019,20261020",
     mode: str = "masked",
     parallel: bool = False,
+    corpus: str = "",
 ):
     rung_values = [value for value in rungs.split(",") if value]
     seed_values = [int(value) for value in seeds.split(",") if value]
@@ -535,7 +571,7 @@ def main(
             raise ValueError(f"rung must be one of {tuple(RUNGS)}")
     if parallel:
         calls = [
-            (rung, seed, run.spawn(rung, seed, mode))
+            (rung, seed, run.spawn(rung, seed, mode, False, corpus))
             for rung in rung_values
             for seed in seed_values
         ]
@@ -546,4 +582,4 @@ def main(
     for rung in rung_values:
         for seed in seed_values:
             print(f"=== {rung} seed={seed} ===", flush=True)
-            print(json.dumps(run.remote(rung, seed, mode), indent=2, sort_keys=True))
+            print(json.dumps(run.remote(rung, seed, mode, False, corpus), indent=2, sort_keys=True))
