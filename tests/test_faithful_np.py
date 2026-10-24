@@ -13,8 +13,10 @@ try:
         FaithfulNPAIRT,
         _episode,
         binary_auc,
+        cap_task_items,
         map_theta_1pl,
         map_theta_2pl,
+        task_row_weights,
     )
 except ModuleNotFoundError:  # Torch is an experiment/Modal dependency, not a submission dependency.
     torch = None
@@ -402,6 +404,88 @@ class GradientFlowTests(unittest.TestCase):
         for parameter in model.parameters():
             if parameter.grad is not None:
                 self.assertTrue(torch.isfinite(parameter.grad).all())
+
+
+@unittest.skipIf(torch is None, "PyTorch is not installed in the lightweight test environment")
+class TaskBalancingTests(unittest.TestCase):
+    """The flat-batch amortized trainers draw rows uniformly, so a task's
+    influence scales with its item count unless the rows are reweighted."""
+
+    def test_unbalanced_weights_are_all_one(self):
+        indices = np.array([0, 0, 0, 1])
+        weights = task_row_weights(indices, 2, balanced=False)
+        np.testing.assert_allclose(weights, np.ones(4))
+
+    def test_balanced_weights_give_every_task_equal_total_mass(self):
+        indices = np.array([0, 0, 0, 0, 1, 2, 2])
+        weights = task_row_weights(indices, 3, balanced=True)
+        totals = [weights[indices == task].sum() for task in range(3)]
+        for total in totals[1:]:
+            self.assertAlmostEqual(total, totals[0], places=5)
+
+    def test_balanced_weights_have_mean_one(self):
+        # Rescaling to mean one keeps the effective learning rate unchanged
+        # when the flag is toggled, so the two arms stay comparable.
+        indices = np.repeat([0, 1, 2], [100, 10, 1])
+        weights = task_row_weights(indices, 3, balanced=True)
+        self.assertAlmostEqual(float(weights.mean()), 1.0, places=5)
+
+    def test_balanced_weights_are_inverse_to_task_size(self):
+        indices = np.repeat([0, 1], [8, 2])
+        weights = task_row_weights(indices, 2, balanced=True)
+        self.assertAlmostEqual(float(weights[8] / weights[0]), 4.0, places=5)
+
+    def test_equal_sized_tasks_are_unaffected_by_balancing(self):
+        indices = np.repeat([0, 1, 2], 5)
+        weights = task_row_weights(indices, 3, balanced=True)
+        np.testing.assert_allclose(weights, np.ones(15), atol=1e-6)
+
+    def test_task_with_no_rows_does_not_divide_by_zero(self):
+        indices = np.array([0, 0, 2])  # task 1 contributes nothing
+        weights = task_row_weights(indices, 3, balanced=True)
+        self.assertTrue(np.isfinite(weights).all())
+
+
+@unittest.skipIf(torch is None, "PyTorch is not installed in the lightweight test environment")
+class TaskItemCapTests(unittest.TestCase):
+    def setUp(self):
+        self.rng = np.random.default_rng(7)
+        self.tasks = [
+            {"x": np.arange(30, dtype=np.float32).reshape(10, 3), "y": np.arange(10.0)},
+            {"x": np.zeros((3, 3), dtype=np.float32), "y": np.arange(3.0)},
+        ]
+
+    def test_none_returns_the_tasks_unchanged(self):
+        self.assertIs(cap_task_items(self.tasks, None, self.rng), self.tasks)
+
+    def test_cap_limits_each_task(self):
+        capped = cap_task_items(self.tasks, 4, self.rng)
+        self.assertEqual([len(task["y"]) for task in capped], [4, 3])
+
+    def test_smaller_tasks_are_left_alone(self):
+        capped = cap_task_items(self.tasks, 4, self.rng)
+        np.testing.assert_array_equal(capped[1]["y"], self.tasks[1]["y"])
+
+    def test_x_and_y_stay_aligned(self):
+        capped = cap_task_items(self.tasks, 4, self.rng)
+        for row, label in zip(capped[0]["x"], capped[0]["y"], strict=True):
+            np.testing.assert_array_equal(row, self.tasks[0]["x"][int(label)])
+
+    def test_kept_items_remain_in_original_order(self):
+        capped = cap_task_items(self.tasks, 6, self.rng)
+        self.assertTrue(np.all(np.diff(capped[0]["y"]) > 0))
+
+    def test_sampling_is_random_not_the_first_n(self):
+        # modal_allbench takes .head(N) by acquisition rank; this must not.
+        seen = {
+            tuple(cap_task_items(self.tasks, 5, np.random.default_rng(seed))[0]["y"])
+            for seed in range(12)
+        }
+        self.assertGreater(len(seen), 1)
+
+    def test_rejects_non_positive_cap(self):
+        with self.assertRaises(ValueError):
+            cap_task_items(self.tasks, 0, self.rng)
 
 
 if __name__ == "__main__":

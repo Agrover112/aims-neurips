@@ -35,6 +35,24 @@ VOLUME_NAME = "aims-neurips-data"
 REMOTE_ROOT = Path("/data")
 PROJECT_ROOT = Path(__file__).resolve().parent
 CORPUS_ROOT = REMOTE_ROOT / "datasets" / "full" / "allbench-embed-minilm512-v1"
+CORPUS_PARENT = REMOTE_ROOT / "datasets" / "full"
+
+
+def _corpus_root(name: str = "") -> Path:
+    """Resolve the feature store this run reads.
+
+    The default keeps every published number reproducible. Passing a store
+    name selects another one, which is how the v2 item_content-only arms
+    (``allbench-train-{arm}-cap{N}-v2``, built by ``modal_compact_store.py``)
+    are evaluated without editing a module constant.
+    """
+
+    if not name:
+        return CORPUS_ROOT
+    root = CORPUS_PARENT / name
+    if not root.exists():
+        raise FileNotFoundError(f"no feature store at {root}")
+    return root
 PROTOCOL_ROOT = REMOTE_ROOT / "datasets" / "full" / "evaluation-protocol-v2"
 RESULT_ROOT = REMOTE_ROOT / "results" / "faithful-ladder"
 VERSION = "v4.1-faithful-ladder"
@@ -606,6 +624,7 @@ def _score_validation(
     orders: int = 10,
     latent_samples: int = 128,
     max_tasks: int = 0,
+    corpus_root: Path | None = None,
 ):
     import pandas as pd
     import torch
@@ -613,10 +632,11 @@ def _score_validation(
     from aims_starter.faithful_ladder import predict_probability
     from aims_starter.uniform_eval import validation_fold_map
 
-    item_embeddings = np.load(CORPUS_ROOT / "item_embeddings.npy")
-    subject_embeddings = np.load(CORPUS_ROOT / "subject_embeddings.npy")
-    evaluation = pd.read_parquet(CORPUS_ROOT / "eval_items.parquet")
-    order_frame = pd.read_parquet(CORPUS_ROOT / "eval_orders.parquet")
+    root = corpus_root or CORPUS_ROOT
+    item_embeddings = np.load(root / "item_embeddings.npy")
+    subject_embeddings = np.load(root / "subject_embeddings.npy")
+    evaluation = pd.read_parquet(root / "eval_items.parquet")
+    order_frame = pd.read_parquet(root / "eval_orders.parquet")
     fold_map = validation_fold_map(evaluation, n_folds=UNIFORM_FOLDS)
     device = next(model.parameters()).device
     torch.manual_seed(seed + 9999)
@@ -808,6 +828,7 @@ def run(
     probe_count: int = DEFAULT_PROBE_COUNT,
     probe_every: int = 250,
     probe_benchmark_count: int = DEFAULT_PROBE_BENCHMARKS,
+    corpus: str = "",
 ) -> dict[str, Any]:
     if rung not in RUNGS:
         raise ValueError(f"rung must be one of {tuple(RUNGS)}")
@@ -881,11 +902,12 @@ def run(
     import pandas as pd
     import torch
 
-    manifest = _read_json(CORPUS_ROOT / "manifest.json")
+    corpus_root = _corpus_root(corpus)
+    manifest = _read_json(corpus_root / "manifest.json")
     if manifest is None:
-        raise FileNotFoundError(f"compact corpus missing: {CORPUS_ROOT}")
-    item_embeddings = np.load(CORPUS_ROOT / "item_embeddings.npy")
-    subject_embeddings = np.load(CORPUS_ROOT / "subject_embeddings.npy")
+        raise FileNotFoundError(f"compact corpus missing: {corpus_root}")
+    item_embeddings = np.load(corpus_root / "item_embeddings.npy")
+    subject_embeddings = np.load(corpus_root / "subject_embeddings.npy")
     item_dim = int(item_embeddings.shape[1])
     subject_prior_slice = (item_dim, item_dim + int(subject_embeddings.shape[1]))
     subject_slice = subject_prior_slice if mode == "masked" else None
@@ -901,7 +923,7 @@ def run(
             strict=True,
         )
     )
-    train = pd.read_parquet(CORPUS_ROOT / "train_tasks.parquet")
+    train = pd.read_parquet(corpus_root / "train_tasks.parquet")
     tasks = _task_list(train, item_embeddings, subject_embeddings, benchmark_of)
     probe_benchmarks = _select_probe_benchmarks(
         tasks,
@@ -973,6 +995,7 @@ def run(
         mode,
         orders=10,
         max_tasks=int(validation_limit),
+        corpus_root=corpus_root,
     )
     calibrators = _calibrators(records)
     rows = []
@@ -1072,6 +1095,7 @@ def main(
     probe_every: int = 250,
     probe_benchmark_count: int = DEFAULT_PROBE_BENCHMARKS,
     parallel: bool = False,
+    corpus: str = "",
 ):
     rung_values = [value for value in rungs.split(",") if value]
     seed_values = [int(value) for value in seeds.split(",") if value]
@@ -1107,6 +1131,7 @@ def main(
                         int(probe_count),
                         int(probe_every),
                         int(probe_benchmark_count),
+                        corpus,
                     )
                     print(
                         json.dumps(
@@ -1135,6 +1160,7 @@ def main(
                 int(probe_count),
                 int(probe_every),
                 int(probe_benchmark_count),
+                corpus,
             ),
         )
         for rung in rung_values

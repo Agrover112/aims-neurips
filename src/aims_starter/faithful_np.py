@@ -459,22 +459,90 @@ class Amortized2PL(nn.Module):
         return a * (self.theta[task_indices] - b)
 
 
+def task_row_weights(
+    task_indices: np.ndarray, n_tasks: int, *, balanced: bool
+) -> np.ndarray:
+    """Per-row loss weights that give every task equal total influence.
+
+    The amortized trainers below flatten all tasks into one row pool and draw
+    uniformly from it, so a task's influence is proportional to its item count.
+    Tasks are not comparable in size -- ``babilong`` carries 526k items and
+    ``devbench`` 271 -- so uniform row sampling lets a handful of large
+    benchmarks set the item network's parameters.
+
+    Weighting each row by ``1 / rows_in_its_task`` makes every task contribute
+    the same total mass regardless of size, which is also how the evaluation
+    metric treats them: ALC is averaged within a task first, then equally
+    across tasks. Weights are rescaled to mean one so the effective learning
+    rate does not change when the flag is toggled.
+
+    This matters only for the flat-batch amortized trainers. The episodic
+    meta-training loops (``train_cnp``, ``train_model``) already sample one
+    task uniformly per episode and average within it, so they are balanced by
+    construction and need no weighting.
+
+    Returns an array of ones when ``balanced`` is false.
+    """
+
+    weights = np.ones(len(task_indices), dtype=np.float32)
+    if not balanced:
+        return weights
+    counts = np.bincount(task_indices, minlength=n_tasks).astype(np.float64)
+    per_row = 1.0 / np.clip(counts[task_indices], 1.0, None)
+    return (per_row / per_row.mean()).astype(np.float32)
+
+
+def cap_task_items(
+    tasks: list[dict[str, np.ndarray]],
+    max_items_per_task: int | None,
+    rng: np.random.Generator,
+) -> list[dict[str, np.ndarray]]:
+    """Subsample each task to at most ``max_items_per_task`` items.
+
+    The cap is a training dial, not a property of the corpus. Embeddings are
+    per-item and reusable, so the full corpus is encoded once and the cap is
+    applied here, per run, instead of being baked into the feature store the
+    way ``modal_allbench.TRAIN_ITEMS_PER_TASK`` does it.
+
+    Sampling is random rather than ``head``: taking the first N by acquisition
+    rank, as the store builder does, biases training toward early-ranked items.
+    """
+
+    if max_items_per_task is None:
+        return tasks
+    if max_items_per_task < 1:
+        raise ValueError("max_items_per_task must be positive")
+    capped = []
+    for task in tasks:
+        n = len(task["y"])
+        if n <= max_items_per_task:
+            capped.append(task)
+            continue
+        keep = np.sort(rng.permutation(n)[:max_items_per_task])
+        capped.append({**task, "x": task["x"][keep], "y": task["y"][keep]})
+    return capped
+
+
 def train_amortized_1pl(
     tasks: list[dict[str, np.ndarray]],
     *,
     seed: int,
     steps: int = 800,
     subject_feature_slice: tuple[int, int] | None = None,
+    task_balanced: bool = False,
+    max_items_per_task: int | None = None,
 ) -> tuple[Amortized1PL, list[dict[str, float]]]:
     """Train a 1PL item network with one offline ability per training task."""
 
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tasks = cap_task_items(tasks, max_items_per_task, np.random.default_rng(seed))
     x = np.concatenate([task["x"] for task in tasks])
     y = np.concatenate([task["y"] for task in tasks])
     task_indices = np.concatenate(
         [np.full(len(task["y"]), index) for index, task in enumerate(tasks)]
     )
+    row_weights = task_row_weights(task_indices, len(tasks), balanced=task_balanced)
     model = Amortized1PL(x.shape[1], len(tasks), subject_feature_slice=subject_feature_slice).to(
         device
     )
@@ -486,8 +554,11 @@ def train_amortized_1pl(
         x_batch = torch.as_tensor(x[indices], dtype=torch.float32, device=device)
         y_batch = torch.as_tensor(y[indices], dtype=torch.float32, device=device)
         batch_tasks = torch.as_tensor(task_indices[indices], dtype=torch.long, device=device)
+        batch_weights = torch.as_tensor(row_weights[indices], dtype=torch.float32, device=device)
         logits = model.logits(x_batch, batch_tasks)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_batch)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            logits, y_batch, weight=batch_weights
+        )
         loss = loss + 1e-3 * model.theta.square().mean()
         optimizer.zero_grad()
         loss.backward()
@@ -506,14 +577,18 @@ def train_amortized_2pl(
     seed: int,
     steps: int = 800,
     subject_feature_slice: tuple[int, int] | None = None,
+    task_balanced: bool = False,
+    max_items_per_task: int | None = None,
 ) -> tuple[Amortized2PL, list[dict[str, float]]]:
     seed_everything(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tasks = cap_task_items(tasks, max_items_per_task, np.random.default_rng(seed))
     x = np.concatenate([task["x"] for task in tasks])
     y = np.concatenate([task["y"] for task in tasks])
     task_indices = np.concatenate(
         [np.full(len(task["y"]), index) for index, task in enumerate(tasks)]
     )
+    row_weights = task_row_weights(task_indices, len(tasks), balanced=task_balanced)
     model = Amortized2PL(x.shape[1], len(tasks), subject_feature_slice=subject_feature_slice).to(
         device
     )
@@ -525,8 +600,11 @@ def train_amortized_2pl(
         x_batch = torch.as_tensor(x[indices], dtype=torch.float32, device=device)
         y_batch = torch.as_tensor(y[indices], dtype=torch.float32, device=device)
         batch_tasks = torch.as_tensor(task_indices[indices], dtype=torch.long, device=device)
+        batch_weights = torch.as_tensor(row_weights[indices], dtype=torch.float32, device=device)
         logits = model.logits(x_batch, batch_tasks)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_batch)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            logits, y_batch, weight=batch_weights
+        )
         loss = loss + 1e-3 * model.theta.square().mean()
         optimizer.zero_grad()
         loss.backward()
