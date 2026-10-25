@@ -12,8 +12,36 @@ logits directly, matching the paper's ``phi_t = g(x_t, r)`` form.
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import nn
+
+# Probit approximation constant: E_z~N(m, v)[sigmoid(z)] ~= sigmoid(m / sqrt(1 + pi/8 * v)).
+PROBIT_SCALE = math.pi / 8.0
+PRIOR_THETA_VARIANCE = 4.0
+
+
+def marginalize_logits(mean_logits, logit_variance):
+    """Integrate a Bernoulli logit over a Gaussian ability posterior.
+
+    The models solve a Newton MAP for theta and then plug that point estimate
+    into the response function. Under a proper scoring rule that is dominated
+    by the posterior mean of the probability,
+
+        E_{theta ~ q}[sigmoid(a (theta - b))],
+
+    which is what ``scripts/information_ceiling.py`` evaluates by quadrature
+    when it computes the Bayes-risk floor. The plug-in estimate is
+    systematically over-confident wherever the posterior is wide -- that is,
+    at the small budgets, which carry half the ALC weight.
+
+    The probit approximation gives the integral in closed form, so no
+    quadrature is needed at inference: the Newton solve already produces the
+    Hessian, and its inverse is the Laplace posterior variance.
+    """
+
+    return mean_logits * torch.rsqrt(1.0 + PROBIT_SCALE * logit_variance)
 
 
 class ContextSelfAttention(nn.Module):

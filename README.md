@@ -886,13 +886,53 @@ date (validation calibrated ALC 0.222584 against Beta 0.222838) and the residual
 2PL adapter will be refitted on whichever new store wins, since that adapter is
 the only change that has ever moved the number.
 
+### me5 encoder and v4.1 sampler results (2026-10-25)
+
+Full tables and caveats: [`docs/me5-encoder-and-v41-sampler.md`](docs/me5-encoder-and-v41-sampler.md).
+
+Validation, 104 tasks, out-of-fold calibration, Beta-Binomial reference
+`0.222838` (identical to six decimals against `docs/ablation-results.md`, so
+these rows are comparable to the published r_C ladder).
+
+| Change | Effect | Replicates? |
+|---|---:|---|
+| `item_content`-only text + multilingual-e5-large-instruct | **-0.0017 to -0.0023** | **yes** -- 3 seeds, 6 architectures |
+| v4.1 coverage sampler, `cnp` / `anp_attn` | **-0.0012 to -0.0015** | 1 seed, paired CI excludes zero |
+| v4.1 coverage sampler, IRT-anchored rungs | `+0.00003` | no effect |
+| bge-m3 in place of me5 | **+0.0005 (worse)** | 5 arms, all above Beta |
+| Multidimensional ability (D=4) | sign flips by seed | **no -- withdrawn** |
+
+Best measured: `anp_attn` under the v4.1 sampler, **`0.219793`**, `-0.003045`
+against Beta and `-0.0028` against the previous best arm ever run
+(`bge_base_2pladapt`, `0.222584`). That is roughly 5% of the `+0.0621`
+headroom.
+
+Three readings worth carrying forward:
+
+- **The encoder is the only robust effect.** Architecture gaps are all smaller
+  than the largest per-seed spread (0.00171, `additive_loop3`), which was the
+  best arm in the published loop ladder and is now last under the correct
+  sampler. Single-seed architecture conclusions on this corpus are not safe.
+- **Coverage matters exactly where ability is learned.** `cnp` and `anp_attn`
+  must learn adaptation from `r_C` and were training on 7.7% of
+  `(task, budget)` pairs; the IRT rungs solve for ability at inference and are
+  unaffected. Under the fixed sampler `anp_attn` now beats `scalar`, reversing
+  the earlier reading that the IRT anchor was worth about `0.0005`.
+- **Context length was not the bottleneck.** bge-m3 truncates 1,838 items at
+  8192 tokens against me5's 172,297 at 512 -- 94x fewer -- and still loses to
+  it on all five arms.
+
+The remaining gap splits almost exactly in half: `0.0595` from not knowing
+`theta` and `0.0590` from not knowing `(a_i, b_i)`. Work so far has addressed
+only the second.
+
 ### Open items
 
 - Shared `x_encoder` for the masked and unmasked paths; the slice `(389, 773)` is hard-coded in ten places in `modal_faithful.py`; the 5 numeric columns are near-dead and unstandardized; the benchmark block is constant within an episode.
 - ANP-AIRT and Stacked-MHSA-ANP-AIRT route $r^*$ into the logits through the decoder residual head at scale 0.1. $r^*$ is computed from subject-masked encodings, and the residual is a post-anchor correction; $r^*$ must not enter the MAP fit because context items would attend to their own labels.
 - Pilot runs use 32-dim hashed item features and the main runs use the 1157-dim mixed features. Their numbers are not comparable.
 - Order of work: deterministic track rerun on all benchmarks (Online-AIRT, CNP-AIRT, Beta-Binomial, 2 seeds), AnchorCalibrator on existing artifacts, organizer baselines plus a Codabench smoke submission, then one latent-track run.
-- Encoder re-selection is specified but not run: build the four 1024-dim `item_content`-only stores, refit the residual 2PL adapter on the winner, and extract `item_features` as a structured channel with the per-item fingerprint keys dropped. The `minilm`, `bge_base`, and `llama31_8b` arms are superseded; their stores are kept for the published tables.
+- Encoder re-selection is run for me5 and bge-m3 and reported above; the two Qwen arms are still encoding. Not yet done: the achievable-ceiling ladder (refit the oracle 2PL with `b_i` constrained to a function of item text, within-benchmark and then held-out-benchmark, which separates the text-information limit from the transfer limit and decides whether further item-encoder work pays), posterior marginalization at inference (`marginalize_logits` exists in `r_c_attention.py` but no `forward` calls it and `map_theta` still discards the Hessian), within-benchmark centering of `b`, a 3PL lower asymptote, Fisher-information acquisition, and v4.1 runs at more than one seed.
 - The metadata-to-prior channel is closed by the ability-prior ablation; do not reopen it without new subject features. The budget 0-3 level gap remains, but it is not a metadata problem: the benchmark level is already represented by the item net, and the pilot's four subjects make the leave-one-out mean anti-correlated with the held-out subject's base rate.
 
 ## Presentation-selection strategy

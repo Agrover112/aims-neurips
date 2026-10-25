@@ -307,6 +307,116 @@ def _train_model(
     return model, history
 
 
+def _train_model_v41(
+    model,
+    tasks,
+    *,
+    seed: int,
+    pair_epochs: int = 1,
+    batch_size: int = 16,
+    lr: float = 3e-4,
+    weight_decay: float = 0.01,
+    warmup: int = 100,
+    eta_min_ratio: float = 0.05,
+):
+    """Train with the v4.1 coverage sampler and disjoint context/target splits.
+
+    Two differences from ``_train_model``:
+
+    * **Coverage.** ``build_pair_epoch_batches`` visits every ``(task, budget)``
+      pair exactly once per epoch. The random sampler draws 800 x 4 = 3,200
+      episodes against 6,702 tasks x 6 budgets = 40,212 pairs, so roughly 92%
+      of pairs are never trained on.
+    * **Disjointness.** ``sample_pair_episode`` uses a rotating disjoint C/Q
+      split keyed on ``(task, budget, pass)`` and independent of the model
+      seed, so every arm sees the same splits. The old sampler put the context
+      items back into the targets, which the competition never does -- acquired
+      items are not scored.
+    """
+
+    import torch
+
+    from aims_starter.faithful_ladder import (
+        build_pair_epoch_batches,
+        sample_pair_episode,
+    )
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    indexed = [{**task, "task_index": index} for index, task in enumerate(tasks)]
+    scheduled = []
+    for epoch in range(int(pair_epochs)):
+        for batch in build_pair_epoch_batches(
+            indexed, seed=seed + 1009 * epoch, batch_size=int(batch_size)
+        ):
+            scheduled.append((epoch, batch))
+    if not scheduled:
+        raise ValueError("no training batches were scheduled")
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    total_steps = len(scheduled)
+    warmup_steps = max(1, min(int(warmup), max(1, total_steps // 10)))
+
+    def schedule(step: int) -> float:
+        if step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return eta_min_ratio + (1.0 - eta_min_ratio) * cosine
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule)
+    rng = np.random.default_rng(seed)
+    history = []
+    print(
+        f"seed={seed} v4.1 schedule: {total_steps} batches, "
+        f"{sum(len(batch) for _, batch in scheduled)} pair visits",
+        flush=True,
+    )
+
+    for step, (epoch, batch) in enumerate(scheduled):
+        losses = []
+        for visit in batch:
+            task = indexed[visit.task_index]
+            episode = sample_pair_episode(
+                task,
+                budget=visit.budget,
+                rng=rng,
+                visit_key=f"{visit.budget}:{visit.pass_index}",
+            )
+            if episode["x_t"].shape[0] == 0:
+                continue
+            x_c = torch.as_tensor(episode["x_c"], dtype=torch.float32, device=device)
+            y_c = torch.as_tensor(episode["y_c"], dtype=torch.float32, device=device)
+            x_t = torch.as_tensor(episode["x_t"], dtype=torch.float32, device=device)
+            y_t = torch.as_tensor(episode["y_t"], dtype=torch.float32, device=device)
+            logits = model(x_c, y_c, x_t)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_t)
+            if hasattr(model, "gp_penalty"):
+                loss = loss + model.gp_penalty()
+            if hasattr(model, "aux_loss"):
+                loss = loss + model.aux_loss()
+            losses.append(loss)
+        if not losses:
+            continue
+        loss = torch.stack(losses).mean()
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+        if step % 50 == 0 or step == total_steps - 1:
+            history.append({"step": step, "epoch": epoch, "loss": float(loss.detach())})
+            print(
+                f"seed={seed} epoch={epoch} step={step}/{total_steps} "
+                f"loss={float(loss.detach()):.6f}",
+                flush=True,
+            )
+    return model, history
+
+
 def _fit_calibrator(samples, rng):
     from aims_starter.calibration import AnchorCalibrator
 
@@ -484,14 +594,22 @@ def run(
     mode: str = "masked",
     resume: bool = False,
     corpus: str = "",
+    sampler: str = "random",
+    pair_epochs: int = 1,
 ) -> dict[str, Any]:
     if rung not in RUNGS:
         raise ValueError(f"rung must be one of {tuple(RUNGS)}")
+    if sampler not in ("random", "v41"):
+        raise ValueError("sampler must be 'random' or 'v41'")
+    if pair_epochs < 1:
+        raise ValueError("pair_epochs must be positive")
     if seed not in SEEDS:
         raise ValueError(f"seed must be one of {SEEDS}")
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
     tag = f"-{corpus}" if corpus else ""
+    if sampler == "v41":
+        tag += f"-v41e{pair_epochs}"
     output = RESULT_ROOT / f"r-c-{rung}-{seed}-{mode}{tag}.json"
     existing = _read_json(output)
     if existing is not None:
@@ -520,13 +638,18 @@ def run(
         subject_slice,
         subject_prior_slice,
     )
-    model, history = _train_model(
-        model,
-        tasks,
-        seed=seed,
-        steps=800,
-        episodes_per_step=4,
-        heldout_only=rung in HELDOUT_ONLY_RUNGS,
+    if sampler == "v41":
+        model, history = _train_model_v41(
+            model, tasks, seed=seed, pair_epochs=int(pair_epochs)
+        )
+    else:
+        model, history = _train_model(
+            model,
+            tasks,
+            seed=seed,
+            steps=800,
+            episodes_per_step=4,
+            heldout_only=rung in HELDOUT_ONLY_RUNGS,
     )
     checkpoint_root = RESULT_ROOT / f"seed-{seed}-{mode}{tag}" / f"{rung}-checkpoints"
     checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -563,6 +686,8 @@ def main(
     mode: str = "masked",
     parallel: bool = False,
     corpus: str = "",
+    sampler: str = "random",
+    pair_epochs: int = 1,
 ):
     rung_values = [value for value in rungs.split(",") if value]
     seed_values = [int(value) for value in seeds.split(",") if value]
@@ -571,7 +696,7 @@ def main(
             raise ValueError(f"rung must be one of {tuple(RUNGS)}")
     if parallel:
         calls = [
-            (rung, seed, run.spawn(rung, seed, mode, False, corpus))
+            (rung, seed, run.spawn(rung, seed, mode, False, corpus, sampler, int(pair_epochs)))
             for rung in rung_values
             for seed in seed_values
         ]
@@ -582,4 +707,4 @@ def main(
     for rung in rung_values:
         for seed in seed_values:
             print(f"=== {rung} seed={seed} ===", flush=True)
-            print(json.dumps(run.remote(rung, seed, mode, False, corpus), indent=2, sort_keys=True))
+            print(json.dumps(run.remote(rung, seed, mode, False, corpus, sampler, int(pair_epochs)), indent=2, sort_keys=True))
