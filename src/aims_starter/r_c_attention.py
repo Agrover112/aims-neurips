@@ -49,14 +49,10 @@ class ContextSelfAttention(nn.Module):
 
     def __init__(self, d_model: int, n_heads: int = 8):
         super().__init__()
-        self.attention = nn.MultiheadAttention(
-            d_model, n_heads, batch_first=True, dropout=0.0
-        )
+        self.attention = nn.MultiheadAttention(d_model, n_heads, batch_first=True, dropout=0.0)
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(
-        self, context: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, context: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         """Self-attend over context tokens.
 
         ``mask`` is a boolean valid-token mask.  A 2-D input keeps the original
@@ -75,9 +71,7 @@ class ContextSelfAttention(nn.Module):
         if context.shape[1] == 0:
             return context.squeeze(0) if single else context
         if mask is None:
-            mask = torch.ones(
-                context.shape[:2], dtype=torch.bool, device=context.device
-            )
+            mask = torch.ones(context.shape[:2], dtype=torch.bool, device=context.device)
         empty = ~mask.any(dim=1)
         safe_mask = mask
         if bool(empty.any()):
@@ -105,9 +99,7 @@ class TargetContextAttention(nn.Module):
         self.query = nn.Linear(d_model, d_model)
         self.key = nn.Linear(d_model, d_model)
         self.value = nn.Linear(d_model, d_model)
-        self.attention = nn.MultiheadAttention(
-            d_model, n_heads, batch_first=True, dropout=0.0
-        )
+        self.attention = nn.MultiheadAttention(d_model, n_heads, batch_first=True, dropout=0.0)
         self.norm = nn.LayerNorm(d_model)
 
     def forward(
@@ -181,18 +173,24 @@ class DeterministicANPAttention(nn.Module):
         n_heads: int = 8,
         n_context_layers: int = 2,
         subject_feature_slice: tuple[int, int] | None = None,
+        activation: str = "relu",
+        activation_all: bool = False,
     ):
         super().__init__()
+        if activation not in ("relu", "gelu"):
+            raise ValueError("activation must be 'relu' or 'gelu'")
         self.subject_feature_slice = subject_feature_slice
+        act = nn.GELU() if activation == "gelu" else nn.ReLU()
+        act_all = nn.GELU() if activation_all else nn.ReLU()
         self.item_encoder = nn.Sequential(
             nn.Linear(x_dim, d_model),
             nn.LayerNorm(d_model),
-            nn.ReLU(),
+            act,
             nn.Linear(d_model, d_model),
         )
         self.context_encoder = nn.Sequential(
             nn.Linear(d_model + 1, d_model),
-            nn.ReLU(),
+            act_all,
             nn.Linear(d_model, d_model),
         )
         self.context_layers = nn.ModuleList(
@@ -201,7 +199,7 @@ class DeterministicANPAttention(nn.Module):
         self.cross_attention = TargetContextAttention(d_model, n_heads)
         self.decoder = nn.Sequential(
             nn.Linear(2 * d_model, d_model),
-            nn.ReLU(),
+            act_all,
             nn.Linear(d_model, 1),
         )
 
@@ -241,18 +239,42 @@ class DeterministicANPAttention(nn.Module):
         return torch.sigmoid(self.forward(x_C, y_C, x_T))
 
 
-class DeterministicCNP(nn.Module):
-    """Pure CNP decoder for the reverse ladder: phi_t = g([h_t, r_C])."""
+class _MultidimContextPosterior(nn.Module):
+    """Shared native CNP/ANP head with a Gaussian posterior over theta.
+
+    The context set produces ``q(theta | C) = N(mu_C, diag(sigma_C^2))`` with
+    prior ``N(0, prior_variance * I)``.  Item parameters are item-only:
+    ``a_t`` is a positive D-vector and ``d_t`` is a scalar intercept.  The
+    response is the compensatory MIRT logit ``a_t . theta - d_t``, marginalized
+    over the posterior with the probit approximation.  Keeping the item head
+    item-only prevents the context from bypassing theta through the item
+    parameters.
+    """
 
     def __init__(
         self,
         x_dim: int,
         *,
+        ability_dim: int = 4,
         d_model: int = 128,
+        n_heads: int = 8,
         subject_feature_slice: tuple[int, int] | None = None,
+        prior_variance: float = 1.0,
+        max_kl_weight: float = 0.01,
     ):
         super().__init__()
+        if ability_dim < 1:
+            raise ValueError("ability_dim must be positive")
+        if prior_variance <= 0.0:
+            raise ValueError("prior_variance must be positive")
+        self.ability_dim = int(ability_dim)
         self.subject_feature_slice = subject_feature_slice
+        self.prior_variance = float(prior_variance)
+        self.prior_logvar = math.log(self.prior_variance)
+        self.max_kl_weight = float(max_kl_weight)
+        self.kl_weight = 0.0
+        self._aux_loss = None
+
         self.item_encoder = nn.Sequential(
             nn.Linear(x_dim, d_model),
             nn.LayerNorm(d_model),
@@ -264,9 +286,372 @@ class DeterministicCNP(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model),
         )
+        self.theta_mean = nn.Linear(d_model, self.ability_dim)
+        self.theta_logvar = nn.Linear(d_model, self.ability_dim)
+        nn.init.zeros_(self.theta_mean.weight)
+        nn.init.zeros_(self.theta_mean.bias)
+        nn.init.zeros_(self.theta_logvar.weight)
+        nn.init.zeros_(self.theta_logvar.bias)
+        self.item_head = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, self.ability_dim + 1),
+        )
+
+    def encode_item(self, x: torch.Tensor) -> torch.Tensor:
+        if self.subject_feature_slice is not None:
+            start, stop = self.subject_feature_slice
+            x = torch.cat(
+                [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]],
+                dim=-1,
+            )
+        return self.item_encoder(x)
+
+    def _context_tokens(self, x_C: torch.Tensor, y_C: torch.Tensor) -> torch.Tensor:
+        h_C = self.encode_item(x_C)
+        if h_C.shape[0] == 0:
+            return h_C
+        return self.context_encoder(torch.cat([h_C, y_C[:, None]], dim=-1))
+
+    def _pool_context(self, tokens: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+    def _posterior(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if tokens.shape[0] == 0:
+            return (
+                tokens.new_zeros((self.ability_dim,)),
+                tokens.new_full((self.ability_dim,), self.prior_logvar),
+            )
+        pooled = self._pool_context(tokens)
+        return (
+            self.theta_mean(pooled),
+            self.theta_logvar(pooled).clamp(-6.0, 2.0),
+        )
+
+    def _kl(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        variance = torch.exp(logvar)
+        return (
+            0.5
+            * (
+                variance / self.prior_variance
+                + mu.square() / self.prior_variance
+                - 1.0
+                - logvar
+                + self.prior_logvar
+            ).sum()
+        )
+
+    def _item_parameters(self, h_T: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        raw = self.item_head(h_T)
+        a = torch.nn.functional.softplus(raw[..., : self.ability_dim]) + 0.05
+        return a, raw[..., self.ability_dim]
+
+    def forward(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        tokens = self._context_tokens(x_C, y_C)
+        mu, logvar = self._posterior(tokens)
+        a, d = self._item_parameters(self.encode_item(x_T))
+        mean_logits = a @ mu - d
+        logit_variance = (a.square() * torch.exp(logvar)).sum(dim=-1)
+        logits = marginalize_logits(mean_logits, logit_variance)
+        self._aux_loss = self.kl_weight * self._kl(mu, logvar)
+        return logits
+
+    def aux_loss(self) -> torch.Tensor:
+        if self._aux_loss is None:
+            return next(self.parameters()).new_zeros(())
+        return self._aux_loss
+
+    def set_training_progress(self, step: int, total_steps: int) -> None:
+        warmup = max(1, int(total_steps) // 4)
+        self.kl_weight = self.max_kl_weight * min(1.0, float(step) / float(warmup))
+
+    @torch.no_grad()
+    def predict_proba(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.sigmoid(self.forward(x_C, y_C, x_T))
+
+
+class MultidimCNP(_MultidimContextPosterior):
+    """Native CNP with a D-dimensional Gaussian posterior over subject theta."""
+
+    def _pool_context(self, tokens: torch.Tensor) -> torch.Tensor:
+        return tokens.mean(dim=0)
+
+
+class MultidimANP(_MultidimContextPosterior):
+    """Native ANP with self-attention context pooling and a D-dimensional theta.
+
+    The target cross-attention of the deterministic ANP is intentionally not
+    used here: theta is a subject-level quantity, so the context is pooled to
+    one posterior rather than one representation per target.
+    """
+
+    def __init__(
+        self,
+        x_dim: int,
+        *,
+        ability_dim: int = 4,
+        d_model: int = 128,
+        n_heads: int = 8,
+        n_context_layers: int = 2,
+        subject_feature_slice: tuple[int, int] | None = None,
+        prior_variance: float = 1.0,
+        max_kl_weight: float = 0.01,
+    ):
+        super().__init__(
+            x_dim,
+            ability_dim=ability_dim,
+            d_model=d_model,
+            n_heads=n_heads,
+            subject_feature_slice=subject_feature_slice,
+            prior_variance=prior_variance,
+            max_kl_weight=max_kl_weight,
+        )
+        self.context_layers = nn.ModuleList(
+            [ContextSelfAttention(d_model, n_heads) for _ in range(n_context_layers)]
+        )
+        self.pool_query = nn.Parameter(torch.zeros(1, 1, d_model))
+        self.pool_attention = nn.MultiheadAttention(d_model, n_heads, batch_first=True, dropout=0.0)
+        self.pool_norm = nn.LayerNorm(d_model)
+
+    def _pool_context(self, tokens: torch.Tensor) -> torch.Tensor:
+        for layer in self.context_layers:
+            tokens = layer(tokens)
+        query = self.pool_query.expand(1, 1, -1)
+        pooled, _ = self.pool_attention(
+            query,
+            tokens.unsqueeze(0),
+            tokens.unsqueeze(0),
+            need_weights=False,
+        )
+        return self.pool_norm(pooled.squeeze(0).squeeze(0))
+
+
+class BayesianCNPIRT(nn.Module):
+    """Bayesian CNP-IRT with amortized Gaussian posteriors.
+
+    The context set produces ``q(theta | C) = N(mu_C, diag(sigma_C^2))`` with
+    prior ``N(0, prior_theta_variance * I)``.  The item encoder produces a
+    diagonal Gaussian posterior over each item's ``(log a_i, d_i)``, with
+    ``a_i = exp(log a_i)`` and prior ``N(0, prior_item_variance * I)``.  The
+    response is the compensatory MIRT logit ``a_i . theta - d_i``, marginalized
+    over both posteriors with a probit approximation.  The item posterior is
+    amortized per item, not per task.
+    """
+
+    def __init__(
+        self,
+        x_dim: int,
+        *,
+        ability_dim: int = 4,
+        d_model: int = 128,
+        subject_feature_slice: tuple[int, int] | None = None,
+        prior_theta_variance: float = 1.0,
+        prior_item_variance: float = 0.25,
+        max_kl_weight: float = 0.01,
+        input_norm: bool = False,
+        activation: str = "relu",
+        activation_all: bool = False,
+    ):
+        super().__init__()
+        if ability_dim < 1:
+            raise ValueError("ability_dim must be positive")
+        if prior_theta_variance <= 0.0 or prior_item_variance <= 0.0:
+            raise ValueError("prior variances must be positive")
+        self.ability_dim = int(ability_dim)
+        self.subject_feature_slice = subject_feature_slice
+        self.prior_theta_variance = float(prior_theta_variance)
+        self.prior_item_variance = float(prior_item_variance)
+        self.prior_variance = self.prior_theta_variance
+        self.prior_theta_logvar = math.log(self.prior_theta_variance)
+        self.prior_item_logvar = math.log(self.prior_item_variance)
+        self.max_kl_weight = float(max_kl_weight)
+        self.kl_weight = 0.0
+        self._aux_loss = None
+        if activation not in ("relu", "gelu"):
+            raise ValueError("activation must be 'relu' or 'gelu'")
+        act = nn.GELU() if activation == "gelu" else nn.ReLU()
+        act_all = nn.GELU() if activation_all else nn.ReLU()
+
+        self.context_encoder = nn.Sequential(
+            nn.Linear(d_model + 1, d_model),
+            act_all,
+            nn.Linear(d_model, d_model),
+        )
+        self.theta_mean = nn.Linear(d_model, self.ability_dim)
+        self.theta_logvar = nn.Linear(d_model, self.ability_dim)
+        self.item_mean = nn.Linear(d_model, self.ability_dim + 1)
+        self.item_logvar = nn.Linear(d_model, self.ability_dim + 1)
+        for head in (self.theta_mean, self.item_mean):
+            nn.init.zeros_(head.weight)
+            nn.init.zeros_(head.bias)
+        for head, bias in (
+            (self.theta_logvar, self.prior_theta_logvar),
+            (self.item_logvar, self.prior_item_logvar),
+        ):
+            nn.init.zeros_(head.weight)
+            nn.init.constant_(head.bias, bias)
+
+        self.input_norm = None
+        if input_norm:
+            norm_dim = subject_feature_slice[0] if subject_feature_slice is not None else x_dim
+            self.input_norm = nn.LayerNorm(norm_dim)
+        self.item_encoder = nn.Sequential(
+            nn.Linear(x_dim, d_model),
+            nn.LayerNorm(d_model),
+            act,
+            nn.Linear(d_model, d_model),
+        )
+
+    def encode_item(self, x: torch.Tensor) -> torch.Tensor:
+        if self.subject_feature_slice is not None:
+            start, stop = self.subject_feature_slice
+            x = torch.cat(
+                [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]],
+                dim=-1,
+            )
+            if self.input_norm is not None:
+                x = torch.cat([self.input_norm(x[..., :start]), x[..., start:]], dim=-1)
+        elif self.input_norm is not None:
+            x = self.input_norm(x)
+        return self.item_encoder(x)
+
+    def _context_tokens(self, x_C: torch.Tensor, y_C: torch.Tensor) -> torch.Tensor:
+        h_C = self.encode_item(x_C)
+        if h_C.shape[0] == 0:
+            return h_C
+        return self.context_encoder(torch.cat([h_C, y_C[:, None]], dim=-1))
+
+    def _theta_posterior(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if tokens.shape[0] == 0:
+            return (
+                tokens.new_zeros((self.ability_dim,)),
+                tokens.new_full((self.ability_dim,), self.prior_theta_logvar),
+            )
+        pooled = tokens.mean(dim=0)
+        return (
+            self.theta_mean(pooled),
+            self.theta_logvar(pooled).clamp(-6.0, 2.0),
+        )
+
+    def _item_posterior(self, h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return (
+            self.item_mean(h),
+            self.item_logvar(h).clamp(-6.0, 2.0),
+        )
+
+    @staticmethod
+    def _diag_kl(mu: torch.Tensor, logvar: torch.Tensor, prior_variance: float) -> torch.Tensor:
+        prior_logvar = math.log(prior_variance)
+        return 0.5 * (
+            torch.exp(logvar) / prior_variance
+            + mu.square() / prior_variance
+            - 1.0
+            - logvar
+            + prior_logvar
+        ).sum(dim=-1)
+
+    @staticmethod
+    def _item_moments(
+        mu: torch.Tensor, logvar: torch.Tensor, ability_dim: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        mu_loga = mu[..., :ability_dim]
+        var_loga = torch.exp(logvar[..., :ability_dim])
+        mean_a = torch.exp(mu_loga + 0.5 * var_loga)
+        var_a = (torch.exp(var_loga) - 1.0) * torch.exp(2.0 * mu_loga + var_loga)
+        return mean_a, var_a, mu[..., ability_dim], torch.exp(logvar[..., ability_dim])
+
+    def forward(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        tokens = self._context_tokens(x_C, y_C)
+        theta_mu, theta_logvar = self._theta_posterior(tokens)
+        item_mu, item_logvar = self._item_posterior(self.encode_item(x_T))
+        mean_a, var_a, mu_d, var_d = self._item_moments(item_mu, item_logvar, self.ability_dim)
+        theta_var = torch.exp(theta_logvar)
+        mean_logits = mean_a @ theta_mu - mu_d
+        logit_variance = (
+            (mean_a.square() * theta_var).sum(dim=-1)
+            + (var_a * (theta_mu.square() + theta_var)).sum(dim=-1)
+            + var_d
+        )
+        logits = marginalize_logits(mean_logits, logit_variance)
+        kl_theta = self._diag_kl(theta_mu, theta_logvar, self.prior_theta_variance).sum()
+        if item_mu.shape[0] == 0:
+            kl_item = item_mu.new_zeros(())
+        else:
+            kl_item = self._diag_kl(item_mu, item_logvar, self.prior_item_variance).mean()
+        self._aux_loss = self.kl_weight * (kl_theta + kl_item)
+        return logits
+
+    def aux_loss(self) -> torch.Tensor:
+        if self._aux_loss is None:
+            return next(self.parameters()).new_zeros(())
+        return self._aux_loss
+
+    def set_training_progress(self, step: int, total_steps: int) -> None:
+        warmup = max(1, int(total_steps) // 4)
+        self.kl_weight = self.max_kl_weight * min(1.0, float(step) / float(warmup))
+
+    @torch.no_grad()
+    def predict_proba(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.sigmoid(self.forward(x_C, y_C, x_T))
+
+
+class DeterministicCNP(nn.Module):
+    """Pure CNP decoder for the reverse ladder: phi_t = g([h_t, r_C])."""
+
+    def __init__(
+        self,
+        x_dim: int,
+        *,
+        d_model: int = 128,
+        subject_feature_slice: tuple[int, int] | None = None,
+        input_norm: bool = False,
+        activation: str = "relu",
+        activation_all: bool = False,
+    ):
+        super().__init__()
+        if activation not in ("relu", "gelu"):
+            raise ValueError("activation must be 'relu' or 'gelu'")
+        self.subject_feature_slice = subject_feature_slice
+        self.input_norm = None
+        if input_norm:
+            norm_dim = subject_feature_slice[0] if subject_feature_slice is not None else x_dim
+            self.input_norm = nn.LayerNorm(norm_dim)
+        act = nn.GELU() if activation == "gelu" else nn.ReLU()
+        act_all = nn.GELU() if activation_all else nn.ReLU()
+        self.item_encoder = nn.Sequential(
+            nn.Linear(x_dim, d_model),
+            nn.LayerNorm(d_model),
+            act,
+            nn.Linear(d_model, d_model),
+        )
+        self.context_encoder = nn.Sequential(
+            nn.Linear(d_model + 1, d_model),
+            act_all,
+            nn.Linear(d_model, d_model),
+        )
         self.decoder = nn.Sequential(
             nn.Linear(2 * d_model, d_model),
-            nn.ReLU(),
+            act_all,
             nn.Linear(d_model, 1),
         )
 
@@ -277,6 +662,10 @@ class DeterministicCNP(nn.Module):
                 [x[..., :start], torch.zeros_like(x[..., start:stop]), x[..., stop:]],
                 dim=-1,
             )
+            if self.input_norm is not None:
+                x = torch.cat([self.input_norm(x[..., :start]), x[..., start:]], dim=-1)
+        elif self.input_norm is not None:
+            x = self.input_norm(x)
         return self.item_encoder(x)
 
     def forward(
@@ -317,7 +706,7 @@ class ContextConditionedIRT(nn.Module):
     ``direct_ab``    pooled r_C directly parameterizes (a, b).
     """
 
-    MODES = ("2pl", "scalar", "residual", "additive_ab", "direct_ab")
+    MODES = ("rasch", "2pl", "scalar", "residual", "additive_ab", "direct_ab")
 
     def __init__(
         self,
@@ -326,11 +715,15 @@ class ContextConditionedIRT(nn.Module):
         mode: str,
         d_model: int = 128,
         subject_feature_slice: tuple[int, int] | None = None,
+        prior_variance: float = PRIOR_THETA_VARIANCE,
     ):
         super().__init__()
         if mode not in self.MODES:
             raise ValueError(f"unknown mode: {mode}")
+        if prior_variance <= 0.0:
+            raise ValueError("prior_variance must be positive")
         self.mode = mode
+        self.prior_variance = float(prior_variance)
         self.subject_feature_slice = subject_feature_slice
         self.item_encoder = nn.Sequential(
             nn.Linear(x_dim, d_model),
@@ -343,7 +736,7 @@ class ContextConditionedIRT(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, 2),
         )
-        if mode != "2pl":
+        if mode not in ("rasch", "2pl"):
             self.context_encoder = nn.Sequential(
                 nn.Linear(d_model + 1, d_model),
                 nn.ReLU(),
@@ -381,13 +774,24 @@ class ContextConditionedIRT(nn.Module):
             )
         return self.item_encoder(x)
 
-    @staticmethod
-    def _split_parameters(raw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _split_parameters(self, raw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Discrimination and difficulty from the item head's two outputs.
+
+        Rasch pins discrimination to one, so the item network only controls
+        difficulty and every item carries the same weight in the ability
+        likelihood. That is the identifying constraint of the Rasch family,
+        not a simplification of 2PL.
+        """
+
+        if self.mode == "rasch":
+            return torch.ones_like(raw[..., 1]), raw[..., 1]
         return torch.nn.functional.softplus(raw[..., 0]) + 0.05, raw[..., 1]
 
-    def _context_repr(self, x_C: torch.Tensor, y_C: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _context_repr(
+        self, x_C: torch.Tensor, y_C: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         h_C = self.encode_item(x_C)
-        if self.mode == "2pl":
+        if self.mode in ("rasch", "2pl"):
             return h_C, h_C.new_zeros((h_C.shape[-1],))
         if h_C.shape[0] == 0:
             return h_C, h_C.new_zeros((h_C.shape[-1],))
@@ -398,7 +802,7 @@ class ContextConditionedIRT(nn.Module):
         self, h_C: torch.Tensor, r_C: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         base = self.item_head(h_C)
-        if self.mode in ("2pl", "scalar", "residual"):
+        if self.mode in ("rasch", "2pl", "scalar", "residual"):
             return self._split_parameters(base)
         enriched = torch.cat([h_C, r_C.unsqueeze(0).expand(h_C.shape[0], -1)], dim=-1)
         offset = self.ab_head(enriched)
@@ -406,9 +810,7 @@ class ContextConditionedIRT(nn.Module):
             return self._split_parameters(base + offset)
         return self._split_parameters(offset)
 
-    def _anchor_parameters(
-        self, h_C: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _anchor_parameters(self, h_C: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Item-only 2PL parameters for the ability MAP.
 
         Context-conditioned ``a``/``b`` offsets are target-side corrections.
@@ -421,7 +823,7 @@ class ContextConditionedIRT(nn.Module):
         self, h_T: torch.Tensor, r_C: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         base = self.item_head(h_T)
-        if self.mode in ("2pl", "scalar", "residual"):
+        if self.mode in ("rasch", "2pl", "scalar", "residual"):
             return self._split_parameters(base)
         enriched = torch.cat([h_T, r_C.unsqueeze(0).expand(h_T.shape[0], -1)], dim=-1)
         offset = self.ab_head(enriched)
@@ -437,6 +839,7 @@ class ContextConditionedIRT(nn.Module):
         *,
         prior_mean: float | torch.Tensor = 0.0,
         steps: int = 12,
+        prior_variance: float = PRIOR_THETA_VARIANCE,
     ) -> torch.Tensor:
         if isinstance(prior_mean, torch.Tensor):
             prior = prior_mean.to(device=a_C.device, dtype=a_C.dtype).reshape(())
@@ -450,9 +853,19 @@ class ContextConditionedIRT(nn.Module):
         y_C = y_C.to(dtype=a_C.dtype)
         for _ in range(steps):
             probability = torch.sigmoid(a_C * (theta - b_C))
-            gradient = torch.sum(a_C * (probability - y_C)) + (theta - prior) / 4.0
-            hessian = torch.sum(a_C.square() * probability * (1.0 - probability)) + 0.25
-            theta = (theta - (gradient / hessian).clamp(-1.0, 1.0)).clamp(-4.0, 4.0)
+            gradient = torch.sum(a_C * (probability - y_C)) + (theta - prior) / prior_variance
+            hessian = (
+                torch.sum(a_C.square() * probability * (1.0 - probability)) + 1.0 / prior_variance
+            )
+            # The box is a numerical guard at +-2 standard deviations of the
+            # prior, not an absolute constant: at prior_variance = 4 that is
+            # +-4, matching every previously published run exactly, so this
+            # generalization changes nothing for tau^2 = 4. A fixed +-4 box
+            # would silently crush a wider prior -- at tau^2 = 9 it is only
+            # 1.33 sigma, discarding real posterior mass instead of guarding
+            # against numerical blowup.
+            box = 2.0 * math.sqrt(prior_variance)
+            theta = (theta - (gradient / hessian).clamp(-1.0, 1.0)).clamp(-box, box)
         return theta
 
     def forward(
@@ -466,7 +879,7 @@ class ContextConditionedIRT(nn.Module):
             a_C, b_C = self._anchor_parameters(h_C)
         else:
             a_C, b_C = self._context_parameters(h_C, r_C)
-        theta = self.map_theta(a_C, b_C, y_C)
+        theta = self.map_theta(a_C, b_C, y_C, prior_variance=self.prior_variance)
         h_T = self.encode_item(x_T)
         a_T, b_T = self._target_parameters(h_T, r_C)
         if self.mode == "scalar":
@@ -571,9 +984,7 @@ class AutoregressiveContextIRT(nn.Module):
         self, h: torch.Tensor, r_C: torch.Tensor, state: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         base = self.item_head(h)
-        enriched = torch.cat(
-            [h, r_C.unsqueeze(0).expand(h.shape[0], -1), state], dim=-1
-        )
+        enriched = torch.cat([h, r_C.unsqueeze(0).expand(h.shape[0], -1), state], dim=-1)
         offset = self.ab_head(enriched)
         if self.mode == "additive_ab":
             return self._split(base + offset)
@@ -603,9 +1014,7 @@ class AutoregressiveContextIRT(nn.Module):
                 state = self.ar_cell(
                     cell_input.unsqueeze(0), torch.zeros_like(state).unsqueeze(0)
                 ).squeeze(0)
-            a_T, b_T = self._item_parameters(
-                h_T[index : index + 1], r_C, state.unsqueeze(0)
-            )
+            a_T, b_T = self._item_parameters(h_T[index : index + 1], r_C, state.unsqueeze(0))
             logit = a_T * (theta - b_T)
             output.append(logit.squeeze(0))
             if self.ar:
@@ -717,9 +1126,7 @@ class LoopedContextIRT(nn.Module):
         self, h: torch.Tensor, r_C: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         base = self.item_head(h)
-        enriched = torch.cat(
-            [h, r_C.unsqueeze(0).expand(h.shape[0], -1)], dim=-1
-        )
+        enriched = torch.cat([h, r_C.unsqueeze(0).expand(h.shape[0], -1)], dim=-1)
         offset = self.ab_head(enriched)
         if self.mode == "additive_ab":
             return self._split(base + offset)
@@ -876,9 +1283,7 @@ class NeuralResidualIRT(nn.Module):
         context = self.context_encoder(torch.cat([h_C, y_C[:, None]], dim=-1))
         return h_C, context.mean(dim=0)
 
-    def _subject_prior(
-        self, x_C: torch.Tensor, x_T: torch.Tensor
-    ) -> torch.Tensor | None:
+    def _subject_prior(self, x_C: torch.Tensor, x_T: torch.Tensor) -> torch.Tensor | None:
         if not self.use_subject_prior:
             return None
         reference = x_T if x_T.shape[0] else x_C
@@ -889,9 +1294,7 @@ class NeuralResidualIRT(nn.Module):
         return torch.tanh(self.subject_prior_head(subject)).reshape(())
 
     def _basis(self, theta: torch.Tensor) -> torch.Tensor:
-        return torch.exp(
-            -(theta - self.centers).square() / (2.0 * self.lengthscale**2)
-        )
+        return torch.exp(-(theta - self.centers).square() / (2.0 * self.lengthscale**2))
 
     def aux_loss(self) -> torch.Tensor:
         return self._aux_loss
@@ -1058,17 +1461,13 @@ class GPContextIRT(nn.Module):
         base = self.item_head(h)
         if self.mode == "2pl":
             return self._split(base)
-        enriched = torch.cat(
-            [h, r_C.unsqueeze(0).expand(h.shape[0], -1)], dim=-1
-        )
+        enriched = torch.cat([h, r_C.unsqueeze(0).expand(h.shape[0], -1)], dim=-1)
         return self._split(base + self.ab_head(enriched))
 
     def _coefficients(self, h: torch.Tensor, r_C: torch.Tensor) -> torch.Tensor:
         return self.coefficient_head(self._features(h, r_C))
 
-    def _subject_prior(
-        self, x_C: torch.Tensor, x_T: torch.Tensor
-    ) -> torch.Tensor | None:
+    def _subject_prior(self, x_C: torch.Tensor, x_T: torch.Tensor) -> torch.Tensor | None:
         if not self.use_subject_prior:
             return None
         reference = x_T if x_T.shape[0] else x_C
@@ -1110,16 +1509,15 @@ class GPContextIRT(nn.Module):
             slope = a_C + c_C @ dphi
             curvature = c_C @ ddphi
             probability = torch.sigmoid(value)
-            gradient = torch.sum((probability - y_C) * slope) + (
-                theta - prior
-            ) / 4.0
-            hessian = torch.sum(
-                probability * (1.0 - probability) * slope.square()
-                + (probability - y_C) * curvature
-            ) + 0.25
-            theta = (
-                theta - (gradient / hessian.clamp_min(1e-6)).clamp(-1.0, 1.0)
-            ).clamp(-4.0, 4.0)
+            gradient = torch.sum((probability - y_C) * slope) + (theta - prior) / 4.0
+            hessian = (
+                torch.sum(
+                    probability * (1.0 - probability) * slope.square()
+                    + (probability - y_C) * curvature
+                )
+                + 0.25
+            )
+            theta = (theta - (gradient / hessian.clamp_min(1e-6)).clamp(-1.0, 1.0)).clamp(-4.0, 4.0)
         return theta
 
     def _set_penalty(self, c_C: torch.Tensor, c_T: torch.Tensor) -> None:
@@ -1127,9 +1525,7 @@ class GPContextIRT(nn.Module):
         if coefficients.shape[0] == 0:
             self._gp_penalty = coefficients.sum() * 0.0
             return
-        quadratic = torch.einsum(
-            "nm,mk,nk->n", coefficients, self.kernel_inv, coefficients
-        )
+        quadratic = torch.einsum("nm,mk,nk->n", coefficients, self.kernel_inv, coefficients)
         self._gp_penalty = self.gp_lambda * quadratic.mean()
 
     def gp_penalty(self) -> torch.Tensor:
@@ -1160,9 +1556,7 @@ class GPContextIRT(nn.Module):
             return h_T.new_zeros((0,))
         a_T, b_T = self._item_parameters(h_T, r_C)
         c_T = self._coefficients(h_T, r_C)
-        phi = torch.exp(
-            -(theta - self.centers).square() / (2.0 * self.lengthscale**2)
-        )
+        phi = torch.exp(-(theta - self.centers).square() / (2.0 * self.lengthscale**2))
         logits = a_T * (theta - b_T) + c_T @ phi
         self._set_penalty(c_C, c_T)
         return logits
@@ -1223,10 +1617,25 @@ class MultidimContextIRT(nn.Module):
         d_model: int = 128,
         n_heads: int = 4,
         subject_feature_slice: tuple[int, int] | None = None,
+        prior_variance: float = PRIOR_THETA_VARIANCE,
+        difficulty_adapter_dim: int = 0,
+        adapter_prior_variance: float = 1.0,
     ):
         super().__init__()
         if mode not in self.MODES:
             raise ValueError(f"unknown mode: {mode}")
+        if prior_variance <= 0.0:
+            raise ValueError("prior_variance must be positive")
+        if difficulty_adapter_dim < 0:
+            raise ValueError("difficulty_adapter_dim must be non-negative")
+        if adapter_prior_variance <= 0.0:
+            raise ValueError("adapter_prior_variance must be positive")
+        # Instance-level so this matches ContextConditionedIRT's interface and
+        # the tau sweep applies to both families. The default is unchanged, so
+        # every existing checkpoint and published result is unaffected.
+        self.prior_variance = float(prior_variance)
+        self.difficulty_adapter_dim = int(difficulty_adapter_dim)
+        self.adapter_prior_variance = float(adapter_prior_variance)
         if ability_dim < 1:
             raise ValueError("ability_dim must be positive")
         if loops < 0:
@@ -1253,6 +1662,12 @@ class MultidimContextIRT(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model),
         )
+        if self.difficulty_adapter_dim:
+            self.difficulty_adapter_head = nn.Sequential(
+                nn.Linear(d_model, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, self.difficulty_adapter_dim, bias=False),
+            )
         if mode == "scalar":
             self.theta_head = nn.Sequential(
                 nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, self.ability_dim)
@@ -1327,6 +1742,31 @@ class MultidimContextIRT(nn.Module):
             return self._split(base + offset)
         return self._split(offset)
 
+    def _difficulty_loadings(self, h: torch.Tensor) -> torch.Tensor:
+        """Unit-scale item loadings for the online difficulty adapter."""
+
+        if not self.difficulty_adapter_dim:
+            return h.new_zeros((h.shape[0], 0))
+        raw = self.difficulty_adapter_head(h)
+        return torch.nn.functional.normalize(raw, dim=-1, eps=1e-6)
+
+    @staticmethod
+    def center_difficulty_loadings(
+        context: torch.Tensor, target: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Remove the context mean so the adapter cannot duplicate theta.
+
+        The same offset is removed from context and target loadings. With one
+        acquired label the centered context loading is zero, so that label can
+        update ability but cannot spuriously identify a benchmark-specific
+        ranking direction.
+        """
+
+        if context.shape[0] == 0:
+            return context, target
+        offset = context.mean(dim=0, keepdim=True)
+        return context - offset, target - offset
+
     @staticmethod
     def map_theta(
         a_C: torch.Tensor,
@@ -1370,27 +1810,172 @@ class MultidimContextIRT(nn.Module):
             step = torch.linalg.solve(hessian + 1e-4 * eye, gradient)
             norm = step.norm().clamp_min(1e-12)
             step = step * (norm.clamp(max=1.0) / norm)
-            theta = (theta - step).clamp(-4.0, 4.0)
+            box = 2.0 * math.sqrt(prior_variance)
+            theta = (theta - step).clamp(-box, box)
         return theta
+
+    @staticmethod
+    def map_theta_and_difficulty(
+        a_C: torch.Tensor,
+        d_C: torch.Tensor,
+        u_C: torch.Tensor,
+        y_C: torch.Tensor,
+        *,
+        steps: int = 12,
+        theta_prior_variance: float = PRIOR_VARIANCE,
+        adapter_prior_variance: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Joint MAP for ability and a centered low-rank difficulty adapter.
+
+        Context logits are ``a_i @ theta - d_i - u_i @ z``. The adapter
+        coefficients ``z`` modify item ranking while the centered loadings
+        prevent a constant benchmark offset from competing with ``theta``.
+        """
+
+        theta_dim = a_C.shape[-1]
+        adapter_dim = u_C.shape[-1]
+        theta = a_C.new_zeros(theta_dim)
+        adapter = a_C.new_zeros(adapter_dim)
+        if a_C.shape[0] == 0:
+            return theta, adapter
+        if adapter_dim == 0:
+            return (
+                MultidimContextIRT.map_theta(
+                    a_C,
+                    d_C,
+                    y_C,
+                    steps=steps,
+                    prior_variance=theta_prior_variance,
+                ),
+                adapter,
+            )
+
+        design = torch.cat([a_C.detach(), -u_C.detach()], dim=-1)
+        d_C = d_C.detach()
+        y_C = y_C.to(dtype=a_C.dtype)
+        state = torch.cat([theta, adapter])
+        prior_precision = torch.cat(
+            [
+                state.new_full((theta_dim,), 1.0 / theta_prior_variance),
+                state.new_full((adapter_dim,), 1.0 / adapter_prior_variance),
+            ]
+        )
+        eye = torch.eye(state.shape[0], device=state.device, dtype=state.dtype)
+        for _ in range(steps):
+            probability = torch.sigmoid(design @ state - d_C)
+            weight = probability * (1.0 - probability)
+            gradient = design.transpose(0, 1) @ (probability - y_C) + prior_precision * state
+            hessian = (design.transpose(0, 1) * weight) @ design
+            hessian = hessian + torch.diag(prior_precision)
+            update = torch.linalg.solve(hessian + 1e-4 * eye, gradient)
+            norm = update.norm().clamp_min(1e-12)
+            state = state - update * (norm.clamp(max=1.0) / norm)
+            theta_box = 2.0 * math.sqrt(theta_prior_variance)
+            adapter_box = 2.0 * math.sqrt(adapter_prior_variance)
+            state = torch.cat(
+                [
+                    state[:theta_dim].clamp(-theta_box, theta_box),
+                    state[theta_dim:].clamp(-adapter_box, adapter_box),
+                ]
+            )
+        return state[:theta_dim], state[theta_dim:]
+
+    @staticmethod
+    def laplace_covariance(
+        a_C: torch.Tensor,
+        d_C: torch.Tensor,
+        theta: torch.Tensor,
+        *,
+        prior_variance: float = PRIOR_VARIANCE,
+    ) -> torch.Tensor:
+        """Laplace covariance at a multidimensional ability MAP estimate.
+
+        The returned matrix is the inverse Hessian of the same regularized
+        context likelihood optimized by :meth:`map_theta`. With no labels it
+        is exactly the Gaussian prior covariance.
+        """
+
+        dim = theta.shape[-1]
+        eye = torch.eye(dim, device=theta.device, dtype=theta.dtype)
+        if a_C.shape[0] == 0:
+            return eye * float(prior_variance)
+        a_C = a_C.detach()
+        d_C = d_C.detach()
+        probability = torch.sigmoid(a_C @ theta.detach() - d_C)
+        weight = probability * (1.0 - probability)
+        hessian = (a_C.transpose(0, 1) * weight) @ a_C + eye / prior_variance
+        covariance = torch.linalg.inv(hessian + 1e-4 * eye)
+        return 0.5 * (covariance + covariance.transpose(0, 1))
 
     def forward(
         self,
         x_C: torch.Tensor,
         y_C: torch.Tensor,
         x_T: torch.Tensor,
+        *,
+        marginalize_theta: bool = False,
     ) -> torch.Tensor:
         h_C, r_C = self._context_repr(x_C, y_C)
         if self.mode == "additive_ab":
             a_C, d_C = self._anchor_parameters(h_C)
         else:
             a_C, d_C = self._head_parameters(h_C, r_C)
-        theta = self.map_theta(a_C, d_C, y_C)
+        h_T = self.encode_item(x_T)
+        a_T, d_T = self._head_parameters(h_T, r_C)
+        u_C = self._difficulty_loadings(h_C)
+        u_T = self._difficulty_loadings(h_T)
+        u_C, u_T = self.center_difficulty_loadings(u_C, u_T)
+        if self.difficulty_adapter_dim:
+            theta, difficulty_state = self.map_theta_and_difficulty(
+                a_C,
+                d_C,
+                u_C,
+                y_C,
+                theta_prior_variance=self.prior_variance,
+                adapter_prior_variance=self.adapter_prior_variance,
+            )
+        else:
+            theta = self.map_theta(a_C, d_C, y_C, prior_variance=self.prior_variance)
+            difficulty_state = a_C.new_zeros((0,))
+        theta_map = theta
         if self.mode == "scalar":
             theta = theta + self.theta_head(r_C)
 
-        h_T = self.encode_item(x_T)
-        a_T, d_T = self._head_parameters(h_T, r_C)
         logits = a_T @ theta - d_T
+        if self.difficulty_adapter_dim:
+            logits = logits - u_T @ difficulty_state
+        if marginalize_theta:
+            if self.difficulty_adapter_dim:
+                context_design = torch.cat([a_C, -u_C], dim=-1)
+                target_design = torch.cat([a_T, -u_T], dim=-1)
+                prior = torch.cat(
+                    [
+                        a_C.new_full((self.ability_dim,), self.prior_variance),
+                        a_C.new_full((self.difficulty_adapter_dim,), self.adapter_prior_variance),
+                    ]
+                )
+                state = torch.cat([theta_map, difficulty_state])
+                probability = torch.sigmoid(context_design @ state - d_C)
+                weight = probability * (1.0 - probability)
+                precision = (context_design.transpose(0, 1) * weight) @ context_design
+                precision = precision + torch.diag(prior.reciprocal())
+                covariance = torch.linalg.inv(
+                    precision
+                    + 1e-4
+                    * torch.eye(precision.shape[0], device=precision.device, dtype=precision.dtype)
+                )
+                logit_variance = torch.einsum(
+                    "ij,jk,ik->i", target_design, covariance, target_design
+                )
+            else:
+                covariance = self.laplace_covariance(
+                    a_C,
+                    d_C,
+                    theta_map,
+                    prior_variance=self.prior_variance,
+                )
+                logit_variance = torch.einsum("ij,jk,ik->i", a_T, covariance, a_T)
+            logits = marginalize_logits(logits, logit_variance)
         if not self.loops:
             return logits
 
@@ -1398,13 +1983,22 @@ class MultidimContextIRT(nn.Module):
         for _ in range(self.loops):
             probability = torch.sigmoid(logits)
             tokens = self.token_proj(
-                torch.cat(
-                    [h_T, expanded, logits.unsqueeze(-1), probability.unsqueeze(-1)], dim=-1
-                )
+                torch.cat([h_T, expanded, logits.unsqueeze(-1), probability.unsqueeze(-1)], dim=-1)
             )
             refined = self.block(tokens.unsqueeze(0)).squeeze(0)
             logits = logits + self.loop_head(refined).squeeze(-1)
         return logits
+
+    @torch.no_grad()
+    def predict_proba_posterior(
+        self,
+        x_C: torch.Tensor,
+        y_C: torch.Tensor,
+        x_T: torch.Tensor,
+    ) -> torch.Tensor:
+        """Approximate ``E[p(y=1 | theta)]`` under the Laplace posterior."""
+
+        return torch.sigmoid(self.forward(x_C, y_C, x_T, marginalize_theta=True))
 
     @torch.no_grad()
     def predict_proba(

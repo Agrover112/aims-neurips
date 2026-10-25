@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ PRIOR_MU = 1.0
 MAP_STEPS = 120
 MAP_LR = 0.02
 SEED = 20261018
+MIRT_GPU = os.environ.get("MIRT_GPU", "L4")
 
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
@@ -1146,7 +1148,7 @@ def _evaluate_beta(
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu=MIRT_GPU,
     cpu=8,
     memory=65_536,
     volumes={str(REMOTE_ROOT): volume},
@@ -1273,7 +1275,7 @@ def run(arm: str = "bge_base", dims: str = "1,2") -> dict[str, Any]:
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu=MIRT_GPU,
     cpu=8,
     memory=65_536,
     volumes={str(REMOTE_ROOT): volume},
@@ -1483,7 +1485,7 @@ RHAT_SOBOL = 16
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu=MIRT_GPU,
     cpu=8,
     memory=65_536,
     volumes={str(REMOTE_ROOT): volume},

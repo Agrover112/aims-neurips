@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,23 @@ ARM = "minilm512"
 FIT_SAMPLE_LIMIT = 1_000_000
 RUNGS = {
     "anp_attn": ("anp", None),
+    "anp_gelu": ("anp", None, "gelu"),
+    "anp_gelu_all": ("anp", None, "gelu_all"),
     "cnp": ("cnp", None),
+    # Input-normalization / activation controls on the best structure-free arm.
+    "cnp_ln": ("cnp", None, "ln"),
+    "cnp_gelu": ("cnp", None, "gelu"),
+    "cnp_gelu_all": ("cnp", None, "gelu_all"),
+    "cnp_ln_gelu": ("cnp", None, "ln_gelu"),
+    # Native CNP/ANP with a Gaussian posterior over a D-dimensional theta.
+    # Tuple is (kind, ability_dim).
+    "mdcnp_d4": ("mdcnp", 4),
+    "mdanp_d4": ("mdanp", 4),
+    # Joint Bayesian CNP-IRT: diagonal Gaussian posteriors over both theta and
+    # each item's (log a, d). Tuple is (kind, ability_dim).
+    "bcirt_d4": ("bcirt", 4),
+    "bcirt_d4_ln_gelu": ("bcirt", 4, "ln_gelu"),
+    "bcirt_d4_gelu_all": ("bcirt", 4, "gelu_all"),
     "direct_ab": ("irt", "direct_ab"),
     "additive_ab": ("irt", "additive_ab"),
     "residual": ("irt", "residual"),
@@ -66,8 +83,37 @@ RUNGS = {
     "mirt_direct_loop0_d4": ("mirt", "direct_ab", 4, 0),
     "mirt_direct_loop0_d8": ("mirt", "direct_ab", 8, 0),
     "mirt_scalar_d1": ("mirt", "scalar", 1, 0),
+    "mirt_scalar_d2": ("mirt", "scalar", 2, 0),
     "mirt_scalar_d4": ("mirt", "scalar", 4, 0),
+    "mirt_scalar_d4_tau1": ("mirt", "scalar", 4, 0, 1.0),
+    # Joint online MAP over D=4 ability and a centered K=4 difficulty adapter.
+    # Tuple is (kind, mode, ability_dim, loops, theta_tau2, adapter_dim, adapter_tau2).
+    "mirt_scalar_d4_jointb4_tau1": ("mirt_joint", "scalar", 4, 0, 1.0, 4, 1.0),
     "mirt_scalar_d8": ("mirt", "scalar", 8, 0),
+    # Rasch (discrimination pinned to 1) and the ability-prior variance.
+    # tau^2 = 4 is the value hard-coded throughout the repo and in the
+    # information-ceiling note; it has never been derived or ablated, and the
+    # IRT convention is N(0, 1). Tuple is (kind, mode, prior_variance).
+    #
+    # An unregularized MLE fit of 2PL/Rasch on the training tasks put
+    # var(theta_hat) at 9.6 (2PL) to 11.9 (Rasch) -- 2.4-3x the hard-coded
+    # tau^2 = 4 -- with the +-4 box binding on ~17% of tasks, so that MLE is
+    # itself an underestimate. But tau=1 beat tau=4 on validation Brier ALC
+    # for both Rasch and 2PL, the opposite of what the population variance
+    # would suggest: a tighter prior can still be the loss-optimal shrinkage
+    # when theta is estimated from as few as 0-31 noisy labels, independent
+    # of what the true population spread is. tau9/tau16 bracket the measured
+    # MLE range and test whether loss keeps improving with tau, or whether
+    # tau=1 is a local optimum and shrinkage should go tighter still.
+    "rasch_tau4": ("irt", "rasch", 4.0),
+    "rasch_tau1": ("irt", "rasch", 1.0),
+    "rasch_tau9": ("irt", "rasch", 9.0),
+    "rasch_tau16": ("irt", "rasch", 16.0),
+    "2pl_tau4": ("irt", "2pl", 4.0),
+    "2pl_tau1": ("irt", "2pl", 1.0),
+    "2pl_tau9": ("irt", "2pl", 9.0),
+    "2pl_tau16": ("irt", "2pl", 16.0),
+    "scalar_tau1": ("irt", "scalar", 1.0),
 }
 HELDOUT_ONLY_RUNGS = {
     "additive_ar",
@@ -183,27 +229,71 @@ def _make_model(
 ):
     from aims_starter.r_c_attention import (
         AutoregressiveContextIRT,
+        BayesianCNPIRT,
         ContextConditionedIRT,
         DeterministicANPAttention,
         DeterministicCNP,
         GPContextIRT,
         LoopedContextIRT,
+        MultidimANP,
+        MultidimCNP,
         MultidimContextIRT,
         NeuralResidualIRT,
     )
 
     kind, mode, *flags = RUNGS[rung]
+    if kind == "mdcnp":
+        return MultidimCNP(
+            x_dim,
+            ability_dim=int(mode),
+            d_model=128,
+            subject_feature_slice=subject_feature_slice,
+            prior_variance=1.0,
+        )
+    if kind == "mdanp":
+        return MultidimANP(
+            x_dim,
+            ability_dim=int(mode),
+            d_model=128,
+            n_heads=8,
+            n_context_layers=2,
+            subject_feature_slice=subject_feature_slice,
+            prior_variance=1.0,
+        )
+    if kind == "bcirt":
+        variant = flags[0] if flags else ""
+        return BayesianCNPIRT(
+            x_dim,
+            ability_dim=int(mode),
+            d_model=128,
+            subject_feature_slice=subject_feature_slice,
+            prior_theta_variance=1.0,
+            prior_item_variance=0.25,
+            max_kl_weight=0.01,
+            input_norm="ln" in variant,
+            activation="gelu" if "gelu" in variant else "relu",
+            activation_all="all" in variant,
+        )
     if kind == "anp":
+        variant = flags[0] if flags else ""
         return DeterministicANPAttention(
             x_dim,
             d_model=128,
             n_heads=8,
             n_context_layers=2,
             subject_feature_slice=subject_feature_slice,
+            activation="gelu" if "gelu" in variant else "relu",
+            activation_all="all" in variant,
         )
     if kind == "cnp":
+        variant = flags[0] if flags else ""
         return DeterministicCNP(
-            x_dim, d_model=128, subject_feature_slice=subject_feature_slice
+            x_dim,
+            d_model=128,
+            subject_feature_slice=subject_feature_slice,
+            input_norm="ln" in variant,
+            activation="gelu" if "gelu" in variant else "relu",
+            activation_all="all" in variant,
         )
     if kind == "ar":
         return AutoregressiveContextIRT(
@@ -222,8 +312,11 @@ def _make_model(
             n_heads=8,
             subject_feature_slice=subject_feature_slice,
         )
-    if kind == "mirt":
+    if kind in ("mirt", "mirt_joint"):
         ability_dim, loops = int(flags[0]), int(flags[1])
+        prior_variance = float(flags[2]) if len(flags) > 2 else 4.0
+        adapter_dim = int(flags[3]) if kind == "mirt_joint" else 0
+        adapter_prior_variance = float(flags[4]) if kind == "mirt_joint" else 1.0
         return MultidimContextIRT(
             x_dim,
             mode=mode,
@@ -232,6 +325,9 @@ def _make_model(
             d_model=128,
             n_heads=8,
             subject_feature_slice=subject_feature_slice,
+            prior_variance=prior_variance,
+            difficulty_adapter_dim=adapter_dim,
+            adapter_prior_variance=adapter_prior_variance,
         )
     if kind == "gp":
         return GPContextIRT(
@@ -258,7 +354,11 @@ def _make_model(
             use_subject_prior=bool(flags[0]) if flags else False,
         )
     return ContextConditionedIRT(
-        x_dim, mode=mode, d_model=128, subject_feature_slice=subject_feature_slice
+        x_dim,
+        mode=mode,
+        d_model=128,
+        subject_feature_slice=subject_feature_slice,
+        prior_variance=float(flags[0]) if flags else 4.0,
     )
 
 
@@ -283,11 +383,11 @@ def _train_model(
     history = []
     for step in range(steps):
         losses = []
+        if hasattr(model, "set_training_progress"):
+            model.set_training_progress(step, steps)
         for _ in range(episodes_per_step):
             task = tasks[int(rng.integers(len(tasks)))]
-            x_c, y_c, x_t, y_t = _episode(
-                task, rng, device, heldout_only=heldout_only
-            )
+            x_c, y_c, x_t, y_t = _episode(task, rng, device, heldout_only=heldout_only)
             logits = model(x_c, y_c, x_t)
             loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_t)
             if hasattr(model, "gp_penalty"):
@@ -378,6 +478,8 @@ def _train_model_v41(
 
     for step, (epoch, batch) in enumerate(scheduled):
         losses = []
+        if hasattr(model, "set_training_progress"):
+            model.set_training_progress(step, total_steps)
         for visit in batch:
             task = indexed[visit.task_index]
             episode = sample_pair_episode(
@@ -582,7 +684,7 @@ def _score_validation(model, seed: int, mode: str, orders: int = 10, corpus: str
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu=os.environ.get("R_C_GPU", "L4"),
     cpu=8,
     memory=65_536,
     volumes={str(REMOTE_ROOT): volume},
@@ -639,9 +741,7 @@ def run(
         subject_prior_slice,
     )
     if sampler == "v41":
-        model, history = _train_model_v41(
-            model, tasks, seed=seed, pair_epochs=int(pair_epochs)
-        )
+        model, history = _train_model_v41(model, tasks, seed=seed, pair_epochs=int(pair_epochs))
     else:
         model, history = _train_model(
             model,
@@ -650,7 +750,7 @@ def run(
             steps=800,
             episodes_per_step=4,
             heldout_only=rung in HELDOUT_ONLY_RUNGS,
-    )
+        )
     checkpoint_root = RESULT_ROOT / f"seed-{seed}-{mode}{tag}" / f"{rung}-checkpoints"
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), checkpoint_root / "model.pt")
@@ -669,6 +769,7 @@ def run(
         "mode": mode,
         "split": "validation",
         "orders": 10,
+        "prior_variance": float(getattr(model, "prior_variance", 4.0)),
         "manifest": manifest,
         "training": history,
         "alc": alc,
@@ -677,6 +778,193 @@ def run(
     _write_json(output, result)
     volume.commit()
     return result
+
+
+@app.function(
+    image=image,
+    gpu=os.environ.get("R_C_GPU", "L4"),
+    cpu=8,
+    memory=65_536,
+    volumes={str(REMOTE_ROOT): volume},
+    timeout=8 * 60 * 60,
+)
+def score_checkpoint(
+    rung: str = "bcirt_d4",
+    seed: int = 20261018,
+    mode: str = "masked",
+    corpus: str = "",
+    sampler: str = "v41",
+    pair_epochs: int = 1,
+) -> dict[str, Any]:
+    """Rescore a saved checkpoint and report calibrated Brier by budget."""
+    import pandas as pd
+    import torch
+
+    if rung not in RUNGS:
+        raise ValueError(f"rung must be one of {tuple(RUNGS)}")
+    if sampler not in ("random", "v41"):
+        raise ValueError("sampler must be 'random' or 'v41'")
+    tag = f"-{corpus}" if corpus else ""
+    if sampler == "v41":
+        tag += f"-v41e{pair_epochs}"
+    root = _compact_root(corpus)
+    manifest = _read_json(root / "manifest.json")
+    if manifest is None:
+        raise FileNotFoundError(f"compact corpus missing: {root}")
+    item_embeddings = np.load(root / "item_embeddings.npy")
+    subject_embeddings = np.load(root / "subject_embeddings.npy")
+    item_dim = int(item_embeddings.shape[1])
+    subject_prior_slice = (
+        item_dim,
+        item_dim + int(subject_embeddings.shape[1]),
+    )
+    subject_slice = subject_prior_slice if mode == "masked" else None
+    train = pd.read_parquet(root / "train_tasks.parquet")
+    tasks = _meta_tasks(train, item_embeddings, subject_embeddings)
+    model = _make_model(
+        rung,
+        tasks[0]["x"].shape[1],
+        subject_slice,
+        subject_prior_slice,
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = RESULT_ROOT / f"seed-{seed}-{mode}{tag}" / f"{rung}-checkpoints" / "model.pt"
+    model.load_state_dict(torch.load(checkpoint, map_location=device))
+    model.to(device)
+
+    records, beta_records = _score_validation(model, seed, mode, orders=10, corpus=corpus)
+    calibrators = _calibrators(records)
+    rows = _metric_rows(records, calibrators, rung) + _metric_rows(
+        beta_records, calibrators, "beta"
+    )
+    alc, task_alc = _summarize(rows)
+    frame = pd.DataFrame(rows)
+    by_budget = (
+        frame.groupby(["arm", "budget"], sort=True)["brier"]
+        .mean()
+        .reset_index()
+        .to_dict(orient="records")
+    )
+    result = {
+        "status": "complete",
+        "rung": rung,
+        "arm": ARM,
+        "seed": seed,
+        "mode": mode,
+        "split": "validation",
+        "orders": 10,
+        "manifest": manifest,
+        "alc": alc,
+        "by_budget": by_budget,
+        "task_alc": task_alc,
+    }
+    output = RESULT_ROOT / f"by-budget-{rung}-{seed}-{mode}{tag}.json"
+    _write_json(output, result)
+    volume.commit()
+    return result
+
+
+@app.function(
+    image=image,
+    gpu=os.environ.get("R_C_GPU", "L4"),
+    cpu=8,
+    memory=65_536,
+    volumes={str(REMOTE_ROOT): volume},
+    timeout=2 * 60 * 60,
+)
+def logit_stats(
+    rung: str = "cnp_gelu",
+    seed: int = 20261018,
+    mode: str = "masked",
+    corpus: str = "",
+    sampler: str = "v41",
+    pair_epochs: int = 1,
+) -> dict[str, Any]:
+    """Report target-logit margin quantiles for a saved checkpoint.
+
+    The fixed-softmax paper's fp32 precision cliff is a positive-margin
+    phenomenon.  Binary CE has the same ``sigmoid(z) - 1`` collapse for the
+    positive class, so this check tells us whether any validation margins get
+    close to the fp32 cliff (about 16.6).
+    """
+    import pandas as pd
+    import torch
+
+    if rung not in RUNGS:
+        raise ValueError(f"rung must be one of {tuple(RUNGS)}")
+    if sampler not in ("random", "v41"):
+        raise ValueError("sampler must be 'random' or 'v41'")
+    tag = f"-{corpus}" if corpus else ""
+    if sampler == "v41":
+        tag += f"-v41e{pair_epochs}"
+    root = _compact_root(corpus)
+    manifest = _read_json(root / "manifest.json")
+    if manifest is None:
+        raise FileNotFoundError(f"compact corpus missing: {root}")
+    item_embeddings = np.load(root / "item_embeddings.npy")
+    subject_embeddings = np.load(root / "subject_embeddings.npy")
+    item_dim = int(item_embeddings.shape[1])
+    subject_prior_slice = (
+        item_dim,
+        item_dim + int(subject_embeddings.shape[1]),
+    )
+    subject_slice = subject_prior_slice if mode == "masked" else None
+    train = pd.read_parquet(root / "train_tasks.parquet")
+    tasks = _meta_tasks(train, item_embeddings, subject_embeddings)
+    model = _make_model(
+        rung,
+        tasks[0]["x"].shape[1],
+        subject_slice,
+        subject_prior_slice,
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = RESULT_ROOT / f"seed-{seed}-{mode}{tag}" / f"{rung}-checkpoints" / "model.pt"
+    model.load_state_dict(torch.load(checkpoint, map_location=device))
+    model.to(device)
+
+    records, _ = _score_validation(model, seed, mode, orders=10, corpus=corpus)
+    logits = np.concatenate([np.asarray(r["logits"], dtype=float) for r in records])
+    labels = np.concatenate([np.asarray(r["labels"], dtype=float) for r in records])
+    margins = (2.0 * labels - 1.0) * logits
+    quantiles = (0.0, 0.001, 0.01, 0.05, 0.5, 0.95, 0.99, 0.999, 1.0)
+    result = {
+        "status": "complete",
+        "rung": rung,
+        "seed": seed,
+        "mode": mode,
+        "n": int(len(logits)),
+        "margin_quantiles": {
+            str(q): float(np.quantile(margins, q)) for q in quantiles
+        },
+        "abs_logit_quantiles": {
+            str(q): float(np.quantile(np.abs(logits), q)) for q in quantiles
+        },
+        "fraction_margin_gt_5_5": float((margins > 5.5).mean()),
+        "fraction_margin_gt_16_6": float((margins > 16.6).mean()),
+        "fraction_margin_gt_36_7": float((margins > 36.7).mean()),
+        "max_margin": float(margins.max()),
+    }
+    print(json.dumps(result, indent=2), flush=True)
+    return result
+
+
+@app.local_entrypoint()
+def score_main(
+    rung: str = "bcirt_d4",
+    seeds: str = "20261018,20261019,20261020",
+    mode: str = "masked",
+    corpus: str = "",
+    sampler: str = "v41",
+    pair_epochs: int = 1,
+):
+    for seed in [int(value) for value in seeds.split(",") if value]:
+        print(
+            json.dumps(
+                score_checkpoint.remote(rung, seed, mode, corpus, sampler, int(pair_epochs)),
+                indent=2,
+                sort_keys=True,
+            )
+        )
 
 
 @app.local_entrypoint()
@@ -707,4 +995,10 @@ def main(
     for rung in rung_values:
         for seed in seed_values:
             print(f"=== {rung} seed={seed} ===", flush=True)
-            print(json.dumps(run.remote(rung, seed, mode, False, corpus, sampler, int(pair_epochs)), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    run.remote(rung, seed, mode, False, corpus, sampler, int(pair_epochs)),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )

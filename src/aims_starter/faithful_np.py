@@ -71,6 +71,7 @@ class FaithfulNPAIRT(nn.Module):
         center_labels: bool = False,
         subject_feature_slice: tuple[int, int] | None = None,
         latent_item_parameters: bool = False,
+        direct_decoder: bool = False,
     ):
         super().__init__()
         if variant not in {"np", "anp", "stacked_mhsa_anp"}:
@@ -84,6 +85,7 @@ class FaithfulNPAIRT(nn.Module):
         self.center_labels = center_labels
         self.subject_feature_slice = subject_feature_slice
         self.latent_item_parameters = latent_item_parameters
+        self.direct_decoder = bool(direct_decoder)
         self.x_encoder = nn.Sequential(
             nn.Linear(x_dim, d_model),
             nn.LayerNorm(d_model),
@@ -136,8 +138,17 @@ class FaithfulNPAIRT(nn.Module):
                 nn.Linear(d_model, 2),
             )
         d_r = d_model if variant != "np" else 0
+        self.direct_logit_decoder = None
+        if self.direct_decoder:
+            self.direct_logit_decoder = nn.Sequential(
+                nn.Linear(d_model + d_z + d_r, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, 1),
+            )
         self.decoder_residual = None
-        if residual_scale > 0.0:
+        if residual_scale > 0.0 and not self.direct_decoder:
             self.decoder_residual = nn.Sequential(
                 nn.Linear(d_model + d_z + d_r, d_model),
                 nn.ReLU(),
@@ -229,6 +240,18 @@ class FaithfulNPAIRT(nn.Module):
           attends to its own label.
         """
 
+        n_z_samples = z.shape[0]
+        n_T = x_T_encoded.shape[0]
+        z_T = z[:, None, :].expand(-1, n_T, -1)
+        x_T_batched = x_T_encoded[None, :, :].expand(n_z_samples, -1, -1)
+        if self.direct_logit_decoder is not None:
+            decoder_inputs = [x_T_batched, z_T]
+            if r_star is not None:
+                decoder_inputs.append(r_star[None, :, :].expand(n_z_samples, -1, -1))
+            return self.direct_logit_decoder(
+                torch.cat(decoder_inputs, dim=-1)
+            ).squeeze(-1)
+
         theta = self.anchor_scale * theta_anchor + self.theta_from_z(z).squeeze(-1)
         raw_irt_parameters = self.irt_parameter_net(x_T_encoded)
         if self.latent_item_net is None:
@@ -247,10 +270,6 @@ class FaithfulNPAIRT(nn.Module):
             irt_logit = a * (theta[:, None] - b)
         if self.decoder_residual is None:
             return irt_logit
-        n_z_samples = z.shape[0]
-        n_T = x_T_encoded.shape[0]
-        z_T = z[:, None, :].expand(-1, n_T, -1)
-        x_T_batched = x_T_encoded[None, :, :].expand(n_z_samples, -1, -1)
         decoder_inputs = [x_T_batched, z_T]
         if r_star is not None:
             decoder_inputs.append(r_star[None, :, :].expand(n_z_samples, -1, -1))

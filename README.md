@@ -881,10 +881,11 @@ total, about one hour forty wall-clock when run as parallel Modal containers.
 | `qwen3_4b` | H100 | ~5 h | ~50 min |
 | `qwen3_8b` | H100 | ~9 h | ~1 h 40 |
 
-Existing stores are kept. `bge_base_2pladapt` remains the best arm measured to
-date (validation calibrated ALC 0.222584 against Beta 0.222838) and the residual
-2PL adapter will be refitted on whichever new store wins, since that adapter is
-the only change that has ever moved the number.
+Existing stores are kept. `cnp_gelu` is the best selected arm (validation
+calibrated ALC 0.219412; `cnp_ln_gelu` is 0.000059 lower by mean but not
+reliable); `bge_base_2pladapt` is the previous best at 0.222584. The residual
+2PL adapter should still be refitted on the winning store; GELU is now the only
+architecture change that has moved the number.
 
 ### me5 encoder and v4.1 sampler results (2026-10-25)
 
@@ -902,17 +903,111 @@ these rows are comparable to the published r_C ladder).
 | bge-m3 in place of me5 | **+0.0005 (worse)** | 5 arms, all above Beta |
 | Multidimensional ability (D=4) | sign flips by seed | **no -- withdrawn** |
 
-Best measured: `anp_attn` under the v4.1 sampler, **`0.219793`**, `-0.003045`
-against Beta and `-0.0028` against the previous best arm ever run
-(`bge_base_2pladapt`, `0.222584`). That is roughly 5% of the `+0.0621`
-headroom.
+Best selected arm: `cnp_gelu` under the v4.1 sampler, **`0.219412`** (3-seed
+mean), `-0.003426` against Beta and `-0.0032` against the previous best arm
+ever run (`bge_base_2pladapt`, `0.222584`). The paired t-interval barely
+excludes zero (`[-0.006770, -0.000081]`), but the task bootstrap interval
+includes zero (`[-0.006362, +0.000243]`) and the uncorrected sign-flip p-value
+is 0.030. With ~20 arms tested, this is not a reliable Beta win. The GELU item
+projector is still a reliable improvement over `cnp` (see below).
+
+#### Full 3-seed ranking
+
+All rows use multilingual-e5-large-instruct. Lower ALC is better;
+Beta-Binomial is `0.222838`. Bold `cnp_gelu` is the selected arm;
+`cnp_ln_gelu` is #1 by mean but is a control (not reliably better than
+`cnp_gelu`).
+
+| # | Rung | Stack | Seeds | Episode | Acq. | ALC | Δβ |
+|---:|---|---|---|---|---|---:|---:|
+| 1 | `cnp_ln_gelu` | CNP+input LN+GELU projector | 18/19/20 | v4.1 | R | 0.219353 | -0.003485 |
+| 2 | **`cnp_gelu`** | CNP+GELU projector | 18/19/20 | v4.1 | R | **0.219412** | -0.003426 |
+| 3 | `bcirt_d4_gelu_all` | B-CIRT+full GELU | 18/19/20 | v4.1 | R | 0.219653 | -0.003185 |
+| 4 | `cnp` | CNP | 18/19/20 | v4.1 | R | 0.219721 | -0.003117 |
+| 5 | `anp_attn` | ANP | 18/19/20 | v4.1 | R | 0.219784 | -0.003054 |
+| 6 | `anp_gelu` | ANP+GELU projector | 18/19/20 | v4.1 | R | 0.219795 | -0.003043 |
+| 7 | `anp_gelu_all` | ANP+full GELU | 18/19/20 | v4.1 | R | 0.219798 | -0.003040 |
+| 8 | `cnp_ln` | CNP+input LN | 18/19/20 | v4.1 | R | 0.219822 | -0.003016 |
+| 9 | `bcirt_d4_ln_gelu` | B-CIRT+input LN+GELU projector | 18/19/20 | v4.1 | R | 0.219967 | -0.002871 |
+| 10 | `cnp_gelu_all` | CNP+full GELU | 18/19/20 | v4.1 | R | 0.220050 | -0.002788 |
+| 11 | `mirt_scalar_d4` | IRT+MD+CNP | 18/19/20 | v4.1 | R | 0.220077 | -0.002761 |
+| 12 | `bcirt_d4` | B-CIRT | 18/19/20 | v4.1 | R | 0.220151 | -0.002687 |
+| 13 | `mdcnp_d4` | MD-CNP | 18/19/20 | v4.1 | R | 0.220186 | -0.002652 |
+| 14 | `direct_loop0` | IRT+CNP+direct+loop0 | 18/19/20 | random | R | 0.220245 | -0.002593 |
+| 15 | `mirt_direct_loop0_d4` | IRT+MD+CNP+direct+loop0 | 18/19/20 | random | R | 0.220296 | -0.002542 |
+| 16 | `mirt_scalar_d4` | IRT+MD+CNP | 18/19/20 | random | R | 0.220366 | -0.002472 |
+| 17 | `scalar` | IRT+CNP | 18/19/20 | random | R | 0.220494 | -0.002344 |
+| 18 | `mdanp_d4` | MD-ANP | 18/19/20 | v4.1 | R | 0.220539 | -0.002299 |
+| 19 | `additive_loop3` | IRT+CNP+additive+loop3 | 18/19/20 | random | R | 0.220970 | -0.001868 |
+| 20 | `mirt_additive_loop3_d4` | IRT+MD+CNP+additive+loop3 | 18/19/20 | random | R | 0.221093 | -0.001745 |
+
+Legend:
+
+- **CNP** = mean-pooled context to Bernoulli head; no IRT, no latent `z`.
+- **CNP+GELU projector** = CNP with GELU only in the item encoder; context encoder and decoder stay ReLU.
+- **+input LN** = LayerNorm on the item input before the projector.
+- **+full GELU** = GELU in the item projector, context encoder, and decoder.
+- **ANP** = context self-attention plus target cross-attention to Bernoulli head; no IRT, no latent `z`.
+- **IRT+CNP** = 2PL + MAP theta + pooled context.
+- **IRT+MD+CNP** = MIRT D=4 + MAP theta + pooled context.
+- **MD-CNP** = diagonal Gaussian `q(theta | C)` + item-only MIRT head, probit marginalization; item parameters are point estimates.
+- **MD-ANP** = same as MD-CNP, with context self-attention and attention pooling.
+- **B-CIRT** = joint diagonal Gaussian `q(theta | C)` and `q(log a_i, d_i | x_i)`, item-only MIRT head, probit marginalization.
+- **+direct** = context directly sets item parameters `(a,b)` or `(a,d)`.
+- **+loop0** = no-refinement control.
+- **+additive+loop3** = additive item offsets + 3 shared transformer loops.
+- **Seeds:** `18` = `20261018` only; `18/19/20` = 3-seed mean.
+- **Episode:** `v4.1` = full coverage, disjoint rotating splits; `random` = ~7.7% coverage, overlapping.
+- **Acq.:** `R` = random fixed hash order; the same 10 frozen orders are used for every row.
+- **Δβ** = ALC minus Beta-Binomial.
+
+#### GELU and normalization controls
+
+All rows use e5-instruct and the v4.1 sampler. `cnp_gelu` changes only the
+item projector; `*_all` also changes the context encoder and decoder.
+
+| Rung | Stack | Seeds | Episode | Acq. | ALC | Δβ | Δ vs `cnp_gelu` [95% CI] |
+|---|---|---|---|---:|---:|---:|---:|
+| `cnp_gelu` | CNP+GELU projector | 18/19/20 | v4.1 | R | **0.219412** | -0.003426 | reference |
+| `cnp_ln` | CNP+input LN | 18/19/20 | v4.1 | R | 0.219822 | -0.003016 | +0.000409 [+0.000244, +0.000575] |
+| `cnp_ln_gelu` | CNP+input LN+GELU projector | 18/19/20 | v4.1 | R | 0.219353 | -0.003485 | -0.000059 [-0.000264, +0.000146] |
+| `cnp_gelu_all` | CNP+full GELU | 18/19/20 | v4.1 | R | 0.220050 | -0.002788 | +0.000637 [+0.000333, +0.000942] |
+| `anp_gelu` | ANP+GELU projector | 18/19/20 | v4.1 | R | 0.219795 | -0.003043 | +0.000383 [+0.000132, +0.000634] |
+| `anp_gelu_all` | ANP+full GELU | 18/19/20 | v4.1 | R | 0.219798 | -0.003040 | +0.000385 [+0.000006, +0.000765] |
+| `bcirt_d4_ln_gelu` | B-CIRT+input LN+GELU projector | 18/19/20 | v4.1 | R | 0.219967 | -0.002871 | +0.000555 [-0.000144, +0.001253] |
+| `bcirt_d4_gelu_all` | B-CIRT+full GELU | 18/19/20 | v4.1 | R | 0.219653 | -0.003185 | +0.000240 [-0.000711, +0.001192] |
+
+All rows are 3-seed means. `cnp_gelu` and `cnp_ln_gelu` have paired t-intervals
+against Beta that exclude zero, but both are marginal: the task bootstrap
+interval for `cnp_gelu` includes zero, and `cnp_ln_gelu` is not reliably better
+than `cnp_gelu` (paired p=0.59) and has 4x the seed spread. Neither is a
+reliable Beta win; `cnp_gelu` remains the selected arm. The MD-CNP/ANP
+rows are reliably worse than `cnp_gelu` (paired Δ +0.00077/+0.00113), so a
+posterior over theta alone does not help. The joint item+theta posterior does
+not recover that gap: `bcirt_d4` is 0.00074 worse than `cnp_gelu` (paired CI
+[+0.000035, +0.001441]); the best BCIRT variant, `bcirt_d4_gelu_all`, is
+still 0.00024 worse (CI [-0.000711, +0.001192]). `bcirt_d4` per-seed ALCs are
+0.220522, 0.219709, and 0.220220 (spread 0.000813).
+
+`cnp_gelu` is lower than Beta at every budget; BCIRT's gain is concentrated at
+small budgets and its B31 is slightly worse:
+
+| Arm | B0 | B1 | B3 | B7 | B15 | B31 |
+|---|---:|---:|---:|---:|---:|---:|
+| `cnp_gelu` | **0.23772** | **0.23366** | **0.22332** | **0.21364** | **0.20662** | **0.20193** |
+| `bcirt_d4` | 0.24314 | 0.23479 | 0.22287 | 0.21370 | 0.20678 | 0.20210 |
+| Beta-Binomial | 0.25000 | 0.23957 | 0.22662 | 0.21493 | 0.20707 | 0.20200 |
+
+The BCIRT task-level interval still crosses zero and the method remains behind
+`cnp_gelu`.
 
 Three readings worth carrying forward:
 
-- **The encoder is the only robust effect.** Architecture gaps are all smaller
-  than the largest per-seed spread (0.00171, `additive_loop3`), which was the
-  best arm in the published loop ladder and is now last under the correct
-  sampler. Single-seed architecture conclusions on this corpus are not safe.
+- **The encoder is the only large effect.** The GELU item projector is a
+  smaller but reliable architecture effect: -0.000308 vs `cnp`, bootstrap CI
+  [-0.000422, -0.000195], and lower Brier at every budget. It does not produce
+  a reliable win over Beta-Binomial. Full-GELU and input LayerNorm are worse,
+  so the gain is specific to the item projector.
 - **Coverage matters exactly where ability is learned.** `cnp` and `anp_attn`
   must learn adaptation from `r_C` and were training on 7.7% of
   `(task, budget)` pairs; the IRT rungs solve for ability at inference and are
@@ -926,13 +1021,154 @@ The remaining gap splits almost exactly in half: `0.0595` from not knowing
 `theta` and `0.0590` from not knowing `(a_i, b_i)`. Work so far has addressed
 only the second.
 
+### Theta prior, Bayesian MIRT, and Fisher acquisition (2026-10-25)
+
+These ablations use 104 validation tasks, ten frozen acquisition orders, and
+five-fold out-of-fold calibration. Lower Brier ALC is better. The prior,
+Bayesian MIRT, and acquisition tables use different fitted models, so compare
+rows within a table rather than across tables.
+
+#### Gaussian prior variance
+
+| IRT model | $\theta$ prior | calibrated ALC | delta vs Beta-Binomial | 95% interval |
+|---|---|---:|---:|---:|
+| 2PL | $N(0,1)$ | **0.220335** | -0.002503 | [-0.005398, 0.000994] |
+| 2PL | $N(0,4)$ | 0.220922 | -0.001916 | [-0.004786, 0.001471] |
+| 2PL | $N(0,9)$ | 0.221125 | -0.001713 | [-0.004546, 0.001609] |
+| 2PL | $N(0,16)$ | 0.220762 | -0.002076 | [-0.004966, 0.001389] |
+| Rasch | $N(0,1)$ | 0.220990 | -0.001848 | [-0.004403, 0.001131] |
+| Rasch | $N(0,4)$ | 0.221883 | -0.000955 | [-0.002891, 0.001167] |
+| Rasch | $N(0,9)$ | 0.222363 | -0.000475 | [-0.002253, 0.001451] |
+| Rasch | $N(0,16)$ | 0.222577 | -0.000261 | [-0.001998, 0.001613] |
+| Beta-Binomial | -- | 0.222838 | -- | -- |
+
+The current evidence supports a zero-centered Gaussian prior for $\theta$,
+with $N(0,1)$ as the working default. In the paired 2PL comparison,
+$N(0,1)$ improves on $N(0,4)$ by 0.000588 ALC, with a 95% interval of
+[-0.000889, -0.000278]. The intervals against Beta-Binomial still cross zero,
+so the result supports the tighter variance, not a conclusive overall win.
+
+The more elaborate FLOPs prior does not improve this result. FLOPs are known
+for only 40 of 104 validation tasks, and their within-benchmark correlation
+with fitted difficulty is 0.187 ($R^2=0.035$). At variance 4, the FLOPs-prior
+ALC is 0.221069 against 0.220922 for the zero-mean prior. Keep the Gaussian
+prior unless better subject-level features provide a stronger prior signal.
+
+#### Joint online ability and difficulty updates
+
+`mirt_scalar_d4_jointb4_tau1` keeps the multilingual E5 item head fixed and
+updates two latent states from each acquired label: the four-dimensional
+ability $\theta$ and a four-dimensional benchmark-specific difficulty
+correction $z_B$. Its logits are
+
+```text
+a_i^T theta - d_i - u_i^T z_B
+```
+
+The update is a joint Newton MAP solve with independent $N(0,1)$ priors. The
+difficulty loadings $u_i$ are centered over the acquired context, so a constant
+benchmark offset cannot duplicate ability. With one acquired label the
+centered loading is zero, and only $\theta$ updates.
+
+The first run used the masked multilingual E5 feature store, the v4.1 sampler,
+104 validation tasks, ten frozen orders, and random acquisition. Lower ALC is
+better.
+
+| Seed | `mirt_scalar_d4`, $\theta\sim N(0,4)$ | joint $\theta,z_B\sim N(0,1)$ | delta |
+|---:|---:|---:|---:|
+| 20261018 | 0.219945 | 0.219947 | +0.000002 |
+| 20261019 | 0.219734 | 0.220100 | +0.000366 |
+| 20261020 | 0.220553 | **0.218769** | **-0.001785** |
+| Mean | 0.220077 | **0.219605** | **-0.000472** |
+
+The joint configuration beats Beta-Binomial by 0.003233 ALC. Averaging the
+three seed differences within each task, it beats scalar MIRT on 76 of 104
+tasks; the task-bootstrap interval for the mean delta is
+[-0.000645, -0.000294]. The seed result is uneven: seed 18 is tied, seed 19 is
+worse, and seed 20 supplies the gain.
+
+This is not yet a clean estimate of difficulty adaptation. The comparison
+changes both the online update and the ability prior from $N(0,4)$ to
+$N(0,1)$. The required control is `mirt_scalar_d4_tau1`; until it is run, the
+0.000472 improvement belongs to the full configuration, not to $z_B$ alone.
+The joint Fisher replay is implemented but was not part of this run.
+
+#### Bayesian MIRT encoder and dimension
+
+| Encoder | MIRT dimension | raw ALC | calibrated ALC | delta vs Beta-Binomial |
+|---|---:|---:|---:|---:|
+| Qwen3-Embedding-8B | 4 | 0.230728 | **0.221604** | -0.001234 |
+| Qwen3-Embedding-8B | 2 | 0.233895 | 0.222210 | -0.000628 |
+| multilingual-e5-large-instruct | 2 | 0.283388 | 0.222348 | -0.000489 |
+| bge-m3 | 2 | 0.367518 | 0.222818 | -0.000020 |
+| Qwen3-Embedding-4B | 4 | 0.236008 | 0.222859 | +0.000021 |
+| bge-m3 | 4 | 0.345347 | 0.223045 | +0.000208 |
+| Qwen3-Embedding-4B | 2 | 0.233758 | 0.223125 | +0.000287 |
+| multilingual-e5-large-instruct | 4 | 0.363887 | 0.223217 | +0.000379 |
+
+Qwen3-Embedding-8B with four-dimensional ability is the best Bayesian MIRT
+arm. Its interval against Beta-Binomial crosses zero, but it improves on its
+two-dimensional counterpart by 0.000605, with a paired 95% interval of
+[-0.001059, -0.000098]. Multilingual E5 with two dimensions is the next useful
+reference. The working encoder set for Bayesian MIRT is therefore Qwen3-8B
+plus multilingual E5; this is not yet evidence that Bayesian MIRT as a whole
+beats Beta-Binomial. The large raw-to-calibrated gaps also make calibration a
+required part of this comparison.
+
+Dimensions 8 and 16 do not improve on D=4. The best D=8 and D=16 rows are
+multilingual E5 at 0.222531 and Qwen3-4B at 0.222759, both worse than
+Qwen3-8B D=4 at 0.221604, and every interval against Beta-Binomial crosses
+zero. D=16 beats D=8 only for bge-m3 (-0.000425, CI [-0.000640, -0.000210])
+and Qwen3-4B (-0.000531, CI [-0.000766, -0.000297]); the other two encoders
+move the other way inside zero. Convergence is poor at both dimensions:
+R-hat medians are 1.97-2.25 and maxima 5.55-8.17. These are not usable
+posterior estimates.
+
+| Encoder | D | calibrated ALC | delta vs Beta | 95% interval | R-hat median / max |
+|---|---:|---:|---:|---:|---:|
+| multilingual-e5-large-instruct | 8 | **0.222531** | -0.000307 | [-0.002585, +0.001972] | 2.251 / 7.315 |
+| Qwen3-Embedding-8B | 8 | 0.222749 | -0.000089 | [-0.001726, +0.001549] | 1.990 / 8.168 |
+| bge-m3 | 8 | 0.223243 | +0.000405 | [-0.001576, +0.002385] | 2.143 / 7.057 |
+| Qwen3-Embedding-4B | 8 | 0.223290 | +0.000452 | [-0.000985, +0.001889] | 2.003 / 6.048 |
+| Qwen3-Embedding-4B | 16 | **0.222759** | -0.000079 | [-0.001441, +0.001283] | 1.975 / 6.261 |
+| multilingual-e5-large-instruct | 16 | 0.222813 | -0.000025 | [-0.001901, +0.001852] | 1.999 / 5.553 |
+| bge-m3 | 16 | 0.222818 | -0.000020 | [-0.002085, +0.002044] | 2.237 / 7.980 |
+| Qwen3-Embedding-8B | 16 | 0.222992 | +0.000154 | [-0.001271, +0.001580] | 1.989 / 5.783 |
+
+#### MIRT acquisition
+
+| Acquisition rule | calibrated ALC | delta vs random | 95% interval |
+|---|---:|---:|---:|
+| Fisher-D | **0.217602** | **-0.002319** | **[-0.003993, -0.000673]** |
+| Fisher-A | 0.217614 | **-0.002307** | **[-0.003998, -0.000647]** |
+| Fisher-E | 0.219145 | -0.000776 | [-0.002153, 0.000646] |
+| Random | 0.219921 | -- | -- |
+| Max-min | 0.219930 | +0.000010 | [-0.000746, 0.000771] |
+| Uncertainty | 0.220448 | +0.000527 | [-0.000902, 0.001964] |
+
+Fisher-D and Fisher-A are tied to practical precision, and both beat random.
+Fisher-D is the working default because it has the lowest mean ALC. This result
+uses one trained checkpoint seed and needs replication. It does not overturn
+the earlier null result for CNP threshold policies: the predictor and policy
+families are different, and the MIRT policy ranks candidates by an explicit
+information criterion.
+
+Current working interpretation:
+
+- Keep a zero-centered Normal prior over $\theta$, provisionally $N(0,1)$.
+- Carry Qwen3-Embedding-8B and multilingual E5 forward for Bayesian MIRT.
+- Keep D=4 as the working Bayesian MIRT dimension; D=8 and D=16 do not
+  improve the calibrated ALC and are not converged.
+- Use Fisher-D as the default MIRT acquisition rule, with Fisher-A as the
+  closest control.
+
 ### Open items
 
 - Shared `x_encoder` for the masked and unmasked paths; the slice `(389, 773)` is hard-coded in ten places in `modal_faithful.py`; the 5 numeric columns are near-dead and unstandardized; the benchmark block is constant within an episode.
 - ANP-AIRT and Stacked-MHSA-ANP-AIRT route $r^*$ into the logits through the decoder residual head at scale 0.1. $r^*$ is computed from subject-masked encodings, and the residual is a post-anchor correction; $r^*$ must not enter the MAP fit because context items would attend to their own labels.
 - Pilot runs use 32-dim hashed item features and the main runs use the 1157-dim mixed features. Their numbers are not comparable.
 - Order of work: deterministic track rerun on all benchmarks (Online-AIRT, CNP-AIRT, Beta-Binomial, 2 seeds), AnchorCalibrator on existing artifacts, organizer baselines plus a Codabench smoke submission, then one latent-track run.
-- Encoder re-selection is run for me5 and bge-m3 and reported above; the two Qwen arms are still encoding. Not yet done: the achievable-ceiling ladder (refit the oracle 2PL with `b_i` constrained to a function of item text, within-benchmark and then held-out-benchmark, which separates the text-information limit from the transfer limit and decides whether further item-encoder work pays), posterior marginalization at inference (`marginalize_logits` exists in `r_c_attention.py` but no `forward` calls it and `map_theta` still discards the Hessian), within-benchmark centering of `b`, a 3PL lower asymptote, Fisher-information acquisition, and v4.1 runs at more than one seed.
+- Encoder re-selection is complete for multilingual E5, bge-m3, Qwen3-4B, and Qwen3-8B. Bayesian MIRT currently favors Qwen3-8B with four-dimensional ability, and the acquisition ablation favors Fisher-D. Both findings need additional trained-model seeds. Not yet done: the achievable-ceiling ladder (refit the oracle 2PL with `b_i` constrained to a function of item text, within-benchmark and then held-out-benchmark, which separates the text-information limit from the transfer limit and decides whether further item-encoder work pays), posterior marginalization at inference (`marginalize_logits` exists in `r_c_attention.py` but no `forward` calls it and `map_theta` still discards the Hessian), within-benchmark centering of `b`, a 3PL lower asymptote, and v4.1 runs at more than one seed.
 - The metadata-to-prior channel is closed by the ability-prior ablation; do not reopen it without new subject features. The budget 0-3 level gap remains, but it is not a metadata problem: the benchmark level is already represented by the item net, and the pilot's four subjects make the leave-one-out mean anti-correlated with the held-out subject's base rate.
 
 ## Presentation-selection strategy

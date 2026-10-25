@@ -47,7 +47,7 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24")
+    .pip_install("numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2")
     .pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
     .add_local_dir(PROJECT_ROOT / "src", "/opt/aims/src", copy=True)
     .env({"PYTHONPATH": "/opt/aims/src", "CUBLAS_WORKSPACE_CONFIG": ":4096:8"})
@@ -72,11 +72,32 @@ ARMS: dict[str, dict[str, Any]] = {
         "label": "P_C + Fisher",
         "description": "CNP-AIRT predictor, rank by a_i^2 p_i (1-p_i).",
     },
-    "C-D": {
+    "C-KM": {
         "predictor": "cnp",
-        "acquisition": "disagreement",
-        "label": "P_C + disagreement",
-        "description": "CNP-AIRT predictor, rank by |p_C - p_beta|.",
+        "acquisition": "cluster_embed",
+        "label": "P_C + Clustering-Embed",
+        "description": (
+            "CNP-AIRT predictor, static order from k-means on the item "
+            "embeddings: one item per centroid, nearest first. Ignores labels."
+        ),
+    },
+    "C-KI": {
+        "predictor": "cnp",
+        "acquisition": "cluster_irt",
+        "label": "P_C + Clustering-IRT",
+        "description": (
+            "CNP-AIRT predictor, static order from k-means on the fitted "
+            "(a_i, b_i) IRT parameters rather than the raw embedding."
+        ),
+    },
+    "C-MM": {
+        "predictor": "cnp",
+        "acquisition": "maxmin",
+        "label": "P_C + max-min diversity",
+        "description": (
+            "CNP-AIRT predictor, greedy k-center: each step takes the "
+            "candidate furthest from everything already selected."
+        ),
     },
     "beta-R": {
         "predictor": "beta",
@@ -85,6 +106,86 @@ ARMS: dict[str, dict[str, Any]] = {
         "description": "Beta-Binomial predictor, first remaining candidate in the stream.",
     },
 }
+
+
+
+def _cluster_priority(vectors, budget: int, seed: int):
+    """Static acquisition order from k-means: one item per centroid.
+
+    This is the Clustering-Embed / Clustering-IRT family. ``budget`` clusters
+    are fitted on the candidate representations, and each cluster contributes
+    the single item closest to its centroid. Those representatives are ranked
+    by their distance to their own centroid, so the most prototypical items go
+    first; everything else is appended afterwards in distance order so the
+    policy still has a defined ordering past ``budget`` labels.
+
+    The order does not depend on any acquired label, which is the defining
+    property of a static policy: it is computed once and never revised.
+    """
+
+    import numpy as np
+    from sklearn.cluster import KMeans
+
+    count = len(vectors)
+    k = int(min(budget, count))
+    if k < 1:
+        return np.zeros(count, dtype=float)
+    model = KMeans(n_clusters=k, n_init=4, random_state=seed).fit(vectors)
+    distance = np.linalg.norm(vectors - model.cluster_centers_[model.labels_], axis=1)
+
+    priority = np.full(count, np.inf, dtype=float)
+    representatives = []
+    for cluster in range(k):
+        members = np.flatnonzero(model.labels_ == cluster)
+        if members.size:
+            representatives.append(int(members[np.argmin(distance[members])]))
+
+    # Order the representatives by farthest-point traversal rather than by
+    # distance to their own centroid. The budget grid is nested (1, 3, 7, ...)
+    # and budgets 1 and 3 carry weight 0.2 each, so the first few labels have
+    # to span the space: ranking by prototypicality instead puts the tightest
+    # clusters first, which at k = 31 over a handful of real groups can spend
+    # every early label inside one region.
+    ordered = []
+    pool = list(representatives)
+    if pool:
+        start = min(pool, key=lambda index: distance[index])
+        ordered.append(start)
+        pool.remove(start)
+    while pool:
+        spread = np.linalg.norm(
+            vectors[pool][:, None, :] - vectors[ordered][None, :, :], axis=2
+        ).min(axis=1)
+        pick = pool[int(np.argmax(spread))]
+        ordered.append(pick)
+        pool.remove(pick)
+    representatives = ordered
+    for rank, index in enumerate(representatives):
+        priority[index] = float(rank)
+
+    rest = [index for index in range(count) if not np.isfinite(priority[index])]
+    rest.sort(key=lambda index: distance[index])
+    for offset, index in enumerate(rest):
+        priority[index] = float(len(representatives) + offset)
+    return priority
+
+
+def _maxmin_position(vectors, remaining, selected):
+    """Greedy k-center: take the candidate furthest from everything chosen.
+
+    Unlike the clustering arms this one updates as items are selected, but it
+    still never reads a label -- it is a pure coverage policy over the
+    representation space, so it isolates "spread" from "informativeness".
+    """
+
+    import numpy as np
+
+    if not selected:
+        return 0
+    chosen = vectors[np.asarray(selected, dtype=int)]
+    pool = vectors[remaining]
+    distance = np.linalg.norm(pool[:, None, :] - chosen[None, :, :], axis=2).min(axis=1)
+    return int(np.argmax(distance))
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -303,12 +404,30 @@ def run_seed(seed: int = 20261018, streams: int = 10) -> dict[str, Any]:
             rng = np.random.default_rng([stream_seed, task_number])
             stream = rng.permutation(len(y_candidate))
             for arm, arm_spec in ARMS.items():
+                acquisition = arm_spec["acquisition"]
+                static_priority = None
+                if acquisition == "cluster_embed":
+                    static_priority = _cluster_priority(
+                        encoded_candidate, BUDGETS[-1], stream_seed
+                    )
+                elif acquisition == "cluster_irt":
+                    static_priority = _cluster_priority(
+                        np.stack([a_candidate, b_candidate], axis=1),
+                        BUDGETS[-1],
+                        stream_seed,
+                    )
                 selected: list[int] = []
                 selected_rank: list[float] = []
                 remaining = np.asarray(stream, dtype=int)
                 max_labels = min(BUDGETS[-1], len(remaining))
                 while len(selected) < max_labels:
-                    if arm_spec["predictor"] == "beta":
+                    if static_priority is not None:
+                        chosen_position = int(np.argmin(static_priority[remaining]))
+                    elif acquisition == "maxmin":
+                        chosen_position = _maxmin_position(
+                            encoded_candidate, remaining, selected
+                        )
+                    elif arm_spec["predictor"] == "beta":
                         chosen_position = 0
                         p_beta = _beta_probability(
                             float(y_candidate[selected].sum()) if selected else 0.0,
@@ -348,9 +467,6 @@ def run_seed(seed: int = 20261018, streams: int = 10) -> dict[str, Any]:
                             chosen_position = int(np.argmax(score))
                         elif arm_spec["acquisition"] == "uncertainty":
                             score = -np.abs(p_cal - 0.5)
-                            chosen_position = int(np.argmax(score))
-                        elif arm_spec["acquisition"] == "disagreement":
-                            score = np.abs(p_cal - p_beta)
                             chosen_position = int(np.argmax(score))
                         else:
                             chosen_position = 0

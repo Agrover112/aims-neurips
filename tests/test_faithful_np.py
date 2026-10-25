@@ -49,6 +49,31 @@ class CanonicalNotationModelTests(unittest.TestCase):
                 self.assertEqual(tuple(var_p_y_T.shape), (6,))
                 self.assertTrue(torch.isfinite(p_y_T).all())
 
+    def test_direct_latent_anp_decoder_bypasses_irt_head(self):
+        model = FaithfulNPAIRT(
+            8,
+            variant="anp",
+            d_model=16,
+            d_z=4,
+            n_heads=4,
+            anchor_scale=0.0,
+            direct_decoder=True,
+        )
+        x_c_encoded = model.encode_x(self.x_C)
+        x_t_encoded = model.encode_x(self.x_T)
+        z = model.q_z(x_c_encoded, self.y_C).rsample((2,))
+        r_star = model.r_star(x_c_encoded, self.y_C, x_t_encoded)
+        logits = model.decode_logits(z, x_t_encoded, r_star, torch.tensor(0.0))
+        self.assertEqual(tuple(logits.shape), (2, 6))
+
+        with torch.no_grad():
+            for parameter in model.irt_parameter_net.parameters():
+                parameter.fill_(1000.0)
+            for parameter in model.theta_from_z.parameters():
+                parameter.fill_(-1000.0)
+        unchanged = model.decode_logits(z, x_t_encoded, r_star, torch.tensor(99.0))
+        self.assertTrue(torch.allclose(logits, unchanged))
+
     def test_item_encoding_excludes_subject_block(self):
         model = FaithfulNPAIRT(
             8,

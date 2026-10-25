@@ -15,8 +15,8 @@ Phase 1 (architecture ladder):
 Phase 2 (objective ladder on the winner):
     modal run modal_faithful_ladder.py --rungs gp_anp --objective bce,bce_brier,brier_alc
 
-Phase 3 (latent controls, legacy path):
-    modal run modal_faithful_ladder.py --rungs latent_np,latent_anp --steps 2100
+Phase 3 (latent controls, full v4.1 pair epoch):
+    modal run modal_faithful_ladder.py --rungs latent_np,latent_anp_noirt
 """
 
 from __future__ import annotations
@@ -107,6 +107,13 @@ RUNGS = {
         "family": "latent",
         "variant": "anp",
         "residual_scale": 0.1,
+        "direct_decoder": False,
+    },
+    "latent_anp_noirt": {
+        "family": "latent",
+        "variant": "anp",
+        "residual_scale": 0.0,
+        "direct_decoder": True,
     },
 }
 
@@ -277,6 +284,7 @@ def _make_model(
             residual_scale=float(config["residual_scale"]),
             anchor_scale=0.0,
             subject_feature_slice=subject_slice,
+            direct_decoder=bool(config.get("direct_decoder", False)),
         )
     return AnchorCorrectionIRT(
         x_dim,
@@ -603,6 +611,190 @@ def _train_batched(
     }
 
 
+def _train_latent_v41(
+    model,
+    fit_tasks,
+    probe_tasks,
+    *,
+    seed: int,
+    objective: str,
+    pair_epochs: int = 1,
+    batch_size: int = 16,
+    steps_limit: int = 0,
+    lr: float = 3e-4,
+    weight_decay: float = 0.01,
+    warmup: int = 100,
+    eta_min_ratio: float = 0.05,
+    latent_beta: float = 1.0,
+    probe_every: int = 250,
+    probe_count: int = 53,
+    log_every: int = 25,
+):
+    """Train a latent NP/ANP on the complete v4.1 task-budget queue.
+
+    Latent distributions are currently single-episode objects, so the forward
+    passes are sequential within each optimizer batch. The loss is averaged
+    across the same distinct-task batches used by the padded deterministic
+    trainer. This preserves the important v4.1 contract: every task sees every
+    budget exactly once per epoch with rotating, disjoint context/target sets.
+    """
+
+    import torch
+
+    torch.manual_seed(seed + 202)
+    from aims_starter.faithful_ladder import (
+        brier_alc_on_tasks,
+        build_pair_epoch_batches,
+        latent_episode_loss,
+        sample_pair_episode,
+    )
+
+    device = next(model.parameters()).device
+    scheduled: list[tuple[int, list[Any]]] = []
+    pairs_per_epoch = 0
+    batches_per_epoch = 0
+    for epoch in range(int(pair_epochs)):
+        epoch_batches = build_pair_epoch_batches(
+            fit_tasks,
+            seed=seed + 1009 * epoch,
+            batch_size=int(batch_size),
+        )
+        if epoch == 0:
+            batches_per_epoch = len(epoch_batches)
+            pairs_per_epoch = sum(len(batch) for batch in epoch_batches)
+        scheduled.extend((epoch, batch) for batch in epoch_batches)
+    if steps_limit > 0:
+        scheduled = scheduled[: int(steps_limit)]
+    if not scheduled:
+        raise ValueError("no latent training batches were scheduled")
+
+    total_steps = len(scheduled)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=lr, weight_decay=weight_decay
+    )
+    warmup_steps = max(1, min(int(warmup), max(1, total_steps // 10)))
+
+    def schedule(step: int) -> float:
+        if step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        progress = float(step - warmup_steps) / float(
+            max(1, total_steps - warmup_steps)
+        )
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return eta_min_ratio + (1.0 - eta_min_ratio) * cosine
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule)
+    rng = np.random.default_rng(seed + 101)
+    history: list[dict[str, Any]] = []
+    ema_loss: float | None = None
+    best_probe = float("inf")
+    best_step: int | None = None
+    best_state: dict[str, Any] | None = None
+    min_probe_step = max(0, total_steps // 10)
+    pairs_seen = 0
+    model.train()
+
+    for step, (epoch, batch) in enumerate(scheduled):
+        losses = []
+        diagnostics = []
+        for visit in batch:
+            episode = sample_pair_episode(
+                fit_tasks[visit.task_index],
+                budget=int(visit.budget),
+                rng=rng,
+                split_seed=SPLIT_SEED,
+                visit_key=f"e{epoch}:b{visit.budget}",
+            )
+            x_c = torch.as_tensor(episode["x_c"], dtype=torch.float32, device=device)
+            y_c = torch.as_tensor(episode["y_c"], dtype=torch.float32, device=device)
+            x_t = torch.as_tensor(episode["x_t"], dtype=torch.float32, device=device)
+            y_t = torch.as_tensor(episode["y_t"], dtype=torch.float32, device=device)
+            loss, diagnostic = latent_episode_loss(
+                model,
+                x_c,
+                y_c,
+                x_t,
+                y_t,
+                objective=objective,
+                beta=latent_beta,
+                n_z_samples=1,
+            )
+            losses.append(loss)
+            diagnostics.append(diagnostic)
+
+        batch_loss = torch.stack(losses).mean()
+        optimizer.zero_grad()
+        batch_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+        pairs_seen += len(batch)
+
+        value = float(batch_loss.detach())
+        ema_loss = value if ema_loss is None else 0.98 * ema_loss + 0.02 * value
+        record: dict[str, Any] = {
+            "step": step,
+            "epoch": int(epoch),
+            "pairs_seen": int(pairs_seen),
+            "batch_tasks": len(batch),
+            "loss": value,
+            "ema_loss": ema_loss,
+            "lr": float(scheduler.get_last_lr()[0]),
+        }
+        for key in ("bce", "brier", "kl"):
+            values = [diagnostic[key] for diagnostic in diagnostics if key in diagnostic]
+            if values:
+                record[key] = float(np.mean(values))
+        if probe_tasks and (step % probe_every == 0 or step == total_steps - 1):
+            probe = brier_alc_on_tasks(
+                model,
+                probe_tasks,
+                device=device,
+                max_tasks=probe_count,
+                latent_samples=64,
+            )
+            record["probe_brier_alc"] = float(probe["brier_alc"])
+            model.train()
+            if step >= min_probe_step and probe["brier_alc"] < best_probe:
+                best_probe = float(probe["brier_alc"])
+                best_step = step
+                best_state = {
+                    key: value.detach().cpu().clone()
+                    for key, value in model.state_dict().items()
+                }
+        if step % log_every == 0 or step == total_steps - 1:
+            history.append(record)
+            print(
+                f"seed={seed} step={step}/{total_steps} "
+                f"pairs={pairs_seen} loss={record['loss']:.6f} "
+                f"ema={record['ema_loss']:.6f} kl={record.get('kl', float('nan')):.6f} "
+                f"probe={record.get('probe_brier_alc', float('nan')):.6f}",
+                flush=True,
+            )
+
+    if best_state is not None:
+        model.load_state_dict(
+            {key: value.to(device) for key, value in best_state.items()}
+        )
+        selected_step = int(best_step) if best_step is not None else total_steps - 1
+    else:
+        selected_step = total_steps - 1
+    model.eval()
+    return model, history, {
+        "selected_step": selected_step,
+        "best_probe_brier_alc": (
+            best_probe if best_state is not None else float("nan")
+        ),
+        "steps_run": int(total_steps),
+        "pair_epochs": int(pair_epochs),
+        "batches_per_epoch": int(batches_per_epoch),
+        "pairs_per_epoch": int(pairs_per_epoch),
+        "steps_per_epoch": int(batches_per_epoch),
+        "batch_size": int(batch_size),
+        "scheduled_pairs": int(sum(len(batch) for _, batch in scheduled)),
+    }
+
+
 def _sigmoid(value: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.asarray(value, dtype=float)))
 
@@ -855,6 +1047,8 @@ def run(
 
     limited = bool(task_limit or validation_limit or steps)
     run_name = f"ladder-v41-{rung}-{objective}-{seed}-{mode}"
+    if corpus:
+        run_name += f"-{corpus}"
     if int(pair_epochs) != 1:
         run_name += f"-pe{int(pair_epochs)}"
     if limited:
@@ -871,7 +1065,7 @@ def run(
             "steps_requested": int(steps),
             "task_limit": int(task_limit),
             "validation_limit": int(validation_limit),
-            "episodes_per_step": int(episodes_per_step),
+            "episodes_per_step": None,
             "probe_count": int(probe_count),
             "probe_every": int(probe_every),
             "probe_benchmark_count": int(probe_benchmark_count),
@@ -954,22 +1148,19 @@ def run(
     )
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     if latent:
-        latent_steps = int(steps) if int(steps) > 0 else 2100
-        model, history, selection = _train(
+        model, history, selection = _train_latent_v41(
             model,
             fit_tasks,
             probe_tasks,
             seed=seed,
-            latent=True,
-            steps=latent_steps,
-            episodes_per_step=int(episodes_per_step),
             objective=objective,
+            pair_epochs=int(pair_epochs),
+            batch_size=int(batch_size),
+            steps_limit=int(steps),
             probe_every=int(probe_every),
             probe_count=int(probe_count),
         )
-        selection["queue_mode"] = "legacy sequential; v4.1 latent batching deferred"
-        selection["steps_run"] = int(latent_steps)
-        selection["scheduled_pairs"] = int(latent_steps * episodes_per_step)
+        selection["queue_mode"] = "v4.1 pair epoch; sequential latent forwards"
     else:
         model, history, selection = _train_batched(
             model,
@@ -1020,11 +1211,7 @@ def run(
         "orders": 10,
         "manifest": manifest,
         "protocol": {
-            "task_split": (
-                "per-visit rotating disjoint acquisition/evaluation split"
-                if not latent
-                else "fixed 50/50 acquisition/evaluation per train task"
-            ),
+            "task_split": "per-visit rotating disjoint acquisition/evaluation split",
             "split_seed": SPLIT_SEED,
             "context": "uniform sample from acquisition half",
             "targets": "evaluation half only",
@@ -1037,15 +1224,15 @@ def run(
                 if not latent
                 else None
             ),
-            "pair_epochs": int(pair_epochs) if not latent else None,
-            "batch_size": int(batch_size) if not latent else None,
+            "pair_epochs": int(pair_epochs),
+            "batch_size": int(batch_size),
             "steps_requested": int(steps),
             "steps": steps_run,
             "pairs_epoch": selection.get("pairs_per_epoch"),
             "batches_epoch": selection.get("batches_per_epoch"),
             "scheduled_pairs": scheduled_pairs,
             "coverage_passes": float(scheduled_pairs / max(1, len(fit_tasks))),
-            "episodes_per_step": int(episodes_per_step) if latent else None,
+            "episodes_per_step": None,
             "optimizer": "AdamW",
             "learning_rate": 3e-4,
             "weight_decay": 0.01,
@@ -1066,6 +1253,13 @@ def run(
             "selection": "best held-out train-probe Brier ALC",
             "latent_kl": "KL(q(z|C union Q) || q(z|C)) / |Q|" if latent else None,
             "anchor": "detached 2PL MAP ability" if not latent else "none",
+            "decoder": (
+                "direct Bernoulli ANP"
+                if config.get("direct_decoder")
+                else "latent 2PL-shaped response"
+                if latent
+                else "anchored response"
+            ),
             "anp_shrinkage": 1e-3 if config.get("use_anp") else None,
         },
         "model": config,
