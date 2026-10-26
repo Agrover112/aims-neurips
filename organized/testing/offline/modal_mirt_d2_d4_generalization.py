@@ -29,6 +29,13 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2")
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
 
+# Ship the shared progress helper into the container. Guarded because Modal
+# re-imports this module inside the container, where the local path is absent.
+_PROGRESS = Path(__file__).resolve().parents[2] / "utils" / "progress.py"
+if _PROGRESS.exists():
+    image = image.add_local_file(_PROGRESS, "/root/progress.py")
+
+
 
 def _bce(z, y, c=None):
     """Binary cross-entropy on logits, or on the 3PL guessing mixture."""
@@ -166,7 +173,8 @@ def run(seed: int = 20261018) -> dict:
     rows = []
     weights_all = {}
     rng_global = np.random.default_rng(seed)
-    for bench, dd in d.groupby("benchmark_id"):
+    _benches = list(d.groupby("benchmark_id"))
+    for bench, dd in track(_benches, desc=f"seed={seed} benchmarks", total=len(_benches)):
         subs = sorted(dd["subject_uid"].unique())
         its = sorted(dd["item_uid"].unique())
         if len(subs) < 10 or len(its) < 10:
@@ -188,6 +196,7 @@ def run(seed: int = 20261018) -> dict:
         if np.sum(~np.isnan(core)) < MIN_MATRIX:
             continue
 
+        _model_bar = Bar(total=3 * len((2, 4)), desc=f"seed={seed} {bench} fits")
         for kind in ("1pl", "2pl", "3pl"):
             for d_dim in (2, 4):
                 theta_core, b_core, loga_core, logitc_core, loss_history = _fit_core(
@@ -252,6 +261,7 @@ def run(seed: int = 20261018) -> dict:
                                 "label": y2, "pred_prob": p2,
                                 "auc": float(roc_auc_score(y2, p2)),
                                 "brier": float(np.mean((p2 - y2) ** 2))})
+                _model_bar.step(f"{kind} d={d_dim}")
         print(f"{bench:<20}subs={len(subs):<5}items={len(its):<6}"
               f"held_s={len(held_s)}  held_i={len(held_i)}", flush=True)
 
@@ -274,3 +284,6 @@ def main() -> None:
     handles = [run.spawn(seed) for seed in SEEDS]
     for h in handles:
         print(h.get())
+    import sys
+    sys.path.insert(0, "/root")
+    from progress import Bar, track

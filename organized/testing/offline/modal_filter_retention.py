@@ -38,6 +38,13 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24")
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
+# Ship the shared progress helper into the container. Guarded because Modal
+# re-imports this module inside the container, where the local path is absent.
+_PROGRESS = Path(__file__).resolve().parents[2] / "utils" / "progress.py"
+if _PROGRESS.exists():
+    image = image.add_local_file(_PROGRESS, "/root/progress.py")
+
+
 
 @app.function(image=image, cpu=16, memory=131_072, volumes={"/data": volume},
               timeout=6 * 60 * 60)
@@ -87,7 +94,8 @@ def run(seed: int = 20261018) -> dict:
     # ---- 2PL fit on the filtered matrix, item predictions vs observed ----
     item_rows = []
     weights_all = {}
-    for bench, dd in d.groupby("benchmark_id"):
+    _benches = list(d.groupby("benchmark_id"))
+    for bench, dd in track(_benches, desc=f"seed={seed} benchmarks", total=len(_benches)):
         subs = sorted(dd["subject_uid"].unique())
         its = sorted(dd["item_uid"].unique())
         if len(subs) < 5 or len(its) < 5:
@@ -156,3 +164,6 @@ def main() -> None:
     handles = [run.spawn(seed) for seed in SEEDS]
     for h in handles:
         print(h.get())
+    import sys
+    sys.path.insert(0, "/root")
+    from progress import Bar, track
