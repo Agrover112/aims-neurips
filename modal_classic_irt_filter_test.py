@@ -146,6 +146,7 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
     print(f"observations (deduped subject x item): {len(obs):,}", flush=True)
 
     rows = []
+    weights_all = {}
     for bench, d in obs.groupby("benchmark_id"):
         for stage in ("before", "after"):
             dd = d.copy()
@@ -177,11 +178,16 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
                 continue
             m2, train_mask, test_mask = pruned
             for kind in ("1pl", "2pl", "3pl"):
+                import torch
+                theta_fit, b_fit, loga_fit = _fit_core(m2, kind, STEPS, int(rng.integers(0, 2**31)))
                 result = _fit_and_score(m2, train_mask, test_mask, kind, STEPS, rng)
                 if result is None:
                     continue
                 auc, brier, n_test = result
                 stage_tag = stage if stage == "before" else f"after_n{min_subjects}"
+                weights_all[f"{bench}_{stage_tag}_{kind}"] = {
+                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy()
+                }
                 rows.append({"benchmark_id": bench, "stage": stage_tag, "model": kind, "seed": seed,
                             "min_subjects": min_subjects,
                             "n_subjects": len(subs), "n_items": len(its),
@@ -194,9 +200,12 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out = OUT.with_name(f"{OUT.stem}-seed{seed}-n{min_subjects}{OUT.suffix}")
     frame.to_parquet(out, index=False)
+    import torch
+    weights_out = OUT.parent / f"classic-irt-filter-test-weights-seed{seed}-n{min_subjects}.pt"
+    torch.save(weights_all, weights_out)
     volume.commit()
     return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed,
-            "min_subjects": min_subjects}
+            "min_subjects": min_subjects, "weights_saved": len(weights_all)}
 
 
 SEEDS = (20261018, 20261019, 20261020)

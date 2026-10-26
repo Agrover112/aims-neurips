@@ -147,6 +147,7 @@ def run(seed: int = 20261018) -> dict:
     print(f"filtered: {len(d):,} rows, {d.benchmark_id.nunique()} benchmarks", flush=True)
 
     rows = []
+    weights_all = {}
     rng_global = np.random.default_rng(seed)
     for bench, dd in d.groupby("benchmark_id"):
         subs = sorted(dd["subject_uid"].unique())
@@ -173,6 +174,10 @@ def run(seed: int = 20261018) -> dict:
         for kind in ("1pl", "2pl", "3pl"):
             theta_core, b_core, loga_core = _fit_core(core, kind, int(rng_global.integers(0, 2**31)))
             a_core = torch.exp(loga_core) if kind in ("2pl", "3pl") else torch.ones(len(train_i))
+            weights_all[f"{bench}_{kind}"] = {
+                "theta": theta_core.numpy(), "b": b_core.numpy(), "log_a": loga_core.numpy(),
+                "train_subjects": train_s, "train_items": train_i, "held_subjects": held_s, "held_items": held_i
+            }
 
             for row in held_s:
                 cols = np.flatnonzero(~np.isnan(mat[row, train_i]))
@@ -218,8 +223,10 @@ def run(seed: int = 20261018) -> dict:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out = OUT.with_name(f"{OUT.stem}-seed{seed}{OUT.suffix}")
     frame.to_parquet(out, index=False)
+    weights_out = OUT.parent / f"classic-irt-generalization-lbfgs-weights-seed{seed}.pt"
+    torch.save(weights_all, weights_out)
     volume.commit()
-    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed}
+    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed, "weights_saved": len(weights_all)}
 
 
 SEEDS = (20261018, 20261019, 20261020)

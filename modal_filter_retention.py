@@ -85,6 +85,7 @@ def run(seed: int = 20261018) -> dict:
 
     # ---- 2PL fit on the filtered matrix, item predictions vs observed ----
     item_rows = []
+    weights_all = {}
     for bench, dd in d.groupby("benchmark_id"):
         subs = sorted(dd["subject_uid"].unique())
         its = sorted(dd["item_uid"].unique())
@@ -126,6 +127,10 @@ def run(seed: int = 20261018) -> dict:
             "pred_pass_rate": pred_item, "obs_pass_rate": obs_item["mean"].to_numpy(),
             "n_responses": obs_item["size"].to_numpy(),
         }))
+        weights_all[f"{bench}_2pl"] = {
+            "theta": theta.detach().numpy(), "b": b.detach().numpy(), "log_a": log_a.detach().numpy(),
+            "subject_ids": np.array(subs), "item_ids": np.array(its)
+        }
         print(f"{bench:<20}2PL fit  subs={len(subs):<6}items={len(its):<8}", flush=True)
 
     OUT_COUNTS.parent.mkdir(parents=True, exist_ok=True)
@@ -133,8 +138,10 @@ def run(seed: int = 20261018) -> dict:
     items_out = OUT_ITEMS.with_name(f"{OUT_ITEMS.stem}-seed{seed}{OUT_ITEMS.suffix}")
     pd.DataFrame(per_bench).to_parquet(counts_out, index=False)
     pd.concat(item_rows).to_parquet(items_out, index=False)
+    weights_out = OUT_COUNTS.parent / f"filter-retention-weights-seed{seed}.pt"
+    torch.save(weights_all, weights_out)
     volume.commit()
-    return {"overall": overall, "benchmarks_fit": len(item_rows), "seed": seed}
+    return {"overall": overall, "benchmarks_fit": len(item_rows), "seed": seed, "weights_saved": len(weights_all)}
 
 
 SEEDS = (20261018, 20261019, 20261020)
