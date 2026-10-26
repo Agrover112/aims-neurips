@@ -1862,3 +1862,4 @@ def main(
         print(json.dumps(smoke(), indent=2, sort_keys=True))
         return
     raise ValueError("action must be inspect, run, compare, rhat, or smoke")
+# Weight-saving placeholder for modal_bayesian_mirt.py

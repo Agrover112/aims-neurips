@@ -219,3 +219,4 @@ def main(rung: str = "mirt_scalar_d4", seed: int = 20261018) -> None:
     print("validation subjects by prior level:", r["validation_prior_level"])
     for row in sorted(r["summary"], key=lambda x: (x["calibration"], x["brier_alc"])):
         print(f"{row['arm']:<14}{row['calibration']:<5}{row['brier_alc']:>10.6f}{row['se']:>10.6f}")
+# Weight-saving placeholder for modal_lineage_prior.py

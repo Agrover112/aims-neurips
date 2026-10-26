@@ -201,3 +201,4 @@ def run(rung: str = "mirt_scalar_d4", seed: int = 20261018, orders: int = 10) ->
 def main(rung: str = "mirt_scalar_d4", seed: int = 20261018) -> None:
     r = run.remote(rung, seed)
     print("done", list(r["arms"]))
+# Weight-saving placeholder for modal_heavytail_prior.py

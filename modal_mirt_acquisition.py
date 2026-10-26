@@ -574,3 +574,4 @@ def main(
             print(
                 f"{row['arm']:<8}{row['calibration']:<8}{row['brier_alc']:>12.6f}{row['se']:>10.6f}"
             )
+# Weight-saving placeholder for modal_mirt_acquisition.py
