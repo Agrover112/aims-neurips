@@ -67,6 +67,10 @@ def _fit_core(mat, kind, seed):
     opt = torch.optim.LBFGS(params, lr=1.0, max_iter=LBFGS_STEPS,
                             line_search_fn="strong_wolfe")
     opt.step(closure)
+    with torch.no_grad():
+        theta.clamp_(-6, 6)
+        b.clamp_(-6, 6)
+        log_a.clamp_(-3, 3)
     return theta.detach(), b.detach(), log_a.detach()
 
 
@@ -86,6 +90,8 @@ def _fit_one_theta(a_known, b_known, y_half):
     opt = torch.optim.LBFGS([theta], lr=1.0, max_iter=LBFGS_STEPS,
                             line_search_fn="strong_wolfe")
     opt.step(closure)
+    with torch.no_grad():
+        theta.clamp_(-6, 6)
     return theta.detach()
 
 
@@ -108,6 +114,9 @@ def _fit_one_item(theta_known, y_half, kind):
     opt = torch.optim.LBFGS(params, lr=1.0, max_iter=LBFGS_STEPS,
                             line_search_fn="strong_wolfe")
     opt.step(closure)
+    with torch.no_grad():
+        b.clamp_(-6, 6)
+        log_a.clamp_(-3, 3)
     a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)
     return a.detach(), b.detach()
 
@@ -177,7 +186,7 @@ def run(seed: int = 20261018) -> dict:
                     z2 = a_core[half2] * (theta_new - b_core[half2])
                     p2 = torch.sigmoid(z2).numpy()
                 y2 = mat[row, train_i][half2]
-                if len(np.unique(y2)) < 2:
+                if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                     continue
                 rows.append({"benchmark_id": bench, "model": kind, "seed": seed, "axis": "subject",
                             "n_fit": len(half1), "n_score": len(half2),
@@ -196,7 +205,7 @@ def run(seed: int = 20261018) -> dict:
                     z2 = a_new * (theta_core[half2] - b_new)
                     p2 = torch.sigmoid(z2).numpy()
                 y2 = mat[train_s, col][half2]
-                if len(np.unique(y2)) < 2:
+                if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                     continue
                 rows.append({"benchmark_id": bench, "model": kind, "seed": seed, "axis": "item",
                             "n_fit": len(half1), "n_score": len(half2),

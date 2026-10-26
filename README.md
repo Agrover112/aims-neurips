@@ -352,7 +352,7 @@ Full plots, reproducibility commands in each script's docstring: `docs/model-res
 | item | 2PL | 0.599 ± 0.314 | 0.171 ± 0.092 | 31,021 |
 | item | 3PL | 0.600 ± 0.315 | 0.169 ± 0.091 | 31,023 |
 
-Subject generalization is strong (AUC ~0.85, matches the paper). Item generalization is weak and high-variance (AUC ~0.60, sd up to 0.31) — a held-out item only gets split across whichever training subjects happened to answer it, so with `n≥30` each half can be ~15 points, too little to pin down a free `(a,b)`. Script: `modal_classic_irt_generalization.py` (Adam/MLE). An L-BFGS variant (matches the paper's own optimizer) is `modal_classic_irt_generalization_lbfgs.py` — same protocol, same filters, run to compare optimizer choice, results not yet pulled.
+Subject generalization is strong (AUC ~0.85, matches the paper). Item generalization is weak and high-variance (AUC ~0.60, sd up to 0.31) — a held-out item only gets split across whichever training subjects happened to answer it, so with `n≥30` each half can be ~15 points, too little to pin down a free `(a,b)`. Script: `modal_classic_irt_generalization.py` (Adam/MLE). An L-BFGS variant (matches the paper's own optimizer) is `modal_classic_irt_generalization_lbfgs.py` — same protocol, same filters. **Result: optimizer choice doesn't matter.** L-BFGS, 3 seeds: subject AUC 0.854/0.855/0.854 (1/2/3PL), item AUC 0.612/0.610/0.609 — matches Adam to within noise (0.854/0.854/0.855 and 0.612/0.599/0.600). Both converge to the same fit; Adam is kept for the rest of the investigation.
 
 **Not yet decided / open:**
 - What `n` to actually use for the real model (15 vs 30 vs something else — coverage/quality tradeoff above).
