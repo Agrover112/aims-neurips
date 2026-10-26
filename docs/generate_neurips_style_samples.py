@@ -287,9 +287,31 @@ def page_cnp_response_function(pdf):
     plt.close(fig)
 
 
+def _max_variance_order(a, b, resp, n_item):
+    """Streaming acquisition: at each step, reveal the item with the highest
+    posterior-predictive variance under everything seen so far. This is the
+    uncertainty-driven arm from Fig. 3b of the CNP paper, applied item-by-item
+    instead of pixel-by-pixel, and it is what actually produces the context
+    patterns in the row above (whereas a random permutation would not)."""
+    seen: list[int] = []
+    remaining = list(range(n_item))
+    for _ in range(n_item):
+        post = _theta_posterior(a, b, resp, seen)
+        _, spread = _predict(a, b, post)
+        pick = max(remaining, key=lambda j: spread[j])
+        seen.append(pick)
+        remaining.remove(pick)
+    return np.array(seen)
+
+
 def page_cnp_matrix_completion(pdf):
-    """Fig-3a analogue: response matrix completion across the budget ladder."""
+    """Fig-3a+3b analogue: response-matrix completion under streaming,
+    uncertainty-driven acquisition, with the scored metric plotted alongside
+    the reconstruction it comes from -- the two halves of their image-regression
+    story, shown together instead of as separate figures."""
     from matplotlib.colors import ListedColormap
+    from matplotlib.gridspec import GridSpec
+    from sklearn.metrics import roc_auc_score
 
     n_subj, n_item = 20, 44
     theta = np.sort(rng.normal(0, 1.1, n_subj))
@@ -297,12 +319,24 @@ def page_cnp_matrix_completion(pdf):
     a = rng.uniform(0.9, 1.7, n_item)
     truth = _icc(a[None, :], b[None, :], theta[:, None])
     resp = (rng.random(truth.shape) < truth).astype(float)
-    orders = np.array([rng.permutation(n_item) for _ in range(n_subj)])
+    # Streaming acquisition order per subject, not a random permutation --
+    # this is the online-learning setting, so what gets revealed when is part
+    # of the story, not a nuisance.
+    orders = np.array([_max_variance_order(a, b, resp[i], n_item) for i in range(n_subj)])
 
     binary = ListedColormap([MUTED["rose"], MUTED["indigo"]])
     binary.set_bad(HAIRLINE)
 
-    fig, axes = plt.subplots(3, len(BUDGETS), figsize=(TEXTWIDTH, 3.4))
+    fig = plt.figure(figsize=(TEXTWIDTH, 4.3))
+    # Explicit GridSpec extents: tight_layout cannot see the inset colorbars
+    # and warns/misplaces if asked to lay this out.
+    gs = GridSpec(4, len(BUDGETS), figure=fig, height_ratios=[1, 1, 1, 0.95],
+                  hspace=0.32, wspace=0.12,
+                  left=0.105, right=0.925, top=0.855, bottom=0.085)
+    img_axes = [[fig.add_subplot(gs[r, c]) for c in range(len(BUDGETS))] for r in range(3)]
+    metric_ax = fig.add_subplot(gs[3, :])
+
+    auc_by_budget = []
     for col, k in enumerate(BUDGETS):
         context = np.full(resp.shape, np.nan)
         mean = np.empty(resp.shape)
@@ -312,11 +346,18 @@ def page_cnp_matrix_completion(pdf):
             context[i, seen] = resp[i, seen]
             mean[i], spread[i] = _predict(a, b, _theta_posterior(a, b, resp[i], seen))
 
+        # Score only the held-out (not yet acquired) cells -- the quantity the
+        # competition actually grades at each budget, not the whole matrix.
+        held = np.ones(resp.shape, dtype=bool)
+        for i in range(n_subj):
+            held[i, orders[i, :k]] = False
+        auc_by_budget.append(roc_auc_score(resp[held], mean[held]) if held.any() else np.nan)
+
         panels = [(np.ma.masked_invalid(context), binary, 0, 1),
                   (mean, SEQUENTIAL, 0, 1),
                   (spread, "magma", 0, 0.45)]
         for row, (grid, cmap, lo, hi) in enumerate(panels):
-            ax = axes[row, col]
+            ax = img_axes[row][col]
             im = ax.imshow(grid, cmap=cmap, vmin=lo, vmax=hi, aspect="auto",
                            interpolation="nearest")
             ax.set_xticks([])
@@ -333,14 +374,26 @@ def page_cnp_matrix_completion(pdf):
                 cb.outline.set_linewidth(0.4)
             style(ax, grid_axis="none")
 
-    fig.text(0.5, 0.075, "Rows: 20 subjects.  Columns within a panel: 44 items, "
-             "hard $\\rightarrow$ easy.", ha="center", fontsize=6, color=SUBTLE)
+    metric_ax.plot(range(len(BUDGETS)), auc_by_budget, color=MUTED["wine"],
+                   marker="o", ms=3, lw=1.1)
+    metric_ax.axhline(0.5, color=INK, lw=0.6, ls=(0, (4, 2)), zorder=1)
+    metric_ax.set_xticks(range(len(BUDGETS)))
+    metric_ax.set_xticklabels(BUDGETS)
+    metric_ax.set_xlabel("Acquisition budget $k$ (items revealed per subject)")
+    metric_ax.set_ylabel("AUC, held-out cells")
+    metric_ax.set_ylim(0.45, 1.0)
+    style(metric_ax, grid_axis="both")
+
     handles = [plt.Rectangle((0, 0), 1, 1, fc=MUTED["indigo"]),
                plt.Rectangle((0, 0), 1, 1, fc=MUTED["rose"]),
                plt.Rectangle((0, 0), 1, 1, fc=HAIRLINE)]
-    fig.tight_layout(pad=0.3, w_pad=0.4, h_pad=0.5, rect=(0, 0.12, 0.945, 1))
-    fig.legend(handles, ["correct", "incorrect", "not acquired"], loc="lower center",
-               ncol=3, bbox_to_anchor=(0.5, 0.0))
+    fig.suptitle("Online response-matrix completion", x=0.02, ha="left", y=0.985,
+                 fontsize=9, fontweight="bold")
+    fig.legend(handles, ["correct", "incorrect", "not yet acquired"], loc="upper center",
+               ncol=3, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=6.5)
+    fig.text(0.5, 0.902, "Rows: 20 subjects.  Columns within a panel: 44 items, "
+             "hard $\\rightarrow$ easy.  Acquisition: max posterior spread (streaming).",
+             ha="center", fontsize=6, color=SUBTLE)
     pdf.savefig(fig)
     plt.close(fig)
 
