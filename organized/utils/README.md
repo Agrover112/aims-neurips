@@ -46,6 +46,41 @@ fig.tight_layout(pad=0.3)
 
 `grid_axis` takes `"y"` (default), `"x"`, `"both"`, or `"none"` for image panels.
 
+## Standard metrics and figures
+
+**Every model run — especially the offline ones — uses the shared code here.**
+Do not write a fresh ECE/Brier/AUC helper or a private palette inside a new
+experiment script. The repo previously drifted into several copies of the same
+quantity that disagreed with each other (`neural_pilot._ece` and
+`metrics.calibration_ece` bin differently; `plot_calibration_curves.py` binned
+classification accuracy rather than the observed event rate until it was fixed),
+which makes two runs' numbers incomparable.
+
+| need | use |
+|---|---|
+| AUC / Brier / ECE / LogLoss | `organized/testing/offline/modal_offline_metrics.py` |
+| figure style | `plotstyle.py` (this directory) |
+| CNP-style figures | `cnp_figures.py` (this directory) |
+| launching runs | `organized/run_evaluation_pipeline.py` |
+| post-processing | `organized/aggregate_results.py` |
+
+Generalization jobs must emit raw `label` and `pred_prob` columns so metrics can
+be pooled and recomputed afterwards rather than trusted from the job's own
+summary. If something you need is missing, add it here and import it.
+
+### `cnp_figures.py`
+
+Figures after Garnelo et al. 2018 (*Conditional Neural Processes*), mapped onto
+response prediction: their 1D regression becomes an item response function as
+the budget grows, their MNIST context/mean/variance grid becomes response-matrix
+completion, and their random-vs-highest-variance pixel comparison is our
+acquisition arms. `python cnp_figures.py out.pdf` renders a synthetic demo; pass
+real fitted `(a, b, resp)` to drive it from results.
+
+The posterior in that module is an exact 2PL grid posterior, not an amortized
+network — a reference point a trained CNP should beat, not a model of one. Keep
+that distinction if these go near a paper figure.
+
 ## Rules
 
 Colour:
