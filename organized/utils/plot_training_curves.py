@@ -10,11 +10,15 @@ import sys
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.backends.backend_pdf import PdfPages
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from plotstyle import CYCLE, SUBTLE, TEXTWIDTH, header, style
 
 if len(sys.argv) < 3:
     print("Usage: python plot_training_curves.py <weights_dir> <output.pdf>")
@@ -23,8 +27,7 @@ if len(sys.argv) < 3:
 WEIGHTS_DIR = Path(sys.argv[1])
 OUT_PDF = Path(sys.argv[2])
 
-# Find all weight files with loss_history
-weight_files = list(WEIGHTS_DIR.glob("*-weights-seed*.pt"))
+weight_files = sorted(WEIGHTS_DIR.glob("*-weights-seed*.pt"))
 
 if not weight_files:
     print(f"No weight files found in {WEIGHTS_DIR}")
@@ -32,56 +35,50 @@ if not weight_files:
 
 print(f"Found {len(weight_files)} weight files")
 
+NCOL = 3
+
 with PdfPages(OUT_PDF) as pdf:
-    for weight_file in sorted(weight_files):
+    for weight_file in weight_files:
         print(f"Processing {weight_file.name}")
 
         try:
             weights = torch.load(weight_file, map_location="cpu")
-        except Exception as e:
-            print(f"  Error loading {weight_file}: {e}")
+        except Exception as exc:
+            print(f"  Error loading {weight_file}: {exc}")
             continue
 
-        # Collect all models with loss_history
-        models_with_loss = {}
-        for model_key, model_data in weights.items():
-            if isinstance(model_data, dict) and "loss_history" in model_data:
-                loss_hist = model_data["loss_history"]
-                if len(loss_hist) > 0:
-                    models_with_loss[model_key] = loss_hist
+        curves = {
+            key: np.asarray(val["loss_history"])
+            for key, val in weights.items()
+            if isinstance(val, dict) and len(val.get("loss_history", [])) > 0
+        }
 
-        if not models_with_loss:
-            print(f"  No models with loss_history found")
+        if not curves:
+            print("  No models with loss_history found")
             continue
 
-        # Create figure with subplots
-        n_models = len(models_with_loss)
-        fig, axes = plt.subplots(
-            (n_models + 2) // 3, 3, figsize=(15, 5 * ((n_models + 2) // 3))
-        )
-        if n_models == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten()
+        nrow = (len(curves) + NCOL - 1) // NCOL
+        fig, axes = plt.subplots(nrow, NCOL, figsize=(TEXTWIDTH, 1.5 * nrow + 0.5),
+                                 squeeze=False)
+        axes = axes.flatten()
 
-        for idx, (model_key, loss_hist) in enumerate(sorted(models_with_loss.items())):
+        for idx, (model_key, loss) in enumerate(sorted(curves.items())):
             ax = axes[idx]
-            loss_hist = np.asarray(loss_hist)
-
-            ax.plot(loss_hist, linewidth=1.5, color="#2b6ca3")
-            ax.fill_between(range(len(loss_hist)), loss_hist, alpha=0.3, color="#2b6ca3")
+            ax.plot(loss, color=CYCLE[idx % len(CYCLE)], lw=1.0)
             ax.set_xlabel("Step")
             ax.set_ylabel("Loss")
-            ax.set_title(f"{model_key}\nFinal: {loss_hist[-1]:.4f}")
-            ax.grid(True, alpha=0.3)
+            ax.set_title(model_key, loc="left", fontweight="bold")
+            ax.text(0.97, 0.92, f"final {loss[-1]:.4f}", transform=ax.transAxes,
+                    ha="right", va="top", fontsize=6, color=SUBTLE)
+            ax.set_xlim(0, len(loss) - 1)
+            style(ax, grid_axis="both")
 
-        # Hide unused subplots
-        for idx in range(len(models_with_loss), len(axes)):
+        for idx in range(len(curves), len(axes)):
             axes[idx].set_visible(False)
 
-        fig.suptitle(f"{weight_file.stem}", fontsize=14, fontweight="bold")
-        plt.tight_layout()
-        pdf.savefig(fig, bbox_inches="tight")
+        header(fig, weight_file.stem, f"{len(curves)} models")
+        fig.tight_layout(pad=0.3, w_pad=1.0, h_pad=0.8, rect=(0, 0, 1, 0.93))
+        pdf.savefig(fig)
         plt.close(fig)
 
-print(f"✓ Saved to {OUT_PDF}")
+print(f"Saved to {OUT_PDF}")

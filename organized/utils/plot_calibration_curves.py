@@ -1,32 +1,32 @@
 """Plot calibration curves and reliability diagrams from offline metrics.
 
-Reads predictions from generalization test results and plots:
-- Calibration curves (predicted vs observed probability)
-- Reliability diagrams (bin-based calibration)
-- Per-model calibration summary
+Reads pooled (label, pred_prob) pairs from generalization test results and
+plots a reliability diagram per model and generalization axis.
 
-Usage: python plot_calibration_curves.py <metrics.parquet> <output.pdf>
+Usage: python plot_calibration_curves.py <results_dir> [output.pdf]
 """
 
 import sys
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.patches import Rectangle
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from plotstyle import INK, MUTED, SUBTLE, TEXTWIDTH, header, style
 
 if len(sys.argv) < 2:
-    print("Usage: python plot_calibration_curves.py <results_dir> <output.pdf>")
+    print("Usage: python plot_calibration_curves.py <results_dir> [output.pdf]")
     sys.exit(1)
 
 RESULTS_DIR = Path(sys.argv[1])
 OUT_PDF = Path(sys.argv[2]) if len(sys.argv) > 2 else RESULTS_DIR.parent / "calibration-curves.pdf"
 
-# Find generalization result files
 gen_files = sorted(RESULTS_DIR.glob("*generalization*seed*.parquet"))
 
 if not gen_files:
@@ -35,58 +35,70 @@ if not gen_files:
 
 print(f"Found {len(gen_files)} generalization result files")
 
-def plot_reliability_diagram(ax, y_true, y_pred, n_bins=10):
-    """Plot reliability diagram with calibration curve."""
+N_BINS = 10
 
-    # Compute bin-based calibration
-    bins = np.linspace(0, 1, n_bins + 1)
-    bin_indices = np.digitize(y_pred, bins) - 1
-    bin_indices = np.clip(bin_indices, 0, n_bins - 1)
 
-    bin_centers = (bins[:-1] + bins[1:]) / 2
-    accuracies = []
-    confidences = []
-    counts = []
-
+def _binned(y_true, y_pred, n_bins=N_BINS):
+    """Observed event rate and mean confidence per equal-width confidence bin."""
+    idx = np.clip((y_pred * n_bins).astype(int), 0, n_bins - 1)
+    conf, obs, count = [], [], []
     for i in range(n_bins):
-        mask = bin_indices == i
-        if not mask.any():
-            accuracies.append(np.nan)
-            confidences.append(np.nan)
-            counts.append(0)
+        mask = idx == i
+        count.append(int(mask.sum()))
+        if mask.any():
+            conf.append(float(y_pred[mask].mean()))
+            # The event rate, NOT classification accuracy. Accuracy against a
+            # 0.5 threshold does not lie on the diagonal for a calibrated
+            # model, so plotting it mislabels the y axis.
+            obs.append(float(y_true[mask].mean()))
         else:
-            acc = (y_true[mask] == (y_pred[mask] >= 0.5)).mean()
-            conf = y_pred[mask].mean()
-            accuracies.append(acc)
-            confidences.append(conf)
-            counts.append(mask.sum())
+            conf.append(np.nan)
+            obs.append(np.nan)
+    return np.array(conf), np.array(obs), np.array(count)
 
-    # Plot bars
-    bin_width = 1.0 / n_bins
-    for i, (conf, acc, count) in enumerate(zip(confidences, accuracies, counts)):
-        if count == 0:
-            continue
-        color = "#2b6ca3" if not np.isnan(acc) else "#ccc"
-        height = acc if not np.isnan(acc) else 0
-        ax.add_patch(Rectangle((conf - bin_width/2, 0), bin_width, height,
-                              alpha=0.6, facecolor=color, edgecolor="black", linewidth=1))
 
-    # Perfect calibration line
-    ax.plot([0, 1], [0, 1], "k--", linewidth=1.5, label="Perfect calibration")
+def _ece(conf, obs, count):
+    keep = count > 0
+    w = count[keep] / count[keep].sum()
+    return float((w * np.abs(obs[keep] - conf[keep])).sum())
 
-    # Empirical calibration curve (smoother)
-    valid_conf = [c for c, a in zip(confidences, accuracies) if not np.isnan(a)]
-    valid_acc = [a for a in accuracies if not np.isnan(a)]
-    if len(valid_conf) > 1:
-        ax.plot(valid_conf, valid_acc, "o-", color="#d98324", linewidth=2, markersize=6, label="Empirical")
+
+def plot_reliability_diagram(ax, y_true, y_pred, n_bins=N_BINS):
+    conf, obs, count = _binned(y_true, y_pred, n_bins)
+    keep = count > 0
+    width = 0.92 / n_bins
+    centres = (np.arange(n_bins) + 0.5) / n_bins
+
+    ax.bar(centres[keep], obs[keep], width=width, color=MUTED["cyan"],
+           edgecolor=INK, lw=0.4, zorder=2, label="Observed")
+    ax.bar(centres[keep], conf[keep] - obs[keep], width=width, bottom=obs[keep],
+           color=MUTED["rose"], alpha=0.45, edgecolor=MUTED["wine"], lw=0.4,
+           hatch="////", zorder=2, label="Gap")
+    ax.plot([0, 1], [0, 1], color=INK, lw=0.8, ls=(0, (4, 2)), zorder=3)
 
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Predicted Probability (Confidence)")
-    ax.set_ylabel("Actual Probability (Accuracy)")
+    ax.set_xticks(np.arange(0, 1.01, 0.25))
+    ax.set_yticks(np.arange(0, 1.01, 0.25))
+    ax.set_xlabel("Predicted probability")
+    ax.set_ylabel("Observed frequency")
     ax.set_aspect("equal")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    style(ax, grid_axis="both")
+    return _ece(conf, obs, count)
+
+
+def _pool(axis_df):
+    y_true, y_pred = [], []
+    for label, pred in zip(axis_df["label"], axis_df["pred_prob"]):
+        if label is None or pred is None:
+            continue
+        if hasattr(label, "__len__"):
+            y_true.extend(np.asarray(label, dtype=float))
+            y_pred.extend(np.asarray(pred, dtype=float))
+        else:
+            y_true.append(float(label))
+            y_pred.append(float(pred))
+    return np.asarray(y_true), np.asarray(y_pred)
 
 
 with PdfPages(OUT_PDF) as pdf:
@@ -95,64 +107,52 @@ with PdfPages(OUT_PDF) as pdf:
 
         try:
             df = pd.read_parquet(gen_file)
-        except Exception as e:
-            print(f"  Error loading {gen_file}: {e}")
+        except Exception as exc:
+            print(f"  Error loading {gen_file}: {exc}")
             continue
 
         if "label" not in df.columns or "pred_prob" not in df.columns:
-            print(f"  No predictions found (label/pred_prob columns missing)")
+            print("  No predictions found (label/pred_prob columns missing)")
             continue
 
-        # Create figure with subplots per model/axis
         models = sorted(df["model"].unique())
-        fig, axes = plt.subplots(len(models), 2, figsize=(12, 4 * len(models)))
+        fig, axes = plt.subplots(len(models), 2,
+                                 figsize=(TEXTWIDTH, 2.3 * len(models) + 0.4),
+                                 squeeze=False)
 
-        if len(models) == 1:
-            axes = [axes]
-
-        for model_idx, model in enumerate(models):
+        for row, model in enumerate(models):
             model_df = df[df["model"] == model]
-
-            for axis_idx, axis_name in enumerate(["subject", "item"]):
-                ax = axes[model_idx][axis_idx]
+            for col, axis_name in enumerate(["subject", "item"]):
+                ax = axes[row][col]
                 axis_df = model_df[model_df["axis"] == axis_name]
+                y_true, y_pred = _pool(axis_df) if not axis_df.empty else ([], [])
 
-                if axis_df.empty:
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
-                    ax.set_title(f"{model} - {axis_name}")
+                if len(y_true) == 0:
+                    ax.text(0.5, 0.5, "no predictions", ha="center", va="center",
+                            fontsize=7, color=SUBTLE, transform=ax.transAxes)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    ax.set_title(f"{model} — {axis_name}", loc="left", fontweight="bold")
+                    style(ax, grid_axis="none")
                     continue
 
-                # Pool predictions
-                y_true_all = []
-                y_pred_all = []
+                ece = plot_reliability_diagram(ax, y_true, y_pred)
+                ax.set_title(f"{model} — {axis_name}", loc="left", fontweight="bold")
+                # Upper left is the empty triangle above the diagonal; the
+                # lower right is where the bars are.
+                ax.text(0.04, 0.96, f"ECE {ece:.3f}\nn={len(y_true):,}",
+                        transform=ax.transAxes, ha="left", va="top",
+                        fontsize=6, color=SUBTLE)
 
-                for _, row in axis_df.iterrows():
-                    label = row.get("label")
-                    pred = row.get("pred_prob")
-
-                    if label is not None and pred is not None:
-                        try:
-                            if hasattr(label, "__len__"):
-                                y_true_all.extend(np.asarray(label))
-                                y_pred_all.extend(np.asarray(pred))
-                            else:
-                                y_true_all.append(label)
-                                y_pred_all.append(pred)
-                        except:
-                            pass
-
-                if len(y_true_all) > 0:
-                    y_true_all = np.asarray(y_true_all)
-                    y_pred_all = np.asarray(y_pred_all)
-                    plot_reliability_diagram(ax, y_true_all, y_pred_all)
-                    ax.set_title(f"{model} - {axis_name} (n={len(y_true_all)})")
-                else:
-                    ax.text(0.5, 0.5, "No predictions", ha="center", va="center")
-                    ax.set_title(f"{model} - {axis_name}")
-
-        fig.suptitle(f"Calibration Curves: {gen_file.stem}", fontsize=14, fontweight="bold")
-        plt.tight_layout()
-        pdf.savefig(fig, bbox_inches="tight")
+        handles = [plt.Rectangle((0, 0), 1, 1, fc=MUTED["cyan"], ec=INK, lw=0.4),
+                   plt.Rectangle((0, 0), 1, 1, fc=MUTED["rose"], alpha=0.45,
+                                 ec=MUTED["wine"], lw=0.4, hatch="////"),
+                   plt.Line2D([], [], color=INK, lw=0.8, ls=(0, (4, 2)))]
+        header(fig, f"Calibration: {gen_file.stem}", f"{len(models)} models, {N_BINS} bins")
+        fig.tight_layout(pad=0.3, w_pad=1.2, h_pad=0.8, rect=(0, 0.04, 1, 0.94))
+        fig.legend(handles, ["Observed", "Gap to perfect", "Perfect calibration"],
+                   loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.0))
+        pdf.savefig(fig)
         plt.close(fig)
 
-print(f"✓ Saved to {OUT_PDF}")
+print(f"Saved to {OUT_PDF}")
