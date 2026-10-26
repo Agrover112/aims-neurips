@@ -1,5 +1,13 @@
 # AIMS predictive evaluation starter kit
 
+> **Read this before doing anything else — for any agent opening this repo (Claude Code, Codex, OpenCode, or a human).**
+> Multiple agents work on this repository in parallel across separate terminals/sessions, on the same Modal volume (`aims-neurips-data`, workspace `agrover112`) and the same git remote. Before starting new work:
+> 1. **Run `git log --oneline -10` and `git status` first.** Other agents commit directly; what you remember from an earlier session may already be stale or superseded.
+> 2. **Check `docs/report/README.md`** for the standing results summary (what has and hasn't worked, with statistical caveats) before re-deriving a number that may already be measured.
+> 3. **Check the "Data filtering changes everything" entry in the Decision log** (below) before training another model on the unfiltered response matrix — it is very likely the wrong baseline now.
+> 4. **GPU jobs:** `modal_r_c_ablation.py` and friends default to `gpu="H100"` via `os.environ.get("R_C_GPU", "L4")`-style overrides in some files but hard H100 in others — check the decorator before launching, and prefer `--detach` plus one Modal app per job (detach only keeps the *last* spawned function alive otherwise).
+> 5. Competition deadline: **2026-10-30, 23:59 AoE** for the final codebase + report (see `reference/starting_kit/README.md`). As of this writing no submission zip (`model.py` + `labeling.py`) has been built from the current best model.
+
 This repository is a collaboration-ready research workspace for the AIMS Predictive AI Evaluation Challenge (PAIEC). It preserves the official submission interface, adds an auditable adaptive baseline, reproduces the published Brier ALC calculation, and provides hooks for repeatable local, Modal, and Weights & Biases experiments.
 
 For the public training corpus, follow the reusable
@@ -306,6 +314,38 @@ submission.
 ## Decision log (paper-relevant)
 
 Points below are settled unless tagged otherwise. Update this list when a decision changes.
+
+### Data filtering changes everything (2026-10-26, in progress — not yet applied to any submitted model)
+
+**Finding:** every model trained so far (CNP/ANP/GELU variants, Bayesian CNP-IRT, all MIRT/IRT rungs) was trained on the raw, unfiltered response data. Measured within-benchmark correlation between predicted and observed item pass rate on **validation** items: **0.02–0.03** for every one of them (see `docs/model-results-visualization.pdf`, pages 8–9). That is not "architecture doesn't matter" noise — it means none of these models have learned item difficulty at all; they are predicting benchmark-level averages.
+
+**Cause, confirmed by measurement, not by guessing:** 38% of items have a single response (pass rate is literally 0 or 1), and the per-task item cap (see `train-items-per-task-cap` in Claude's own memory / the per-task weighting discussion) throws away most of what little repetition exists. See `docs/item-passrate-distribution.pdf` pages 6–8 ("Cap Audit", built by Codex) for the exact mechanism: the 128-item training cap retains only 7.9% of eligible rows, and large benchmarks like `bbq` (58,414 eligible items) keep well under 1% of their rows, destroying the cross-subject overlap item-difficulty estimation needs.
+
+**The fix being tested — classic IRT (no text/embeddings) before vs after filtering**, following the cleaning recipe in the "Reliable and Amortized Model-based Evaluation" paper (`literature/`), §5:
+1. drop duplicate item content (`content_hash`),
+2. drop zero-variance items (everyone right or everyone wrong — no discriminative power),
+3. drop items answered by fewer than `n` distinct subjects,
+4. drop subjects answering fewer than 80 items in a benchmark (already the competition's own pair-eligibility rule).
+
+Retention (raw → after steps 1–4, `n=15`): **54 → 17 benchmarks**, 1,338,722 → 122,973 items (9.2%). At `n=30` (the paper's own threshold): only **7 benchmarks** survive, 56,308 items (4.2%) — stricter filtering fits much better but covers much less (see below), so `n` is a real quality-vs-coverage knob, not a free lunch.
+
+**Result, plain 1PL/2PL/3PL (every item/subject parameter a free scalar, jointly MLE-fit by Adam, no text, no cold start — this is a sanity check, not a submission candidate), 3 seeds, random 20% cell holdout:**
+
+| Model | AUC before | AUC after (n≥15) | AUC after (n≥30) | Brier before | Brier after (n≥15) | Brier after (n≥30) |
+|---|---:|---:|---:|---:|---:|---:|
+| 1PL | 0.769 | 0.843 | 0.861 | 0.192 | 0.173 | 0.168 |
+| 2PL | 0.756 | 0.851 | 0.872 | 0.195 | 0.149 | 0.136 |
+| 3PL | 0.750 | 0.844 | 0.873 | 0.199 | 0.153 | 0.136 |
+
+And the direct answer to "can item difficulty be learned from this data at all": a plain 2PL fit on the `n≥15` filtered matrix, scored with no held-out split (every cell used, predicted item pass rate = mean over that benchmark's fitted subjects), gets **within-benchmark correlation 0.98** with the true pass rate (122,973 items). The neural models get 0.02–0.03 on the same quantity. **The task is learnable; our models have not been trained on data that lets them learn it.**
+
+Full plots, reproducibility commands in each script's docstring: `docs/model-results-visualization.pdf` pages 6–13 (`modal_response_matrix.py`, `modal_prediction_dump.py`, `modal_classic_irt_filter_test.py`, `modal_filter_retention.py`, `scripts/plot_model_vs_data.py`, `scripts/plot_filter_recovery.py`). Raw item pass-rate distributions and the cap audit: `docs/item-passrate-distribution.pdf` (`modal_item_passrate.py`, `modal_item_answerer.py`, `scripts/plot_item_passrate.py`).
+
+**Not yet decided / open:**
+- What `n` to actually use for the real model (15 vs 30 vs something else — coverage/quality tradeoff above).
+- Whether to also change the train/val/test **split** (whole-benchmark holdout) — this is a separate axis from filtering; filtering fixes signal quality, the split controls transfer. Current within-benchmark-on-unseen-items failure is primarily a split/transfer problem that filtering alone will not fix, per the same investigation.
+- No neural model (CNP, MIRT, Bayesian CNP-IRT) has yet been retrained on the filtered data. Do that next, and recheck the within-benchmark correlation on the filtered split before concluding filtering alone solves it end to end.
+- `labeled` / `item_features` / cold-start generalization to never-seen items is unaffected by this filtering question and still needs the text/embedding-based difficulty predictor; the filtered classic-IRT result establishes an upper bound (0.98 within-benchmark, in-sample), not a deployable solution.
 
 ### Naming
 
