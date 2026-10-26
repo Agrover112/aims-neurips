@@ -8,6 +8,8 @@
 > 4. **GPU jobs:** `modal_r_c_ablation.py` and friends default to `gpu="H100"` via `os.environ.get("R_C_GPU", "L4")`-style overrides in some files but hard H100 in others — check the decorator before launching, and prefer `--detach` plus one Modal app per job (detach only keeps the *last* spawned function alive otherwise).
 > 5. Competition deadline: **2026-10-30, 23:59 AoE** for the final codebase + report (see `reference/starting_kit/README.md`). As of this writing no submission zip (`model.py` + `labeling.py`) has been built from the current best model.
 
+> **⚠️ IMPORTANT (2026-10-26): FORGET ABOUT TASK TRACKING** — TaskCreate/TaskUpdate have no persistent state. All coordination happens via `git log`, `git status`, and this README. Current focus: **data filtering + offline IRT/MIRT training with weight-saving** (see sections below). Every result gets added to a table here.
+
 This repository is a collaboration-ready research workspace for the AIMS Predictive AI Evaluation Challenge (PAIEC). It preserves the official submission interface, adds an auditable adaptive baseline, reproduces the published Brier ALC calculation, and provides hooks for repeatable local, Modal, and Weights & Biases experiments.
 
 For the public training corpus, follow the reusable
