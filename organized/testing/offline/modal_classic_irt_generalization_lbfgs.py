@@ -195,6 +195,7 @@ def run(seed: int = 20261018) -> dict:
                     continue
                 rows.append({"benchmark_id": bench, "model": kind, "seed": seed, "axis": "subject",
                             "n_fit": len(half1), "n_score": len(half2),
+                            "label": y2, "pred_prob": p2,
                             "auc": float(roc_auc_score(y2, p2)),
                             "brier": float(np.mean((p2 - y2) ** 2))})
 
@@ -214,6 +215,7 @@ def run(seed: int = 20261018) -> dict:
                     continue
                 rows.append({"benchmark_id": bench, "model": kind, "seed": seed, "axis": "item",
                             "n_fit": len(half1), "n_score": len(half2),
+                            "label": y2, "pred_prob": p2,
                             "auc": float(roc_auc_score(y2, p2)),
                             "brier": float(np.mean((p2 - y2) ** 2))})
         print(f"{bench:<20}subs={len(subs):<5}items={len(its):<6}"
