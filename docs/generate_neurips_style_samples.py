@@ -22,7 +22,7 @@ from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
 from plotstyle import (  # noqa: E402
     BRIGHT, MUTED, HIGH_CONTRAST, CYCLE, INK, SUBTLE, HAIRLINE,
-    TEXTWIDTH, COLWIDTH, style, errorbar_kw,
+    TEXTWIDTH, COLWIDTH, SEQUENTIAL, style, errorbar_kw,
 )
 
 OUT = ROOT / "docs" / "neurips-sample-plots.pdf"
@@ -187,6 +187,207 @@ def page_matrix(pdf):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# CNP-style figures, after Garnelo et al. 2018 (Conditional Neural Processes).
+#
+# Their Figure 2 plots a 1D regression as the context set grows; their Figure 3
+# shows an image completion as context/mean/variance rows against a column per
+# context size, with the companion panel comparing random against
+# highest-variance acquisition.
+#
+# The analogues here:
+#   Fig 2  -> item response function for one held-out subject, context = the
+#             items acquired so far. The GP upper bound becomes the oracle 2PL
+#             curve fitted on that subject's complete response vector.
+#   Fig 3a -> the subject x item response matrix instead of an image: observed
+#             entries, posterior mean, posterior spread, per budget.
+#   Fig 3b -> our acquisition arms, which is what their random-vs-variance
+#             comparison already is.
+#
+# The posterior below is a real 2PL theta posterior on a grid, not a fitted
+# network -- enough to make the figure behave correctly (budget 0 falls back to
+# the prior, spread shrinks and localises as context arrives) while staying
+# synthetic.
+# ---------------------------------------------------------------------------
+
+BUDGETS = [0, 1, 3, 7, 15, 31]
+GRID = np.linspace(-4.0, 4.0, 201)
+
+
+def _icc(a, b, theta):
+    """2PL item characteristic curve, broadcast over (theta, item)."""
+    return 1.0 / (1.0 + np.exp(-a * (theta - b)))
+
+
+def _theta_posterior(a, b, resp, items):
+    """Posterior over ability on GRID given the responses to `items`, prior N(0,1)."""
+    logp = -0.5 * GRID**2
+    for j in items:
+        p = np.clip(_icc(a[j], b[j], GRID), 1e-9, 1 - 1e-9)
+        logp += np.log(p if resp[j] > 0.5 else 1.0 - p)
+    w = np.exp(logp - logp.max())
+    return w / w.sum()
+
+
+def _predict(a, b, post):
+    """Posterior predictive mean and epistemic spread per item."""
+    p = _icc(a[None, :], b[None, :], GRID[:, None])  # (grid, item)
+    mean = post @ p
+    second = post @ (p**2)
+    return mean, np.sqrt(np.clip(second - mean**2, 0, None))
+
+
+def page_cnp_response_function(pdf):
+    """Fig-2 analogue: the response curve tightening as the budget grows."""
+    n_item = 60
+    b = np.linspace(-2.5, 2.5, n_item)
+    a = np.full(n_item, 1.2)
+    subjects = [("Low ability ($\\theta=-0.9$)", -0.9), ("High ability ($\\theta=1.3$)", 1.3)]
+    shown = [1, 3, 7, 31]
+
+    fig, axes = plt.subplots(2, len(shown), figsize=(TEXTWIDTH, 2.9),
+                             sharex=True, sharey=True)
+    for row, (label, theta) in enumerate(subjects):
+        truth = _icc(a, b, theta)
+        resp = (rng.random(n_item) < truth).astype(float)
+        order = rng.permutation(n_item)
+
+        for col, k in enumerate(shown):
+            ax = axes[row, col]
+            seen = order[:k]
+            mean, sd = _predict(a, b, _theta_posterior(a, b, resp, seen))
+
+            ax.fill_between(b, mean - sd, mean + sd, color=MUTED["indigo"],
+                            alpha=0.20, lw=0, zorder=2)
+            ax.plot(b, mean, color=MUTED["indigo"], lw=1.1, zorder=3)
+            ax.plot(b, truth, color=MUTED["rose"], lw=0.9, ls=(0, (4, 2)), zorder=4)
+            ax.plot(b[seen], resp[seen], "o", ms=2.6, mfc=INK, mec=INK, zorder=5)
+
+            ax.set_xlim(-2.6, 2.6)
+            ax.set_ylim(-0.08, 1.08)
+            ax.set_yticks([0, 0.5, 1])
+            if row == 0:
+                ax.set_title(f"$k={k}$", loc="center", fontweight="bold")
+            if col == 0:
+                ax.set_ylabel("P(correct)")
+                ax.text(0.03, 0.06, label, transform=ax.transAxes, fontsize=6,
+                        color=SUBTLE, ha="left")
+            if row == 1:
+                ax.set_xlabel("Item difficulty $b$")
+            style(ax, grid_axis="both")
+
+    handles = [plt.Line2D([], [], color=MUTED["indigo"], lw=1.1),
+               plt.Line2D([], [], color=MUTED["indigo"], lw=5, alpha=0.20),
+               plt.Line2D([], [], color=MUTED["rose"], lw=0.9, ls=(0, (4, 2))),
+               plt.Line2D([], [], color=INK, marker="o", ms=2.6, ls="none")]
+    fig.tight_layout(pad=0.3, w_pad=0.6, h_pad=0.7, rect=(0, 0.1, 1, 1))
+    fig.legend(handles, ["Posterior mean", "$\\pm1\\sigma$", "Oracle 2PL", "Acquired item"],
+               loc="lower center", ncol=4, bbox_to_anchor=(0.5, 0.0))
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def page_cnp_matrix_completion(pdf):
+    """Fig-3a analogue: response matrix completion across the budget ladder."""
+    from matplotlib.colors import ListedColormap
+
+    n_subj, n_item = 20, 44
+    theta = np.sort(rng.normal(0, 1.1, n_subj))
+    b = np.linspace(-2.0, 2.0, n_item)
+    a = rng.uniform(0.9, 1.7, n_item)
+    truth = _icc(a[None, :], b[None, :], theta[:, None])
+    resp = (rng.random(truth.shape) < truth).astype(float)
+    orders = np.array([rng.permutation(n_item) for _ in range(n_subj)])
+
+    binary = ListedColormap([MUTED["rose"], MUTED["indigo"]])
+    binary.set_bad(HAIRLINE)
+
+    fig, axes = plt.subplots(3, len(BUDGETS), figsize=(TEXTWIDTH, 3.4))
+    for col, k in enumerate(BUDGETS):
+        context = np.full(resp.shape, np.nan)
+        mean = np.empty(resp.shape)
+        spread = np.empty(resp.shape)
+        for i in range(n_subj):
+            seen = orders[i, :k]
+            context[i, seen] = resp[i, seen]
+            mean[i], spread[i] = _predict(a, b, _theta_posterior(a, b, resp[i], seen))
+
+        panels = [(np.ma.masked_invalid(context), binary, 0, 1),
+                  (mean, SEQUENTIAL, 0, 1),
+                  (spread, "magma", 0, 0.45)]
+        for row, (grid, cmap, lo, hi) in enumerate(panels):
+            ax = axes[row, col]
+            im = ax.imshow(grid, cmap=cmap, vmin=lo, vmax=hi, aspect="auto",
+                           interpolation="nearest")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if row == 0:
+                ax.set_title(f"$k={k}$", fontweight="bold", pad=3)
+            if col == 0:
+                ax.set_ylabel(["Context", "Mean", "Spread"][row], fontweight="bold")
+            if col == len(BUDGETS) - 1 and row > 0:
+                # An inset cax lives outside the axes, so the panel keeps the
+                # width of its neighbours; fig.colorbar(ax=...) would shrink it.
+                cb = fig.colorbar(im, cax=ax.inset_axes([1.07, 0.0, 0.08, 1.0]))
+                cb.ax.tick_params(labelsize=5, width=0.4, length=1.6, pad=1.5)
+                cb.outline.set_linewidth(0.4)
+            style(ax, grid_axis="none")
+
+    fig.text(0.5, 0.075, "Rows: 20 subjects.  Columns within a panel: 44 items, "
+             "hard $\\rightarrow$ easy.", ha="center", fontsize=6, color=SUBTLE)
+    handles = [plt.Rectangle((0, 0), 1, 1, fc=MUTED["indigo"]),
+               plt.Rectangle((0, 0), 1, 1, fc=MUTED["rose"]),
+               plt.Rectangle((0, 0), 1, 1, fc=HAIRLINE)]
+    fig.tight_layout(pad=0.3, w_pad=0.4, h_pad=0.5, rect=(0, 0.12, 0.945, 1))
+    fig.legend(handles, ["correct", "incorrect", "not acquired"], loc="lower center",
+               ncol=3, bbox_to_anchor=(0.5, 0.0))
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def page_cnp_acquisition(pdf):
+    """Fig-3b analogue: random against uncertainty-driven acquisition."""
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.0))
+    x = np.arange(len(BUDGETS))
+    arms = {
+        "Random": (np.array([0.612, 0.648, 0.698, 0.742, 0.778, 0.802]), MUTED["indigo"], "-"),
+        "Max spread": (np.array([0.612, 0.671, 0.736, 0.787, 0.818, 0.835]), MUTED["rose"], "--"),
+        "Fisher": (np.array([0.612, 0.679, 0.748, 0.799, 0.829, 0.844]), MUTED["teal"], "-."),
+    }
+
+    ax = axes[0]
+    for name, (vals, colour, ls) in arms.items():
+        err = 0.035 * np.exp(-x / 3.5) + 0.008
+        ax.fill_between(x, vals - err, vals + err, color=colour, alpha=0.15, lw=0)
+        ax.plot(x, vals, color=colour, ls=ls, marker="o", ms=2.8, label=name)
+    ax.axhline(0.5, color=INK, lw=0.6, ls=(0, (4, 2)), zorder=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels(BUDGETS)
+    ax.set_xlabel("Acquisition budget $k$")
+    ax.set_ylabel("AUC")
+    ax.set_ylim(0.45, 0.9)
+    ax.set_title("(a) Accuracy against budget", loc="left", fontweight="bold")
+    ax.legend(loc="upper left", handlelength=1.8)
+    style(ax, grid_axis="both")
+
+    ax = axes[1]
+    for name, (_, colour, ls) in arms.items():
+        decay = {"Random": 3.9, "Max spread": 2.5, "Fisher": 2.3}[name]
+        ax.plot(x, 0.42 * np.exp(-x / decay) + 0.055, color=colour, ls=ls,
+                marker="o", ms=2.8, label=name)
+    ax.set_xticks(x)
+    ax.set_xticklabels(BUDGETS)
+    ax.set_xlabel("Acquisition budget $k$")
+    ax.set_ylabel("Mean posterior spread")
+    ax.set_ylim(0, 0.5)
+    ax.set_title("(b) Uncertainty against budget", loc="left", fontweight="bold")
+    style(ax, grid_axis="both")
+
+    fig.tight_layout(pad=0.3, w_pad=1.4)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def main():
     with PdfPages(OUT) as pdf:
         page_palette(pdf)
@@ -194,6 +395,9 @@ def main():
         page_curves(pdf)
         page_calibration(pdf)
         page_matrix(pdf)
+        page_cnp_response_function(pdf)
+        page_cnp_matrix_completion(pdf)
+        page_cnp_acquisition(pdf)
     print(f"wrote {OUT}")
 
 
