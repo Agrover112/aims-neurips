@@ -28,6 +28,8 @@ The current predictor is intentionally modest. It estimates a subject-benchmark 
 
 ```text
 submission/              self-contained competition submission
+organized/               filtering-era experiments: training/, testing/, utils/
+organized/utils/         plot scripts + plotstyle.py (see its README before plotting)
 src/aims_starter/        offline metrics and experiment utilities
 scripts/                 packaging, scoring, and plotting commands
 configs/                 committed experiment configurations
