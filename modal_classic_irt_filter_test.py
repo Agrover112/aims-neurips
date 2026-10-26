@@ -67,7 +67,7 @@ def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
     if kind == "3pl":
         params.append(logit_c)
 
-    opt = torch.optim.Adam(params, lr=0.1)
+    opt = torch.optim.AdamW(params, lr=0.1)
     for _ in range(steps):
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)

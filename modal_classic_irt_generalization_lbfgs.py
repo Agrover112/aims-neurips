@@ -65,7 +65,7 @@ def _fit_core(mat, kind, seed):
         return loss
 
     opt = torch.optim.LBFGS(params, lr=1.0, max_iter=LBFGS_STEPS,
-                            line_search_fn="strong_wolfe")
+                            line_search_fn="strong_wolfe")  # LBFGS unchanged
     opt.step(closure)
     with torch.no_grad():
         theta.clamp_(-6, 6)
@@ -112,7 +112,7 @@ def _fit_one_item(theta_known, y_half, kind):
         return loss
 
     opt = torch.optim.LBFGS(params, lr=1.0, max_iter=LBFGS_STEPS,
-                            line_search_fn="strong_wolfe")
+                            line_search_fn="strong_wolfe")  # LBFGS unchanged
     opt.step(closure)
     with torch.no_grad():
         b.clamp_(-6, 6)

@@ -64,7 +64,7 @@ def _fit_core(mat, kind, steps, seed):
     b = torch.zeros(n_i, requires_grad=True)
     log_a = torch.zeros(n_i, requires_grad=True)
     params = [theta, b] + ([log_a] if kind in ("2pl", "3pl") else [])
-    opt = torch.optim.Adam(params, lr=0.1)
+    opt = torch.optim.AdamW(params, lr=0.1)
     for _ in range(steps):
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
@@ -99,7 +99,7 @@ def _fit_one_item(theta_known, y_half, kind, steps=200):
     b = torch.zeros(1, requires_grad=True)
     log_a = torch.zeros(1, requires_grad=True)
     params = [b] + ([log_a] if kind in ("2pl", "3pl") else [])
-    opt = torch.optim.Adam(params, lr=0.1)
+    opt = torch.optim.AdamW(params, lr=0.1)
     for _ in range(steps):
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)

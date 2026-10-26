@@ -102,7 +102,7 @@ def run(seed: int = 20261018) -> dict:
         theta = torch.zeros(len(subs), requires_grad=True)
         b = torch.zeros(len(its), requires_grad=True)
         log_a = torch.zeros(len(its), requires_grad=True)
-        opt = torch.optim.Adam([theta, b, log_a], lr=0.1)
+        opt = torch.optim.AdamW([theta, b, log_a], lr=0.1)
         for _ in range(STEPS):
             opt.zero_grad()
             a = torch.exp(log_a)
