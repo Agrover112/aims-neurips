@@ -706,6 +706,10 @@ class ContextConditionedIRT(nn.Module):
     ``direct_ab``    pooled r_C directly parameterizes (a, b).
     """
 
+    # Per-instance overridable; defaults reproduce the Gaussian prior and +-2 sigma box.
+    prior_nu: float | None = None
+    box_sigmas: float = 2.0
+
     MODES = ("rasch", "2pl", "scalar", "residual", "additive_ab", "direct_ab")
 
     def __init__(
@@ -840,7 +844,18 @@ class ContextConditionedIRT(nn.Module):
         prior_mean: float | torch.Tensor = 0.0,
         steps: int = 12,
         prior_variance: float = PRIOR_THETA_VARIANCE,
+        prior_nu: float | None = None,
+        box_sigmas: float = 2.0,
     ) -> torch.Tensor:
+        """Newton MAP for a scalar ability.
+
+        ``prior_nu`` swaps the Gaussian prior for a Student-t with that many
+        degrees of freedom (scale ``sqrt(prior_variance)``), solved by
+        reweighted Newton; see ``MultidimContextIRT.map_theta``. ``box_sigmas``
+        is the clamp half-width in prior standard deviations (2 reproduces
+        every earlier run).
+        """
+
         if isinstance(prior_mean, torch.Tensor):
             prior = prior_mean.to(device=a_C.device, dtype=a_C.dtype).reshape(())
         else:
@@ -851,20 +866,17 @@ class ContextConditionedIRT(nn.Module):
         a_C = a_C.detach()
         b_C = b_C.detach()
         y_C = y_C.to(dtype=a_C.dtype)
+        box = box_sigmas * math.sqrt(prior_variance)
         for _ in range(steps):
             probability = torch.sigmoid(a_C * (theta - b_C))
-            gradient = torch.sum(a_C * (probability - y_C)) + (theta - prior) / prior_variance
-            hessian = (
-                torch.sum(a_C.square() * probability * (1.0 - probability)) + 1.0 / prior_variance
-            )
-            # The box is a numerical guard at +-2 standard deviations of the
-            # prior, not an absolute constant: at prior_variance = 4 that is
-            # +-4, matching every previously published run exactly, so this
-            # generalization changes nothing for tau^2 = 4. A fixed +-4 box
-            # would silently crush a wider prior -- at tau^2 = 9 it is only
-            # 1.33 sigma, discarding real posterior mass instead of guarding
-            # against numerical blowup.
-            box = 2.0 * math.sqrt(prior_variance)
+            if prior_nu is None:
+                precision = 1.0 / prior_variance
+            else:
+                precision = (prior_nu + 1.0) / (prior_nu * prior_variance + (theta - prior) ** 2)
+            gradient = torch.sum(a_C * (probability - y_C)) + (theta - prior) * precision
+            hessian = torch.sum(a_C.square() * probability * (1.0 - probability)) + precision
+            # The box is a numerical guard in prior standard deviations (2 by
+            # default: +-4 at tau^2 = 4, so every published run is unchanged).
             theta = (theta - (gradient / hessian).clamp(-1.0, 1.0)).clamp(-box, box)
         return theta
 
@@ -879,7 +891,14 @@ class ContextConditionedIRT(nn.Module):
             a_C, b_C = self._anchor_parameters(h_C)
         else:
             a_C, b_C = self._context_parameters(h_C, r_C)
-        theta = self.map_theta(a_C, b_C, y_C, prior_variance=self.prior_variance)
+        theta = self.map_theta(
+            a_C,
+            b_C,
+            y_C,
+            prior_variance=self.prior_variance,
+            prior_nu=self.prior_nu,
+            box_sigmas=self.box_sigmas,
+        )
         h_T = self.encode_item(x_T)
         a_T, b_T = self._target_parameters(h_T, r_C)
         if self.mode == "scalar":
@@ -1620,10 +1639,18 @@ class MultidimContextIRT(nn.Module):
         prior_variance: float = PRIOR_THETA_VARIANCE,
         difficulty_adapter_dim: int = 0,
         adapter_prior_variance: float = 1.0,
+        prior_nu: float | None = None,
+        box_sigmas: float = 2.0,
     ):
         super().__init__()
         if mode not in self.MODES:
             raise ValueError(f"unknown mode: {mode}")
+        if prior_nu is not None and prior_nu <= 0.0:
+            raise ValueError("prior_nu must be positive")
+        if box_sigmas <= 0.0:
+            raise ValueError("box_sigmas must be positive")
+        self.prior_nu = None if prior_nu is None else float(prior_nu)
+        self.box_sigmas = float(box_sigmas)
         if prior_variance <= 0.0:
             raise ValueError("prior_variance must be positive")
         if difficulty_adapter_dim < 0:
@@ -1776,8 +1803,23 @@ class MultidimContextIRT(nn.Module):
         prior_mean: torch.Tensor | None = None,
         steps: int = 12,
         prior_variance: float = PRIOR_VARIANCE,
+        prior_nu: float | None = None,
+        box_sigmas: float = 2.0,
     ) -> torch.Tensor:
         """Newton MAP for a D-dimensional ability.
+
+        ``prior_nu`` switches the ability prior from Gaussian to a Student-t
+        with that many degrees of freedom (scale ``sqrt(prior_variance)``).
+        A Gaussian prior pulls a subject that fails everything back toward
+        zero with force proportional to the distance, so a near-zero-accuracy
+        subject can never reach the ability its labels imply. The t prior's
+        pull decays with distance (``nu = 1`` is Cauchy), so strong evidence
+        escapes the prior while weak evidence is still shrunk. It is solved as
+        iteratively reweighted Newton: each step uses the precision
+        ``(nu + 1) / (nu tau^2 + (theta - mu)^2)``, the standard
+        majorize-minimize step for a t prior, which keeps the Hessian positive
+        definite. ``box_sigmas`` is the clamp half-width in prior standard
+        deviations; 2 reproduces every previous run.
 
         Mirrors the scalar solve in ``ContextConditionedIRT.map_theta``: the
         same prior variance, the same step count, the same trust-region clamp
@@ -1800,17 +1842,23 @@ class MultidimContextIRT(nn.Module):
         d_C = d_C.detach()
         y_C = y_C.to(dtype=a_C.dtype)
         eye = torch.eye(dim, device=a_C.device, dtype=a_C.dtype)
+        box = box_sigmas * math.sqrt(prior_variance)
         for _ in range(steps):
             probability = torch.sigmoid(a_C @ theta - d_C)
             weight = probability * (1.0 - probability)
-            gradient = a_C.transpose(0, 1) @ (probability - y_C) + (theta - prior) / prior_variance
-            hessian = (a_C.transpose(0, 1) * weight) @ a_C + eye / prior_variance
+            if prior_nu is None:
+                precision = theta.new_full((dim,), 1.0 / prior_variance)
+            else:
+                precision = (prior_nu + 1.0) / (
+                    prior_nu * prior_variance + (theta - prior).square()
+                )
+            gradient = a_C.transpose(0, 1) @ (probability - y_C) + precision * (theta - prior)
+            hessian = (a_C.transpose(0, 1) * weight) @ a_C + torch.diag(precision)
             # Jitter keeps the solve well posed when every context item loads
             # on the same few dimensions, which is common at small budgets.
             step = torch.linalg.solve(hessian + 1e-4 * eye, gradient)
             norm = step.norm().clamp_min(1e-12)
             step = step * (norm.clamp(max=1.0) / norm)
-            box = 2.0 * math.sqrt(prior_variance)
             theta = (theta - step).clamp(-box, box)
         return theta
 
@@ -1824,8 +1872,12 @@ class MultidimContextIRT(nn.Module):
         steps: int = 12,
         theta_prior_variance: float = PRIOR_VARIANCE,
         adapter_prior_variance: float = 1.0,
+        prior_mean: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Joint MAP for ability and a centered low-rank difficulty adapter.
+
+        ``prior_mean`` (optional, shape ``(D,)``) is the ability prior mean,
+        e.g. from ``LineagePrior``; the adapter prior mean stays at zero.
 
         Context logits are ``a_i @ theta - d_i - u_i @ z``. The adapter
         coefficients ``z`` modify item ranking while the centered loadings
@@ -1834,7 +1886,12 @@ class MultidimContextIRT(nn.Module):
 
         theta_dim = a_C.shape[-1]
         adapter_dim = u_C.shape[-1]
-        theta = a_C.new_zeros(theta_dim)
+        theta_prior = (
+            a_C.new_zeros(theta_dim)
+            if prior_mean is None
+            else prior_mean.to(device=a_C.device, dtype=a_C.dtype).reshape(theta_dim)
+        )
+        theta = theta_prior.clone()
         adapter = a_C.new_zeros(adapter_dim)
         if a_C.shape[0] == 0:
             return theta, adapter
@@ -1844,6 +1901,7 @@ class MultidimContextIRT(nn.Module):
                     a_C,
                     d_C,
                     y_C,
+                    prior_mean=prior_mean,
                     steps=steps,
                     prior_variance=theta_prior_variance,
                 ),
@@ -1854,6 +1912,7 @@ class MultidimContextIRT(nn.Module):
         d_C = d_C.detach()
         y_C = y_C.to(dtype=a_C.dtype)
         state = torch.cat([theta, adapter])
+        prior_state = torch.cat([theta_prior, adapter])
         prior_precision = torch.cat(
             [
                 state.new_full((theta_dim,), 1.0 / theta_prior_variance),
@@ -1864,7 +1923,9 @@ class MultidimContextIRT(nn.Module):
         for _ in range(steps):
             probability = torch.sigmoid(design @ state - d_C)
             weight = probability * (1.0 - probability)
-            gradient = design.transpose(0, 1) @ (probability - y_C) + prior_precision * state
+            gradient = design.transpose(0, 1) @ (probability - y_C) + prior_precision * (
+                state - prior_state
+            )
             hessian = (design.transpose(0, 1) * weight) @ design
             hessian = hessian + torch.diag(prior_precision)
             update = torch.linalg.solve(hessian + 1e-4 * eye, gradient)
@@ -1914,7 +1975,10 @@ class MultidimContextIRT(nn.Module):
         x_T: torch.Tensor,
         *,
         marginalize_theta: bool = False,
+        prior_mean: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """``prior_mean``: optional (D,) ability prior mean (None means zero)."""
+
         h_C, r_C = self._context_repr(x_C, y_C)
         if self.mode == "additive_ab":
             a_C, d_C = self._anchor_parameters(h_C)
@@ -1933,9 +1997,18 @@ class MultidimContextIRT(nn.Module):
                 y_C,
                 theta_prior_variance=self.prior_variance,
                 adapter_prior_variance=self.adapter_prior_variance,
+                prior_mean=prior_mean,
             )
         else:
-            theta = self.map_theta(a_C, d_C, y_C, prior_variance=self.prior_variance)
+            theta = self.map_theta(
+                a_C,
+                d_C,
+                y_C,
+                prior_mean=prior_mean,
+                prior_variance=self.prior_variance,
+                prior_nu=self.prior_nu,
+                box_sigmas=self.box_sigmas,
+            )
             difficulty_state = a_C.new_zeros((0,))
         theta_map = theta
         if self.mode == "scalar":

@@ -111,6 +111,15 @@ RUNGS = {
     "rasch_tau16": ("irt", "rasch", 16.0),
     "2pl_tau4": ("irt", "2pl", 4.0),
     "2pl_tau1": ("irt", "2pl", 1.0),
+    # Matched-prior retrains: the heavy-tailed ability prior is active inside
+    # every training step as well as at test time (the earlier test-time swap
+    # scored a Gaussian-trained checkpoint, so the item network never saw it).
+    # Same architecture as the Gaussian rung of the same name; the prior is set
+    # from HEAVY_TAIL below. Value is (degrees of freedom, clamp in sigmas).
+    "mirt_scalar_d4_t3": ("mirt", "scalar", 4, 0),
+    "mirt_scalar_d4_cauchy": ("mirt", "scalar", 4, 0),
+    "2pl_tau1_t3": ("irt", "2pl", 1.0),
+    "2pl_tau1_cauchy": ("irt", "2pl", 1.0),
     "2pl_tau9": ("irt", "2pl", 9.0),
     "2pl_tau16": ("irt", "2pl", 16.0),
     "scalar_tau1": ("irt", "scalar", 1.0),
@@ -221,7 +230,15 @@ def _episode(
     return x[indices_c], y[indices_c], x[indices_t], y[indices_t]
 
 
-def _make_model(
+HEAVY_TAIL = {
+    "mirt_scalar_d4_t3": (3.0, 6.0),
+    "mirt_scalar_d4_cauchy": (1.0, 6.0),
+    "2pl_tau1_t3": (3.0, 6.0),
+    "2pl_tau1_cauchy": (1.0, 6.0),
+}
+
+
+def _build_model(
     rung: str,
     x_dim: int,
     subject_feature_slice,
@@ -360,6 +377,19 @@ def _make_model(
         subject_feature_slice=subject_feature_slice,
         prior_variance=float(flags[0]) if flags else 4.0,
     )
+
+
+def _make_model(rung, *args, **kwargs):
+    """Build a rung and apply its heavy-tailed ability prior, if it has one.
+
+    The prior is read inside ``map_theta`` on every forward pass, so setting
+    it here makes training and scoring use the same prior (a matched run).
+    """
+
+    model = _build_model(rung, *args, **kwargs)
+    if rung in HEAVY_TAIL:
+        model.prior_nu, model.box_sigmas = HEAVY_TAIL[rung]
+    return model
 
 
 def _train_model(
