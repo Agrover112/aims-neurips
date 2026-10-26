@@ -123,6 +123,7 @@ def run(seed: int = 20261018) -> dict:
     print(f"filtered (n>=30): {len(d):,} rows, {d.benchmark_id.nunique()} benchmarks", flush=True)
 
     rows = []
+    weights_all = {}
     rng_global = np.random.default_rng(seed)
     for bench, dd in d.groupby("benchmark_id"):
         subs = sorted(dd["subject_uid"].unique())
@@ -143,9 +144,14 @@ def run(seed: int = 20261018) -> dict:
 
         for kind in ("1pl", "2pl", "3pl"):
             for d_dim in (2, 4):
+                import torch
+                theta_fit, b_fit, loga_fit = _fit_core(m2, kind, d_dim, STEPS, int(rng_global.integers(0, 2**31)))
                 result = _fit_and_score(m2, train_mask, test_mask, kind, d_dim, STEPS, rng)
                 if result is None:
                     continue
+                weights_all[f"{bench}_{kind}_d{d_dim}"] = {
+                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy()
+                }
                 auc, brier, n_test = result
                 rows.append({"benchmark_id": bench, "model": f"{kind}_d{d_dim}", "seed": seed,
                             "n_subjects": len(subs), "n_items": len(its),
@@ -157,8 +163,11 @@ def run(seed: int = 20261018) -> dict:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out = OUT.with_name(f"{OUT.stem}-seed{seed}{OUT.suffix}")
     frame.to_parquet(out, index=False)
+    import torch
+    weights_out = OUT.parent / f"mirt-d2-d4-filtered-weights-seed{seed}.pt"
+    torch.save(weights_all, weights_out)
     volume.commit()
-    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed}
+    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed, "weights_saved": len(weights_all)}
 
 
 SEEDS = (20261018, 20261019, 20261020)

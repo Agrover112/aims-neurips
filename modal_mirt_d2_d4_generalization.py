@@ -121,6 +121,7 @@ def run(seed: int = 20261018) -> dict:
     print(f"filtered (n>=30): {len(d):,} rows, {d.benchmark_id.nunique()} benchmarks", flush=True)
 
     rows = []
+    weights_all = {}
     rng_global = np.random.default_rng(seed)
     for bench, dd in d.groupby("benchmark_id"):
         subs = sorted(dd["subject_uid"].unique())
@@ -148,6 +149,11 @@ def run(seed: int = 20261018) -> dict:
             for d_dim in (2, 4):
                 theta_core, b_core, loga_core = _fit_core(core, kind, d_dim, STEPS, int(rng_global.integers(0, 2**31)))
                 a_core = torch.exp(loga_core) if kind in ("2pl", "3pl") else torch.ones(len(train_i))
+                weights_all[f"{bench}_{kind}_d{d_dim}"] = {
+                    "theta": theta_core.numpy(), "b": b_core.numpy(),
+                    "log_a": loga_core.numpy(), "subject_ids": np.array(subs),
+                    "item_ids": np.array(its), "train_subjects": train_s, "train_items": train_i
+                }
 
                 # subject generalization
                 for row in held_s:
@@ -195,8 +201,11 @@ def run(seed: int = 20261018) -> dict:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out = OUT.with_name(f"{OUT.stem}-seed{seed}{OUT.suffix}")
     frame.to_parquet(out, index=False)
+    import torch
+    weights_out = OUT.parent / f"mirt-d2-d4-generalization-weights-seed{seed}.pt"
+    torch.save(weights_all, weights_out)
     volume.commit()
-    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed}
+    return {"rows": len(frame), "benchmarks": frame["benchmark_id"].nunique(), "seed": seed, "weights_saved": len(weights_all)}
 
 
 SEEDS = (20261018, 20261019, 20261020)
