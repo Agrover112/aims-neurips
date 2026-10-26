@@ -365,6 +365,55 @@ Subject generalization is strong (AUC ~0.85, matches the paper). Item generaliza
 - `labeled` / `item_features` / cold-start generalization to never-seen items is unaffected by this filtering question and still needs the text/embedding-based difficulty predictor; the filtered classic-IRT result establishes an upper bound (0.98 within-benchmark, in-sample), not a deployable solution.
 - Adam vs L-BFGS for classic IRT fitting: not yet compared head-to-head.
 
+### MIRT/3PL bugs found and fixed (2026-10-27) — reruns required, Amortized IRT planned
+
+**Every MIRT, Bayesian-MIRT, and 3PL number produced before 2026-10-27 is void.** Two modelling bugs in `organized/testing/offline/`, found while answering "which n-PL is MIRT actually using?":
+
+1. **MIRT was not multidimensional.** The kernel was `a[i] * (theta[s].sum(dim=1) - b[i])` — a *scalar* discrimination times the **sum** of θ's components. Σθ_d is one number, so D=2 and D=4 were algebraically identical to D=1, differing only in the implied prior variance. Fixed to compensatory MIRT: `(a[i] * theta[s]).sum(dim=1) - b[i]` with `a` of shape `(n_items, D)`. Verified on synthetic 3-dimensional data: final training loss now actually moves with D (1PL: 0.619 → 0.589 → 0.573 for D=1/2/4; before the fix these were identical).
+2. **3PL had no guessing parameter.** The branch was `kind in ("2pl", "3pl")` with no `c` anywhere, so every "3PL" result was a duplicate 2PL differing only by init seed. Fixed with a `logit_c` parameter capped at 0.5. Verified: on data generated with true guessing `c=0.25`, the fitted mean ĉ is 0.262; 1PL/2PL correctly stay at their untrained init since `c` isn't in their parameter list.
+
+Three more crash bugs surfaced while fixing the above — these jobs produced **nothing**, not just wrong numbers: `modal_mirt_d2_d4_filtered.py`, `modal_bayesian_mirt_d1_d2_d4_filtered.py`, and `modal_classic_irt_filter_test.py` all called an undefined `_fit_core()` (`NameError`); `modal_filter_retention.py` used `np.array()` without importing numpy. All fixed in the same pass; see `f4f9fc3`.
+
+**Repeated IRT runs** (same protocols as above, same filters, now with correct math — must be rerun before any result from these jobs is trusted):
+
+| script | protocol | models affected | bug(s) fixed | status |
+|---|---|---|---|---|
+| `modal_classic_irt_filter_test.py` | before/after filter, n=15 & n=30, 20% cell holdout | 1PL/2PL/3PL | `_fit_core` NameError (job never ran) | rerun pending |
+| `modal_classic_irt_generalization.py` | subject/item split-half, n≥30 | 1PL/2PL/3PL | 3PL had no guessing param | rerun pending |
+| `modal_classic_irt_generalization_lbfgs.py` | subject/item split-half, n≥30, L-BFGS | 1PL/2PL/3PL | 3PL had no guessing param | rerun pending |
+| `modal_filter_retention.py` | retention counts + 2PL item pass-rate recovery | 2PL | missing `numpy` import (job never ran) | rerun pending |
+| `modal_mirt_d2_d4_filtered.py` | 20% cell holdout, n≥30 | MIRT D=2,4 × 1PL/2PL/3PL | `_fit_core` NameError (job never ran) + scalar-`a` bug + no 3PL guessing | rerun pending |
+| `modal_mirt_d2_d4_generalization.py` | subject/item split-half, n≥30 | MIRT D=2,4 × 1PL/2PL/3PL | scalar-`a` bug + no 3PL guessing | rerun pending |
+| `modal_bayesian_mirt_d1_d2_d4_filtered.py` | 20% cell holdout, n≥30, Gaussian priors | Bayesian MIRT D=1,2,4 × 1PL/2PL/3PL | `_fit_core` NameError (job never ran) + scalar-`a` bug + no 3PL guessing | rerun pending |
+| `modal_bayesian_mirt_d1_d2_d4_generalization.py` | subject/item split-half, n≥30, Gaussian priors | Bayesian MIRT D=1,2,4 × 1PL/2PL/3PL | scalar-`a` bug + no 3PL guessing | rerun pending |
+
+3 seeds (20261018/19/20) each, as before. Old weights/results/plots for these models get replaced by the reruns, not kept alongside them — but only once the reruns land, not before.
+
+**Embedding coverage check (2026-10-27):** before planning Amortized IRT, checked whether the existing embedding stores cover the n≥30 filtered item universe (56,576 items, 7 benchmarks) or need re-encoding — `organized/utils/modal_embedding_coverage.py`. Result: **100% coverage, nothing missing**, for the four v2 arms built over the full 1.36M-item corpus:
+
+| embedding arm | dim | coverage |
+|---|---:|---:|
+| `me5_instruct-v2` | 1024 | 100% (0 missing) |
+| `bge_m3_long-v2` | 1024 | 100% (0 missing) |
+| `qwen3_4b-v2` | 1024 | 100% (0 missing) |
+| `qwen3_8b-v2` | 1024 | 100% (0 missing) |
+| v1 arms (minilm, bge_base, llama31_8b) | 384–4096 | 64.5% — stale, built over an older 218k-item universe; do not use |
+
+**Planned Amortized IRT ablations** (after *Reliable and Efficient Amortized Model-based Evaluation* §4.1 — the paper only ran this for Rasch/1PL with a linear head; 2PL/3PL amortized is new here). Design settled in conversation on 2026-10-27:
+
+- **Unidimensional only** — no multidimensional θ or `a`; that axis is MIRT's job, not this model's.
+- `b_j = f_φ(e_j)`, GELU MLP (not ReLU) on the question embedding.
+- `d_j = g_φ(e_j)` is **also amortized** (separate head, same embedding) — one 2PL/3PL arm, not a free-scalar-`d` vs amortized-`d` comparison (that comparison was considered and explicitly dropped).
+- Trained **through the IRT likelihood** (E/M-style, like the paper), not by regressing on pre-fit difficulties — that two-stage approach already exists as a diagnostic in `modal_item_difficulty_probe.py` and is not what this is.
+
+| model | b | d | guessing c | dims | status |
+|---|---|---|---|---|---|
+| Amortized 1PL | `f_φ(e_j)`, GELU MLP | fixed at 1 | — | 1 | planned |
+| Amortized 2PL | `f_φ(e_j)`, GELU MLP | `g_φ(e_j)`, GELU MLP | — | 1 | planned |
+| Amortized 3PL | `f_φ(e_j)`, GELU MLP | `g_φ(e_j)`, GELU MLP | free scalar per item | 1 | planned |
+
+Each to be tested against 4 embedding arms (me5_instruct, bge_m3_long, qwen3_4b, qwen3_8b) for the paper's own robustness-to-embedding-choice check (their Fig. 10), with the same subject/item split-half generalization protocol as the classic-IRT reruns above, offline metrics (AUC/Brier/ECE/LogLoss) via `organized/testing/offline/modal_offline_metrics.py`, and figures via `organized/utils/plotstyle.py` / `cnp_figures.py` — the shared code under `organized/`, not a bespoke copy (see `organized/utils/README.md`).
+
 ### How to reproduce the filtering/splitting/classic-IRT investigation
 
 All scripts are CPU-only Modal jobs (`cpu=16, memory=131_072`), read `observations.parquet` + `items.parquet` from the `aims-neurips-data` volume, 3 seeds each, `--detach` required (local entrypoint dies otherwise kills the job). Run in this order:
