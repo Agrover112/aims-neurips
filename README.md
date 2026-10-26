@@ -341,11 +341,62 @@ And the direct answer to "can item difficulty be learned from this data at all":
 
 Full plots, reproducibility commands in each script's docstring: `docs/model-results-visualization.pdf` pages 6–13 (`modal_response_matrix.py`, `modal_prediction_dump.py`, `modal_classic_irt_filter_test.py`, `modal_filter_retention.py`, `scripts/plot_model_vs_data.py`, `scripts/plot_filter_recovery.py`). Raw item pass-rate distributions and the cap audit: `docs/item-passrate-distribution.pdf` (`modal_item_passrate.py`, `modal_item_answerer.py`, `scripts/plot_item_passrate.py`).
 
+**Row/column (subject/item) generalization, `n≥30` filter, split-half protocol (paper §5.1, extended symmetrically to items — the paper itself only tests subject generalization this way; item generalization in the paper uses a separate text-based model, out of scope for this no-text check):** per benchmark, hold out 20% of subjects and 20% of items entirely from the core fit; for each held-out subject, split its responses on training items into two random halves, fit theta on half 1 (item params frozen), score on half 2; symmetrically for held-out items (fit `a,b` on half 1, subject thetas frozen, score on half 2). 3 seeds × 7 benchmarks (`n≥30` filter):
+
+| axis | model | AUC | Brier | n held-out (pooled) |
+|---|---|---:|---:|---:|
+| subject | 1PL | 0.854 ± 0.094 | 0.160 ± 0.028 | 3,414 |
+| subject | 2PL | 0.854 ± 0.102 | 0.106 ± 0.046 | 3,413 |
+| subject | 3PL | 0.855 ± 0.104 | 0.105 ± 0.045 | 3,411 |
+| item | 1PL | 0.612 ± 0.247 | 0.200 ± 0.049 | 30,993 |
+| item | 2PL | 0.599 ± 0.314 | 0.171 ± 0.092 | 31,021 |
+| item | 3PL | 0.600 ± 0.315 | 0.169 ± 0.091 | 31,023 |
+
+Subject generalization is strong (AUC ~0.85, matches the paper). Item generalization is weak and high-variance (AUC ~0.60, sd up to 0.31) — a held-out item only gets split across whichever training subjects happened to answer it, so with `n≥30` each half can be ~15 points, too little to pin down a free `(a,b)`. Script: `modal_classic_irt_generalization.py` (Adam/MLE). An L-BFGS variant (matches the paper's own optimizer) is `modal_classic_irt_generalization_lbfgs.py` — same protocol, same filters, run to compare optimizer choice, results not yet pulled.
+
 **Not yet decided / open:**
 - What `n` to actually use for the real model (15 vs 30 vs something else — coverage/quality tradeoff above).
 - Whether to also change the train/val/test **split** (whole-benchmark holdout) — this is a separate axis from filtering; filtering fixes signal quality, the split controls transfer. Current within-benchmark-on-unseen-items failure is primarily a split/transfer problem that filtering alone will not fix, per the same investigation.
 - No neural model (CNP, MIRT, Bayesian CNP-IRT) has yet been retrained on the filtered data. Do that next, and recheck the within-benchmark correlation on the filtered split before concluding filtering alone solves it end to end.
 - `labeled` / `item_features` / cold-start generalization to never-seen items is unaffected by this filtering question and still needs the text/embedding-based difficulty predictor; the filtered classic-IRT result establishes an upper bound (0.98 within-benchmark, in-sample), not a deployable solution.
+- Adam vs L-BFGS for classic IRT fitting: not yet compared head-to-head.
+
+### How to reproduce the filtering/splitting/classic-IRT investigation
+
+All scripts are CPU-only Modal jobs (`cpu=16, memory=131_072`), read `observations.parquet` + `items.parquet` from the `aims-neurips-data` volume, 3 seeds each, `--detach` required (local entrypoint dies otherwise kills the job). Run in this order:
+
+1. **Filter effect (before/after, random 20% cell holdout):**
+   ```
+   modal run --detach modal_classic_irt_filter_test.py::main                    # n>=15 (default)
+   modal run --detach modal_classic_irt_filter_test.py::main --min-subjects 30  # n>=30
+   ```
+   Output: `/results/data-analysis/classic-irt-filter-test-seed{seed}[-n30].parquet`.
+
+2. **Retention counts + full-data 2PL item recovery (no holdout):**
+   ```
+   modal run --detach modal_filter_retention.py::main
+   ```
+   Output: `filter-retention-seed{seed}.parquet`, `filter-2pl-items-seed{seed}.parquet`.
+
+3. **Row/column (subject/item) generalization, split-half, n>=30:**
+   ```
+   modal run --detach modal_classic_irt_generalization.py::main          # Adam
+   modal run --detach modal_classic_irt_generalization_lbfgs.py::main    # L-BFGS
+   ```
+   Output: `classic-irt-generalization[-lbfgs]-seed{seed}.parquet`, column `axis` is `"subject"` or `"item"`.
+
+4. **Pull results from the volume** (paths are volume-relative, **not** the `/data/...` mount path):
+   ```
+   .venv/bin/modal volume get aims-neurips-data /results/data-analysis/<file>.parquet <local_dir>/
+   ```
+
+5. **Rebuild the PDFs** (each script's docstring has its exact arg list):
+   ```
+   python scripts/plot_filter_recovery.py <classic_irt_dir> <items_avg.parquet> <base.pdf> <out.pdf>
+   python scripts/plot_model_vs_data.py ...   # see docstring
+   python scripts/plot_item_passrate.py ...   # see docstring
+   ```
+   Both target PDFs (`docs/model-results-visualization.pdf`, `docs/item-passrate-distribution.pdf`) are append-only across agents — always extract the current page count with `pypdf` and re-append, never regenerate from page 1, or you will duplicate another agent's pages.
 
 ### Naming
 
