@@ -365,6 +365,18 @@ Subject generalization is strong (AUC ~0.85, matches the paper). Item generaliza
 - `labeled` / `item_features` / cold-start generalization to never-seen items is unaffected by this filtering question and still needs the text/embedding-based difficulty predictor; the filtered classic-IRT result establishes an upper bound (0.98 within-benchmark, in-sample), not a deployable solution.
 - Adam vs L-BFGS for classic IRT fitting: not yet compared head-to-head.
 
+### Standing rule: filtered data, shared code under `organized/` (2026-10-27)
+
+**Everything from here on runs on the n≥30 filtered data and lives under `organized/`.** This applies to every model — classic IRT, MIRT, Bayesian MIRT, Amortized IRT, and any neural retrain — and to every agent working in this repo (Claude Code, Codex, OpenCode alike).
+
+- **Data:** n≥30 filtered matrix only. Not raw, not n≥15. Raw data gives 0.02–0.03 within-benchmark correlation (item difficulty is unlearnable from it); n≥30 filtered gives 0.98.
+- **Code location:** `organized/training/`, `organized/testing/offline/`, `organized/testing/online/`, `organized/utils/`. Do not add new experiment scripts elsewhere.
+- **Metrics:** `organized/testing/offline/modal_offline_metrics.py` (AUC, Brier, ECE, LogLoss). Do not write a fresh ECE/Brier helper — the repo already drifted into several disagreeing copies of the same quantity.
+- **Figures:** `organized/utils/plotstyle.py` and `organized/utils/cnp_figures.py`. No private palettes or local rcParams. See `organized/utils/README.md`.
+- **Orchestration:** `organized/run_evaluation_pipeline.py`, then `organized/aggregate_results.py`.
+
+If something needed is missing from `organized/`, add it there and import it rather than inlining a one-off copy.
+
 ### MIRT/3PL bugs found and fixed (2026-10-27) — reruns required, Amortized IRT planned
 
 **Every MIRT, Bayesian-MIRT, and 3PL number produced before 2026-10-27 is void.** Two modelling bugs in `organized/testing/offline/`, found while answering "which n-PL is MIRT actually using?":
