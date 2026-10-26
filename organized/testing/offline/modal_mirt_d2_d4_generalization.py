@@ -30,8 +30,30 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
 
 
+def _bce(z, y, c=None):
+    """Binary cross-entropy on logits, or on the 3PL guessing mixture."""
+    import torch
+
+    if c is None:
+        return torch.nn.functional.binary_cross_entropy_with_logits(z, y)
+    p = (c + (1.0 - c) * torch.sigmoid(z)).clamp(1e-6, 1 - 1e-6)
+    return -(y * torch.log(p) + (1 - y) * torch.log(1 - p)).mean()
+
+
+def _guess(logit_c, kind):
+    """3PL guessing probability, capped at 0.5; None for 1PL/2PL."""
+    import torch
+
+    return torch.sigmoid(logit_c) * 0.5 if kind == "3pl" else None
+
+
 def _fit_core(mat, kind, d, steps, seed):
-    """Joint MLE on every non-NaN cell of ``mat``."""
+    """Joint MLE on every non-NaN cell of ``mat``.
+
+    Compensatory MIRT: each item carries a discrimination *vector* a_j in R^d,
+    so z = <a_j, theta_i> - b_j. Collapsing theta with .sum() against a scalar
+    a_j would make every d > 1 algebraically identical to d = 1.
+    """
     import numpy as np
     import torch
 
@@ -42,33 +64,44 @@ def _fit_core(mat, kind, d, steps, seed):
     n_s, n_i = mat.shape
 
     torch.manual_seed(seed)
-    theta = torch.randn(n_s, d, requires_grad=True) * 0.1
+    theta = (torch.randn(n_s, d) * 0.1).requires_grad_(True)
     b = torch.zeros(n_i, requires_grad=True)
-    log_a = torch.zeros(n_i, requires_grad=True)
-    params = [theta, b] + ([log_a] if kind in ("2pl", "3pl") else [])
+    log_a = torch.zeros(n_i, d, requires_grad=True)
+    logit_c = torch.full((n_i,), -2.0, requires_grad=True)
+    params = [theta, b]
+    if kind in ("2pl", "3pl"):
+        params.append(log_a)
+    if kind == "3pl":
+        params.append(logit_c)
 
     opt = torch.optim.AdamW(params, lr=0.1)
+    loss_history = []
     for _ in range(steps):
         opt.zero_grad()
-        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
-        z = a[i_t] * (theta[s_t].sum(dim=1) - b[i_t])
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y)
+        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i, d)
+        z = (a[i_t] * theta[s_t]).sum(dim=1) - b[i_t]
+        c = _guess(logit_c, kind)
+        loss = _bce(z, y, None if c is None else c[i_t])
         loss = loss + 0.125 * (theta.square().mean() + b.square().mean())
         loss.backward()
         opt.step()
-    return theta.detach(), b.detach(), log_a.detach()
+        loss_history.append(float(loss.detach().cpu().numpy()))
+    return theta.detach(), b.detach(), log_a.detach(), logit_c.detach(), loss_history
 
 
-def _fit_one_theta(a_known, b_known, y_half, d, steps=200):
-    """New subject: fit multidim theta against frozen (a, b) on revealed cells."""
+def _fit_one_theta(a_known, b_known, y_half, d, c_known=None, steps=200):
+    """New subject: fit multidim theta against frozen item params on revealed cells.
+
+    ``a_known`` is (n_items, d).
+    """
     import torch
 
-    theta = torch.randn(1, d, requires_grad=True) * 0.1
+    theta = (torch.randn(1, d) * 0.1).requires_grad_(True)
     opt = torch.optim.AdamW([theta], lr=0.1)
     for _ in range(steps):
         opt.zero_grad()
-        z = a_known * (theta.sum(dim=1) - b_known)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_half)
+        z = (a_known * theta).sum(dim=1) - b_known
+        loss = _bce(z, y_half, c_known)
         loss = loss + 0.25 * theta.square().mean()
         loss.backward()
         opt.step()
@@ -76,23 +109,33 @@ def _fit_one_theta(a_known, b_known, y_half, d, steps=200):
 
 
 def _fit_one_item(theta_known, y_half, kind, steps=200):
-    """New item: fit (a, b) against frozen theta on revealed cells."""
+    """New item: fit its (a, b, c) against frozen theta on revealed cells.
+
+    ``theta_known`` is (n_subjects, d); the fitted ``a`` is (1, d).
+    """
     import torch
 
+    d = theta_known.shape[1]
     b = torch.zeros(1, requires_grad=True)
-    log_a = torch.zeros(1, requires_grad=True)
-    params = [b] + ([log_a] if kind in ("2pl", "3pl") else [])
+    log_a = torch.zeros(1, d, requires_grad=True)
+    logit_c = torch.full((1,), -2.0, requires_grad=True)
+    params = [b]
+    if kind in ("2pl", "3pl"):
+        params.append(log_a)
+    if kind == "3pl":
+        params.append(logit_c)
+
     opt = torch.optim.AdamW(params, lr=0.1)
     for _ in range(steps):
         opt.zero_grad()
-        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)
-        z = a * (theta_known.sum(dim=1) - b)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_half)
+        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1, d)
+        z = (a * theta_known).sum(dim=1) - b
+        loss = _bce(z, y_half, _guess(logit_c, kind))
         loss = loss + 0.25 * b.square().mean()
         loss.backward()
         opt.step()
-    a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)
-    return a.detach(), b.detach()
+    a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1, d)
+    return a.detach(), b.detach(), logit_c.detach()
 
 
 @app.function(image=image, gpu="L4", memory=131_072, volumes={"/data": volume},
@@ -147,11 +190,15 @@ def run(seed: int = 20261018) -> dict:
 
         for kind in ("1pl", "2pl", "3pl"):
             for d_dim in (2, 4):
-                theta_core, b_core, loga_core = _fit_core(core, kind, d_dim, STEPS, int(rng_global.integers(0, 2**31)))
-                a_core = torch.exp(loga_core) if kind in ("2pl", "3pl") else torch.ones(len(train_i))
+                theta_core, b_core, loga_core, logitc_core, loss_history = _fit_core(
+                    core, kind, d_dim, STEPS, int(rng_global.integers(0, 2**31)))
+                a_core = (torch.exp(loga_core) if kind in ("2pl", "3pl")
+                          else torch.ones(len(train_i), d_dim))
+                c_core = _guess(logitc_core, kind)
                 weights_all[f"{bench}_{kind}_d{d_dim}"] = {
                     "theta": theta_core.numpy(), "b": b_core.numpy(),
-                    "log_a": loga_core.numpy(), "subject_ids": np.array(subs),
+                    "log_a": loga_core.numpy(), "logit_c": logitc_core.numpy(),
+                    "loss_history": loss_history, "subject_ids": np.array(subs),
                     "item_ids": np.array(its), "train_subjects": train_s, "train_items": train_i
                 }
 
@@ -163,10 +210,15 @@ def run(seed: int = 20261018) -> dict:
                     perm = rng.permutation(cols)
                     half1, half2 = perm[: len(perm) // 2], perm[len(perm) // 2:]
                     y1 = torch.as_tensor(mat[row, train_i][half1], dtype=torch.float32)
-                    theta_new = _fit_one_theta(a_core[half1], b_core[half1], y1, d_dim)
+                    theta_new = _fit_one_theta(
+                        a_core[half1], b_core[half1], y1, d_dim,
+                        None if c_core is None else c_core[half1])
                     with torch.no_grad():
-                        z2 = a_core[half2] * (theta_new.sum(dim=1) - b_core[half2])
-                        p2 = torch.sigmoid(z2).numpy()
+                        z2 = (a_core[half2] * theta_new).sum(dim=1) - b_core[half2]
+                        p2 = torch.sigmoid(z2)
+                        if c_core is not None:
+                            p2 = c_core[half2] + (1 - c_core[half2]) * p2
+                        p2 = p2.numpy()
                     y2 = mat[row, train_i][half2]
                     if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                         continue
@@ -184,10 +236,14 @@ def run(seed: int = 20261018) -> dict:
                     perm = rng.permutation(rows_idx)
                     half1, half2 = perm[: len(perm) // 2], perm[len(perm) // 2:]
                     y1 = torch.as_tensor(mat[train_s, col][half1], dtype=torch.float32)
-                    a_new, b_new = _fit_one_item(theta_core[half1], y1, kind)
+                    a_new, b_new, logitc_new = _fit_one_item(theta_core[half1], y1, kind)
                     with torch.no_grad():
-                        z2 = a_new * (theta_core[half2].sum(dim=1) - b_new)
-                        p2 = torch.sigmoid(z2).numpy()
+                        z2 = (a_new * theta_core[half2]).sum(dim=1) - b_new
+                        p2 = torch.sigmoid(z2)
+                        c_new = _guess(logitc_new, kind)
+                        if c_new is not None:
+                            p2 = c_new + (1 - c_new) * p2
+                        p2 = p2.numpy()
                     y2 = mat[train_s, col][half2]
                     if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                         continue

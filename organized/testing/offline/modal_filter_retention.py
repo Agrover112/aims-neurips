@@ -42,6 +42,7 @@ image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.or
 @app.function(image=image, cpu=16, memory=131_072, volumes={"/data": volume},
               timeout=6 * 60 * 60)
 def run(seed: int = 20261018) -> dict:
+    import numpy as np
     import pandas as pd
     import torch
 

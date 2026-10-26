@@ -30,6 +30,23 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 
+def _bce(z, y, c=None):
+    """Binary cross-entropy on logits, or on the 3PL guessing mixture."""
+    import torch
+
+    if c is None:
+        return torch.nn.functional.binary_cross_entropy_with_logits(z, y)
+    p = (c + (1.0 - c) * torch.sigmoid(z)).clamp(1e-6, 1 - 1e-6)
+    return -(y * torch.log(p) + (1 - y) * torch.log(1 - p)).mean()
+
+
+def _guess(logit_c, kind):
+    """3PL guessing probability, capped at 0.5; None for 1PL/2PL."""
+    import torch
+
+    return torch.sigmoid(logit_c) * 0.5 if kind == "3pl" else None
+
+
 def _lbfgs_run(params, closure, steps):
     import torch
 
@@ -53,15 +70,24 @@ def _fit_core(mat, kind, seed):
     theta = torch.zeros(n_s, requires_grad=True)
     b = torch.zeros(n_i, requires_grad=True)
     log_a = torch.zeros(n_i, requires_grad=True)
-    params = [theta, b] + ([log_a] if kind in ("2pl", "3pl") else [])
+    logit_c = torch.full((n_i,), -2.0, requires_grad=True)
+    params = [theta, b]
+    if kind in ("2pl", "3pl"):
+        params.append(log_a)
+    if kind == "3pl":
+        params.append(logit_c)
+
+    loss_history = []
 
     def closure():
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
         z = a[i_t] * (theta[s_t] - b[i_t])
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y)
+        c = _guess(logit_c, kind)
+        loss = _bce(z, y, None if c is None else c[i_t])
         loss = loss + 0.125 * (theta.square().mean() + b.square().mean())
         loss.backward()
+        loss_history.append(float(loss.detach().cpu().numpy()))
         return loss
 
     opt = torch.optim.LBFGS(params, lr=1.0, max_iter=LBFGS_STEPS,
@@ -71,10 +97,11 @@ def _fit_core(mat, kind, seed):
         theta.clamp_(-6, 6)
         b.clamp_(-6, 6)
         log_a.clamp_(-3, 3)
-    return theta.detach(), b.detach(), log_a.detach()
+        logit_c.clamp_(-6, 0)
+    return theta.detach(), b.detach(), log_a.detach(), logit_c.detach(), loss_history
 
 
-def _fit_one_theta(a_known, b_known, y_half):
+def _fit_one_theta(a_known, b_known, y_half, c_known=None):
     import torch
 
     theta = torch.zeros(1, requires_grad=True)
@@ -82,7 +109,7 @@ def _fit_one_theta(a_known, b_known, y_half):
     def closure():
         opt.zero_grad()
         z = a_known * (theta - b_known)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_half)
+        loss = _bce(z, y_half, c_known)
         loss = loss + 0.25 * theta.square().mean()
         loss.backward()
         return loss
@@ -100,13 +127,18 @@ def _fit_one_item(theta_known, y_half, kind):
 
     b = torch.zeros(1, requires_grad=True)
     log_a = torch.zeros(1, requires_grad=True)
-    params = [b] + ([log_a] if kind in ("2pl", "3pl") else [])
+    logit_c = torch.full((1,), -2.0, requires_grad=True)
+    params = [b]
+    if kind in ("2pl", "3pl"):
+        params.append(log_a)
+    if kind == "3pl":
+        params.append(logit_c)
 
     def closure():
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)
         z = a * (theta_known - b)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_half)
+        loss = _bce(z, y_half, _guess(logit_c, kind))
         loss = loss + 0.25 * b.square().mean()
         loss.backward()
         return loss
@@ -117,8 +149,9 @@ def _fit_one_item(theta_known, y_half, kind):
     with torch.no_grad():
         b.clamp_(-6, 6)
         log_a.clamp_(-3, 3)
+        logit_c.clamp_(-6, 0)
     a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1)
-    return a.detach(), b.detach()
+    return a.detach(), b.detach(), logit_c.detach()
 
 
 @app.function(image=image, cpu=16, memory=131_072, volumes={"/data": volume},
@@ -172,10 +205,13 @@ def run(seed: int = 20261018) -> dict:
             continue
 
         for kind in ("1pl", "2pl", "3pl"):
-            theta_core, b_core, loga_core = _fit_core(core, kind, int(rng_global.integers(0, 2**31)))
+            theta_core, b_core, loga_core, logitc_core, loss_history = _fit_core(
+                core, kind, int(rng_global.integers(0, 2**31)))
             a_core = torch.exp(loga_core) if kind in ("2pl", "3pl") else torch.ones(len(train_i))
+            c_core = _guess(logitc_core, kind)
             weights_all[f"{bench}_{kind}"] = {
                 "theta": theta_core.numpy(), "b": b_core.numpy(), "log_a": loga_core.numpy(),
+                "logit_c": logitc_core.numpy(), "loss_history": loss_history,
                 "train_subjects": train_s, "train_items": train_i, "held_subjects": held_s, "held_items": held_i
             }
 
@@ -186,10 +222,15 @@ def run(seed: int = 20261018) -> dict:
                 perm = rng.permutation(cols)
                 half1, half2 = perm[: len(perm) // 2], perm[len(perm) // 2:]
                 y1 = torch.as_tensor(mat[row, train_i][half1], dtype=torch.float32)
-                theta_new = _fit_one_theta(a_core[half1], b_core[half1], y1)
+                theta_new = _fit_one_theta(
+                    a_core[half1], b_core[half1], y1,
+                    None if c_core is None else c_core[half1])
                 with torch.no_grad():
                     z2 = a_core[half2] * (theta_new - b_core[half2])
-                    p2 = torch.sigmoid(z2).numpy()
+                    p2 = torch.sigmoid(z2)
+                    if c_core is not None:
+                        p2 = c_core[half2] + (1 - c_core[half2]) * p2
+                    p2 = p2.numpy()
                 y2 = mat[row, train_i][half2]
                 if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                     continue
@@ -206,10 +247,14 @@ def run(seed: int = 20261018) -> dict:
                 perm = rng.permutation(rows_idx)
                 half1, half2 = perm[: len(perm) // 2], perm[len(perm) // 2:]
                 y1 = torch.as_tensor(mat[train_s, col][half1], dtype=torch.float32)
-                a_new, b_new = _fit_one_item(theta_core[half1], y1, kind)
+                a_new, b_new, logitc_new = _fit_one_item(theta_core[half1], y1, kind)
                 with torch.no_grad():
                     z2 = a_new * (theta_core[half2] - b_new)
-                    p2 = torch.sigmoid(z2).numpy()
+                    p2 = torch.sigmoid(z2)
+                    c_new = _guess(logitc_new, kind)
+                    if c_new is not None:
+                        p2 = c_new + (1 - c_new) * p2
+                    p2 = p2.numpy()
                 y2 = mat[train_s, col][half2]
                 if len(np.unique(y2)) < 2 or not np.isfinite(p2).all():
                     continue

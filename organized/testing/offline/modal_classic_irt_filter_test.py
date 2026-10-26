@@ -103,7 +103,10 @@ def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
     except ValueError:
         auc = float("nan")
     brier = float(((p - y_test) ** 2).mean())
-    return auc, brier, len(y_test), loss_history
+    weights = {"theta": theta.detach().numpy(), "b": b.detach().numpy(),
+              "log_a": log_a.detach().numpy(), "logit_c": logit_c.detach().numpy(),
+              "loss_history": loss_history}
+    return auc, brier, len(y_test), loss_history, weights
 
 
 def _mask_and_prune(mat, rng):
@@ -180,17 +183,12 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
                 continue
             m2, train_mask, test_mask = pruned
             for kind in ("1pl", "2pl", "3pl"):
-                import torch
-                theta_fit, b_fit, loga_fit = _fit_core(m2, kind, STEPS, int(rng.integers(0, 2**31)))
                 result = _fit_and_score(m2, train_mask, test_mask, kind, STEPS, rng)
                 if result is None:
                     continue
-                auc, brier, n_test, loss_history = result
+                auc, brier, n_test, loss_history, weights = result
                 stage_tag = stage if stage == "before" else f"after_n{min_subjects}"
-                weights_all[f"{bench}_{stage_tag}_{kind}"] = {
-                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy(),
-                    "loss_history": loss_history
-                }
+                weights_all[f"{bench}_{stage_tag}_{kind}"] = weights
                 rows.append({"benchmark_id": bench, "stage": stage_tag, "model": kind, "seed": seed,
                             "min_subjects": min_subjects,
                             "n_subjects": len(subs), "n_items": len(its),

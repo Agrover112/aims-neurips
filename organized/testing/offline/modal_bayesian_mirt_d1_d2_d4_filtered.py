@@ -30,7 +30,15 @@ image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.or
 
 
 def _fit_and_score(mat, mask_train, mask_test, kind, d, steps, rng):
-    """Joint MLE with Gaussian priors on theta and item params."""
+    """Joint MLE with Gaussian priors on theta/b/a(/c) on training cells, scored
+    on held-out cells.
+
+    Compensatory MIRT: discrimination is a vector a_j in R^d per item
+    (z = <a_j, theta_i> - b_j), not a scalar times theta.sum() -- the latter
+    made every d > 1 algebraically identical to d = 1. 3PL gets a real
+    guessing parameter c_j via logit_c, previously missing so "3PL" silently
+    duplicated 2PL.
+    """
     import numpy as np
     import torch
     from sklearn.metrics import roc_auc_score
@@ -42,36 +50,57 @@ def _fit_and_score(mat, mask_train, mask_test, kind, d, steps, rng):
     n_s, n_i = mat.shape
 
     torch.manual_seed(int(rng.integers(0, 2**31)))
-    theta = torch.randn(n_s, d, requires_grad=True) * 0.1
+    theta = (torch.randn(n_s, d) * 0.1).requires_grad_(True)
     b = torch.zeros(n_i, requires_grad=True)
-    log_a = torch.zeros(n_i, requires_grad=True)
-    params = [theta, b] + ([log_a] if kind in ("2pl", "3pl") else [])
+    log_a = torch.zeros(n_i, d, requires_grad=True)
+    logit_c = torch.full((n_i,), -2.0, requires_grad=True)
+    params = [theta, b]
+    if kind in ("2pl", "3pl"):
+        params.append(log_a)
+    if kind == "3pl":
+        params.append(logit_c)
 
     opt = torch.optim.AdamW(params, lr=0.1)
+    loss_history = []
     for _ in range(steps):
         opt.zero_grad()
-        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
-        z = a[i_t] * (theta[s_t].sum(dim=1) - b[i_t])
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_train)
-        # Bayesian: Gaussian priors on theta, b, log_a
-        loss = loss + (theta.square().sum() + b.square().sum() + 0.5*log_a.square().sum()) / (2 * PRIOR_SCALE**2)
+        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i, d)
+        z = (a[i_t] * theta[s_t]).sum(dim=1) - b[i_t]
+        if kind == "3pl":
+            c = torch.sigmoid(logit_c) * 0.5
+            p = (c[i_t] + (1 - c[i_t]) * torch.sigmoid(z)).clamp(1e-6, 1 - 1e-6)
+            loss = -(y_train * torch.log(p) + (1 - y_train) * torch.log(1 - p)).mean()
+        else:
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_train)
+        # Bayesian: Gaussian priors on theta, b, log_a (and c stays weakly
+        # pulled toward 0 via its -2.0 init, matching the non-Bayesian job).
+        loss = loss + (theta.square().sum() + b.square().sum()
+                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2)
         loss.backward()
         opt.step()
+        loss_history.append(float(loss.detach().cpu().numpy()))
 
     s_idx, i_idx = np.nonzero(mask_test)
     if len(s_idx) < 10 or len(np.unique(mat[s_idx, i_idx])) < 2:
         return None
     with torch.no_grad():
-        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
-        z = a[i_idx] * (theta[torch.as_tensor(s_idx)].sum(dim=1) - b[i_idx])
-        p = torch.sigmoid(z).numpy()
+        a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i, d)
+        z = (a[i_idx] * theta[torch.as_tensor(s_idx)]).sum(dim=1) - b[i_idx]
+        p = torch.sigmoid(z)
+        if kind == "3pl":
+            c = torch.sigmoid(logit_c) * 0.5
+            p = c[i_idx] + (1 - c[i_idx]) * p
+        p = p.numpy()
     y_test = mat[s_idx, i_idx]
     try:
         auc = float(roc_auc_score(y_test, p))
     except ValueError:
         auc = float("nan")
     brier = float(((p - y_test) ** 2).mean())
-    return auc, brier, len(y_test)
+    weights = {"theta": theta.detach().numpy(), "b": b.detach().numpy(),
+              "log_a": log_a.detach().numpy(), "logit_c": logit_c.detach().numpy(),
+              "loss_history": loss_history}
+    return auc, brier, len(y_test), weights
 
 
 def _mask_and_prune(mat, rng):
@@ -146,15 +175,11 @@ def run(seed: int = 20261018) -> dict:
 
         for kind in ("1pl", "2pl", "3pl"):
             for d_dim in (1, 2, 4):
-                import torch
-                theta_fit, b_fit, loga_fit = _fit_core(m2, kind, d_dim, STEPS, int(rng_global.integers(0, 2**31)))
                 result = _fit_and_score(m2, train_mask, test_mask, kind, d_dim, STEPS, rng)
                 if result is None:
                     continue
-                auc, brier, n_test = result
-                weights_all[f"{bench}_bayes_{kind}_d{d_dim}"] = {
-                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy()
-                }
+                auc, brier, n_test, weights = result
+                weights_all[f"{bench}_bayes_{kind}_d{d_dim}"] = weights
                 rows.append({"benchmark_id": bench, "model": f"bayes_{kind}_d{d_dim}", "seed": seed,
                             "n_subjects": len(subs), "n_items": len(its),
                             "n_subjects_fit": m2.shape[0], "n_items_fit": m2.shape[1],
