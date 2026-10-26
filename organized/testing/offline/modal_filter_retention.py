@@ -104,7 +104,8 @@ def run(seed: int = 20261018) -> dict:
         b = torch.zeros(len(its), requires_grad=True)
         log_a = torch.zeros(len(its), requires_grad=True)
         opt = torch.optim.AdamW([theta, b, log_a], lr=0.1)
-        for _ in range(STEPS):
+        loss_history = []
+        for step in range(STEPS):
             opt.zero_grad()
             a = torch.exp(log_a)
             z = a[i_t] * (theta[s_t] - b[i_t])
@@ -112,6 +113,7 @@ def run(seed: int = 20261018) -> dict:
             loss = loss + 0.125 * (theta.square().mean() + b.square().mean())
             loss.backward()
             opt.step()
+            loss_history.append(float(loss.detach().cpu().numpy()))
 
         with torch.no_grad():
             a = torch.exp(log_a)
@@ -129,9 +131,10 @@ def run(seed: int = 20261018) -> dict:
         }))
         weights_all[f"{bench}_2pl"] = {
             "theta": theta.detach().numpy(), "b": b.detach().numpy(), "log_a": log_a.detach().numpy(),
-            "subject_ids": np.array(subs), "item_ids": np.array(its)
+            "subject_ids": np.array(subs), "item_ids": np.array(its),
+            "loss_history": loss_history
         }
-        print(f"{bench:<20}2PL fit  subs={len(subs):<6}items={len(its):<8}", flush=True)
+        print(f"{bench:<20}2PL fit  subs={len(subs):<6}items={len(its):<8} final_loss={loss_history[-1]:.4f}", flush=True)
 
     OUT_COUNTS.parent.mkdir(parents=True, exist_ok=True)
     counts_out = OUT_COUNTS.with_name(f"{OUT_COUNTS.stem}-seed{seed}{OUT_COUNTS.suffix}")

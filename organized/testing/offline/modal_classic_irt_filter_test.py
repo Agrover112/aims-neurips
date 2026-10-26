@@ -68,6 +68,7 @@ def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
         params.append(logit_c)
 
     opt = torch.optim.AdamW(params, lr=0.1)
+    loss_history = []
     for _ in range(steps):
         opt.zero_grad()
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(n_i)
@@ -83,6 +84,7 @@ def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
         loss = loss + 0.125 * (theta.square().mean() + b.square().mean())
         loss.backward()
         opt.step()
+        loss_history.append(float(loss.detach().cpu().numpy()))
 
     s_idx, i_idx = np.nonzero(mask_test)
     if len(s_idx) < 10 or len(np.unique(mat[s_idx, i_idx])) < 2:
@@ -101,7 +103,7 @@ def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
     except ValueError:
         auc = float("nan")
     brier = float(((p - y_test) ** 2).mean())
-    return auc, brier, len(y_test)
+    return auc, brier, len(y_test), loss_history
 
 
 def _mask_and_prune(mat, rng):
@@ -183,10 +185,11 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
                 result = _fit_and_score(m2, train_mask, test_mask, kind, STEPS, rng)
                 if result is None:
                     continue
-                auc, brier, n_test = result
+                auc, brier, n_test, loss_history = result
                 stage_tag = stage if stage == "before" else f"after_n{min_subjects}"
                 weights_all[f"{bench}_{stage_tag}_{kind}"] = {
-                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy()
+                    "theta": theta_fit.numpy(), "b": b_fit.numpy(), "log_a": loga_fit.numpy(),
+                    "loss_history": loss_history
                 }
                 rows.append({"benchmark_id": bench, "stage": stage_tag, "model": kind, "seed": seed,
                             "min_subjects": min_subjects,
