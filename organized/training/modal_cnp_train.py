@@ -44,6 +44,7 @@ MAX_CONTEXT = 64
 STEPS = 3000
 EPISODES_PER_STEP = 8
 LR = 3e-4
+WEIGHT_DECAY = 1e-2   # AdamW default; decoupled, so it does not scale with LR
 VAL_EVERY = 50
 SEEDS = (20261018, 20261019, 20261020)
 BUDGETS = (0, 1, 3, 7, 15, 31)
@@ -150,7 +151,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
 
     cfg = {"seed": seed, "arm": arm, "encoder": encoder, "pooling": pooling,
            "use_latent": use_latent, "width": width, "n_blocks": n_blocks,
-           "steps": steps, "lr": LR, "residual_proj": residual_proj,
+           "steps": steps, "lr": LR, "weight_decay": WEIGHT_DECAY,
+           "optimizer": "AdamW", "residual_proj": residual_proj,
            "episodes_per_step": EPISODES_PER_STEP, "max_context": MAX_CONTEXT,
            "min_subjects": MIN_SUBJECTS, "val_frac": VAL_FRAC}
 
@@ -223,7 +225,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                                  encoder=encoder, pooling=pooling,
                                  use_latent=use_latent,
                                  residual_proj=residual_proj).to(device)
-        opt = torch.optim.Adam(model.parameters(), lr=LR)
+        opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
         t0 = time.time()
 
         for step in tqdm(range(steps), desc=f"{bench[:14]}", unit="step",
