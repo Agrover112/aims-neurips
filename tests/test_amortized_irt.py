@@ -59,10 +59,11 @@ class ParameterCountTests(unittest.TestCase):
         self.assertEqual(self._make("3pl").logit_c.shape, (self.n_items,))
 
     def test_1pl_discrimination_is_always_one(self):
+        # a is (n_items, D) since the model gained an ability dimension.
         model = self._make("1pl")
         emb = torch.randn(4, self.emb_dim)
-        _, d = model.item_params(emb)
-        torch.testing.assert_close(d, torch.ones(4))
+        _, a = model.item_params(emb)
+        torch.testing.assert_close(a, torch.ones(4, model.d_dim))
 
     def test_2pl_discrimination_is_positive(self):
         model = self._make("2pl")
@@ -91,7 +92,7 @@ class ProbsTests(unittest.TestCase):
         self.model = amort.AmortizedIRT(3, 6, "3pl", n_items=4, seed=1)
         self.item_idx = torch.tensor([0, 1, 2, 3])
         self.emb = torch.randn(4, 6)
-        self.theta_pairs = self.model.theta[torch.tensor([0, 0, 1, 2])]
+        self.theta_pairs = self.model.theta[torch.tensor([0, 0, 1, 2])]  # (4, D)
 
     def test_probabilities_are_in_open_unit_interval(self):
         p = self.model.probs(self.theta_pairs, self.emb, self.item_idx)
@@ -106,7 +107,7 @@ class ProbsTests(unittest.TestCase):
             model.theta.fill_(-50.0)
             model.logit_c.fill_(2.0)  # sigmoid(2)*0.5 ~= 0.44
         item_idx = torch.arange(4)
-        theta_pairs = model.theta[torch.zeros(4, dtype=torch.long)]
+        theta_pairs = model.theta[torch.zeros(4, dtype=torch.long)]  # (4, D)
         p = model.probs(theta_pairs, self.emb, item_idx)
         floor = float(torch.sigmoid(model.logit_c[0]) * 0.5)
         self.assertTrue(torch.all(p >= floor - 1e-4))
@@ -115,8 +116,10 @@ class ProbsTests(unittest.TestCase):
         # item_idx=None means "no guessing applied" -- used nowhere in the
         # training loop, but the fallback must not silently misbehave.
         p_no_idx = self.model.probs(self.theta_pairs, self.emb)
-        b, d = self.model.item_params(self.emb)
-        expected = torch.sigmoid(d * (self.theta_pairs - b)).clamp(1e-6, 1 - 1e-6)
+        b, a = self.model.item_params(self.emb)
+        # paper's difficulty form, summed over the ability dimensions
+        expected = torch.sigmoid(
+            (a * (self.theta_pairs - b.unsqueeze(-1))).sum(-1)).clamp(1e-6, 1 - 1e-6)
         torch.testing.assert_close(p_no_idx, expected)
 
 
