@@ -42,6 +42,70 @@ literature/              preliminary references, not design constraints
 
 The source ZIP files remain local and are ignored by Git. Unpacked reference code is included for convenient review. Check its upstream terms before redistributing or modifying it outside a private collaboration repository.
 
+## Current Neural Process code
+
+There are two unrelated Neural Process branches in this repository. Do not
+mix their checkpoints, data splits, or scores.
+
+| Code | Status | Purpose |
+|---|---|---|
+| `organized/training/codex_es_fixed_modal_cnp_train.py` | **Current** | Filtered response-matrix CNP/NP trainer. Uses Qwen item embeddings, shuffled task epochs, disjoint context and target sets, fixed-bank validation, and CPU-only Modal jobs. |
+| `organized/training/cnp_blocks.py` | **Current** | Reusable CNP/NP architecture used by the trainer above. It contains the set encoder, pooling, decoder, deterministic CNP path, and latent NP path. |
+| `organized/training/modal_cnp_train.py` | Superseded | Earlier version of the filtered trainer. It selects checkpoints from resampled validation episodes and does not save a volume checkpoint. Do not launch it. |
+| `src/aims_starter/faithful_np.py` | Historical submission code | CNP-AIRT/ANP-AIRT code used by the earlier full-protocol submission experiments. It is not the current filtered standalone CNP. |
+| `organized/training/modal_cnp_ladder.py`, `modal_cnp_disjoint.py`, `modal_np_collapse.py` | Historical ablations | Results-specific controls for the earlier CNP-AIRT/BeaverTails branch. Keep them for reproduction, not as a starting point for new filtered CNP runs. |
+
+### Run the current filtered CNP
+
+Use the `agrover112` Modal profile. The trainer requests 8 CPU cores and 32
+GiB RAM. It does not request a GPU.
+
+Run one named configuration directly. A unique `run_label` prevents W&B and
+volume-output collisions across reruns.
+
+```bash
+.venv/bin/modal run --detach --profile agrover112 \
+  --name cnp-width64-YYYYMMDD \
+  organized/training/codex_es_fixed_modal_cnp_train.py::run \
+  --seed 20261018 --width 64 --steps 101825 \
+  --run-label width64-YYYYMMDD
+```
+
+The main architecture controls are:
+
+- `width`: hidden and pooled representation size `d`.
+- `n_blocks`: encoder and decoder depth.
+- `encoder`: `linear`, `mhsa`, `set_transformer`, or `sgformer`.
+- `pooling`: `mean` or `mhsa`.
+- `use_latent`: switches the deterministic CNP to the latent NP ELBO path.
+- `residual_proj`: enables learned residual projections around width changes.
+
+The current deterministic width sweep uses `linear` encoder, `mean` pooling,
+two blocks, Qwen3-8B embeddings truncated to 1,024 dimensions, seed
+`20261018`, and 101,825 optimizer steps. Eight subject-benchmark functions
+form one optimizer batch. That schedule gives 200 shuffled passes over the
+4,073 training functions.
+
+The trainer saves the best fixed-bank checkpoint whenever held-out unseen-target
+Brier improves. Checkpoints contain the `state_dict`, full run configuration,
+selection metric, Brier value, and optimizer step:
+
+```text
+/data/results/cnp/checkpoints/<architecture>-<run-label>-<arm>-seed<seed>.pt
+```
+
+It also saves result rows, training curves, and exact target-coverage Parquet
+files under `/data/results/cnp/`. W&B run names include architecture, width,
+run label, embedding arm, and seed. Its paired panels show training versus
+validation losses, diagnostic train versus held-out scores, and final test
+scores. The true test set is evaluated once after checkpoint selection.
+
+Run the local architecture tests before changing `cnp_blocks.py`:
+
+```bash
+.venv/bin/python -m unittest tests.test_cnp_blocks
+```
+
 ## Set up
 
 Python 3.11 or newer is recommended.
