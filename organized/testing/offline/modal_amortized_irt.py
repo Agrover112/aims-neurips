@@ -281,9 +281,93 @@ def _load_filtered(min_subjects):
 # CPU only. The heads are evaluated once over the unique items rather than
 # once per response, which made this ~17x cheaper and removed any need for a
 # GPU -- ~0.1 s/step on CPU. Modal CPU is far cheaper than an L4.
+
+def _run_global(d, emb_all, emb_pos, seed, arm, device, rng, d_dim=2, kind="2pl"):
+    """One amortized model over every benchmark at once (the paper's global arm).
+
+    theta stays per subject -- subjects never span benchmarks (verified: 6,264
+    subjects, each in exactly one), so pooling cannot merge two abilities. What
+    is shared is the embedding -> (b, a) head, which now learns from all 56k
+    items instead of being refit seven times on one benchmark's slice.
+
+    The cold-start item axis here is genuinely cross-benchmark: a held-out item
+    is scored by subjects of its own benchmark, but the head that produced its
+    difficulty was trained without it and, for held-out benchmarks, without any
+    of its benchmark's items.
+    """
+    import numpy as np
+    import torch
+
+    d = d[d["item_uid"].isin(emb_pos.keys())]
+    items = sorted(d["item_uid"].unique())
+    subs = sorted(d["subject_uid"].unique())
+    i_map = {u: i for i, u in enumerate(items)}
+    s_map = {u: i for i, u in enumerate(subs)}
+    emb = torch.as_tensor(
+        np.asarray(emb_all[[emb_pos[u] for u in items]], dtype=np.float32)).to(device)
+    print(f"GLOBAL: {len(subs):,} subjects x {len(items):,} items, "
+          f"{len(d):,} responses, emb {tuple(emb.shape)}", flush=True)
+
+    si = d["subject_uid"].map(s_map).to_numpy()
+    ii = d["item_uid"].map(i_map).to_numpy()
+    yy = d["label"].to_numpy().astype(np.float32)
+    bench_of_sub = dict(zip(d["subject_uid"], d["benchmark_id"]))
+    bench_arr = np.array([bench_of_sub[s] for s in subs])
+
+    held_s = rng.choice(len(subs), max(1, int(len(subs) * HELD_OUT_FRAC)), replace=False)
+    held_i = rng.choice(len(items), max(1, int(len(items) * HELD_OUT_FRAC)), replace=False)
+    held_s_set, held_i_set = set(held_s.tolist()), set(held_i.tolist())
+    core = ~(np.isin(si, held_s) | np.isin(ii, held_i))
+    print(f"GLOBAL: core responses {int(core.sum()):,}  held subjects {len(held_s):,}  "
+          f"held items {len(held_i):,}", flush=True)
+
+    model = AmortizedIRT(len(subs), emb.shape[1], kind, len(items),
+                         int(rng.integers(0, 2**31)), device=device, d_dim=d_dim)
+    hist = _fit(model, emb, si[core], ii[core], yy[core], desc=f"global {kind} D{d_dim}")
+    print(f"GLOBAL: loss {hist[0]:.4f} -> {hist[-1]:.4f}", flush=True)
+
+    rows = []
+    base = {"model": f"amort_{kind}_d{d_dim}", "arm": arm, "seed": seed, "scope": "global"}
+    with torch.no_grad():
+        b_all, a_all = model.item_params(emb)
+
+    # ---- subject axis: held-out subject, split-half on non-held items ----
+    for row in held_s:
+        sel = np.flatnonzero((si == row) & ~np.isin(ii, held_i))
+        if len(sel) < 2 * MIN_HALF:
+            continue
+        sh = rng.permutation(sel)
+        h1, h2 = sh[: len(sh) // 2], sh[len(sh) // 2:]
+        th = _fit_theta_only(model, emb, ii[h1], yy[h1])
+        with torch.no_grad():
+            i2 = torch.as_tensor(ii[h2], dtype=torch.long, device=device)
+            p2 = model.probs_gathered(th.expand(len(h2), -1), b_all, a_all, i2).cpu().numpy()
+        if len(np.unique(yy[h2])) < 2:
+            continue
+        auc, brier = _score(yy[h2], p2)
+        rows.append({**base, "benchmark_id": bench_arr[row], "axis": "subject",
+                     "n_score": len(h2), "auc": auc, "brier": brier})
+
+    # ---- item axis: COLD START, zero responses for the held-out item ----
+    for col in held_i:
+        sel = np.flatnonzero((ii == col) & ~np.isin(si, held_s))
+        if len(sel) < 2 * MIN_HALF or len(np.unique(yy[sel])) < 2:
+            continue
+        with torch.no_grad():
+            ic = torch.as_tensor(ii[sel], dtype=torch.long, device=device)
+            sc = torch.as_tensor(si[sel], dtype=torch.long, device=device)
+            pc = model.probs_gathered(model.theta[sc], b_all, a_all, ic).cpu().numpy()
+        auc, brier = _score(yy[sel], pc)
+        rows.append({**base, "benchmark_id": bench_arr[si[sel][0]],
+                     "axis": "item_coldstart", "n_score": len(sel),
+                     "auc": auc, "brier": brier})
+    print(f"GLOBAL: {len(rows):,} result rows", flush=True)
+    return rows
+
+
 @app.function(image=image, cpu=4, memory=32_768, volumes={"/data": volume},
               timeout=6 * 60 * 60)
-def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
+def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM, scope: str = "local") -> dict:
     import numpy as np
     import pandas as pd
     import torch
@@ -305,6 +389,22 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
     rows, weights_all = [], {}
     rng_global = np.random.default_rng(seed)
     benches = list(d.groupby("benchmark_id"))
+
+    if scope == "global":
+        # The paper fits BOTH "a local model for each dataset and a global
+        # model for all datasets" (sec 5.2). The per-benchmark loop below is
+        # the local arm; this is the global one. Only the global arm can score
+        # an item from a benchmark it never trained on, which is what the
+        # grouped-benchmark-fold protocol asks for.
+        rows += _run_global(d, emb_all, emb_pos, seed, arm, device, rng_global)
+        frame = pd.DataFrame(rows)
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(
+            OUT.with_name(f"{OUT.stem}-{arm}-global-seed{seed}{OUT.suffix}"), index=False)
+        volume.commit()
+        return {"rows": len(frame), "seed": seed, "arm": arm, "scope": "global",
+                "benchmarks": int(frame["benchmark_id"].nunique()) if len(frame) else 0}
+
 
     for bench, dd in tqdm(benches, desc=f"seed={seed} arm={arm}", unit="bench",
                           mininterval=5.0):
@@ -398,7 +498,7 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
 
     frame = pd.DataFrame(rows)
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(OUT.with_name(f"{OUT.stem}-{arm}-seed{seed}{OUT.suffix}"), index=False)
+    frame.to_parquet(OUT.with_name(f"{OUT.stem}-{arm}-local-seed{seed}{OUT.suffix}"), index=False)
     torch.save(weights_all, OUT.parent / f"amortized-irt-{arm}-weights-seed{seed}.pt")
     volume.commit()
     return {"rows": len(frame), "benchmarks": int(frame["benchmark_id"].nunique()) if len(frame) else 0,
@@ -406,7 +506,7 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
 
 
 @app.local_entrypoint()
-def main(arm: str = DEFAULT_ARM) -> None:
-    handles = [run.spawn(seed, arm) for seed in SEEDS]
+def main(arm: str = DEFAULT_ARM, scope: str = "local") -> None:
+    handles = [run.spawn(seed, arm, scope) for seed in SEEDS]
     for h in handles:
         print(h.get())

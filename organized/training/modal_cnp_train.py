@@ -46,8 +46,12 @@ EPISODES_PER_STEP = 8
 LR = 3e-4
 WEIGHT_DECAY = 1e-2   # AdamW default; decoupled, so it does not scale with LR
 VAL_EVERY = 50
+VAL_EPISODES = 32      # MC estimate of val loss; cheap and low-variance enough
+PATIENCE = 8           # val checks without improvement before stopping
+MAX_EVAL_TARGETS = 512 # subjects answer up to 3,277 items; scoring every one
+                       # per budget is the same estimator as scoring a sample
 SEEDS = (20261018, 20261019, 20261020)
-BUDGETS = (0, 1, 3, 7, 15, 31)
+# Budget ladder lives in organized/testing/online/, not here.
 
 WANDB_ENTITY = "agrgnn-kth-royal-institute-of-technology"
 WANDB_PROJECT = "aims-predictive-evaluation"
@@ -184,117 +188,162 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
           f"{d.benchmark_id.nunique()} benchmarks", flush=True)
 
     rows, curves, rng = [], [], np.random.default_rng(seed)
-    gstep = 0
 
-    for bench, dd in tqdm(list(d.groupby("benchmark_id")), desc=f"seed={seed}",
-                          unit="bench", mininterval=15.0):
-        subs = sorted(dd["subject_uid"].unique())
-        its = sorted(dd["item_uid"].unique())
-        if len(subs) < MIN_MATRIX or len(its) < MIN_MATRIX or not all(u in pos for u in its):
-            continue
-        i_map = {u: i for i, u in enumerate(its)}
-        emb = torch.as_tensor(
-            np.asarray(emb_all[[pos[u] for u in its]], dtype=np.float32)).to(device)
+    # ---- POOL every benchmark into one task set -------------------------------
+    # Subjects never span benchmarks (checked: 6,264 subjects, all in exactly
+    # one), so pooling cannot merge two different abilities into one task.
+    # Training per benchmark was wrong twice over: `editbench` has 28 training
+    # subjects and would see each ~857 times, and a per-benchmark model cannot
+    # be evaluated under the grouped-benchmark-fold protocol at all, since it
+    # has no parameters for a benchmark it never saw. The model never receives
+    # a benchmark id -- an item is only its embedding -- so nothing about the
+    # architecture needs to change.
+    d = d[d["item_uid"].isin(pos.keys())]
+    items_all = sorted(d["item_uid"].unique())
+    i_map = {u: i for i, u in enumerate(items_all)}
+    emb = torch.as_tensor(
+        np.asarray(emb_all[[pos[u] for u in items_all]], dtype=np.float32)).to(device)
+    print(f"pooled item matrix: {tuple(emb.shape)}", flush=True)
 
-        tasks = [{"items": g["item_uid"].map(i_map).to_numpy(),
-                  "labels": g["label"].to_numpy().astype(np.float32)}
-                 for _, g in dd.groupby("subject_uid")]
+    tasks = []
+    for (sub, bench), g in d.groupby(["subject_uid", "benchmark_id"]):
+        tasks.append({"subject": sub, "benchmark": bench,
+                      "items": g["item_uid"].map(i_map).to_numpy(),
+                      "labels": g["label"].to_numpy().astype(np.float32)})
+    print(f"pooled tasks (subject x benchmark): {len(tasks):,}", flush=True)
 
-        n_s = len(tasks)
-        perm = rng.permutation(n_s)
-        n_test = max(1, int(n_s * HELD_OUT_FRAC))
-        n_val = max(1, int(n_s * VAL_FRAC))
-        test_ix = set(perm[:n_test].tolist())
-        val_ix = set(perm[n_test:n_test + n_val].tolist())
-        held_i = set(rng.choice(len(its), max(1, int(len(its) * HELD_OUT_FRAC)),
-                                replace=False).tolist())
+    n_s = len(tasks)
+    perm = rng.permutation(n_s)
+    n_test = max(1, int(n_s * HELD_OUT_FRAC))
+    n_val = max(1, int(n_s * VAL_FRAC))
+    test_ix = set(perm[:n_test].tolist())
+    val_ix = set(perm[n_test:n_test + n_val].tolist())
+    held_i = set(rng.choice(len(items_all), max(1, int(len(items_all) * HELD_OUT_FRAC)),
+                            replace=False).tolist())
+    held_i_arr = np.fromiter(held_i, dtype=np.int64)
 
-        def _warm(t):
-            keep = ~np.isin(t["items"], list(held_i))
-            return {"items": t["items"][keep], "labels": t["labels"][keep]}
+    def _warm(t):
+        keep = ~np.isin(t["items"], held_i_arr)
+        return {**t, "items": t["items"][keep], "labels": t["labels"][keep]}
 
-        train_tasks = [_warm(t) for i, t in enumerate(tasks)
-                       if i not in test_ix and i not in val_ix]
-        val_tasks = [_warm(t) for i, t in enumerate(tasks) if i in val_ix]
-        train_tasks = [t for t in train_tasks if len(t["items"]) > 2 * MIN_HALF]
-        val_tasks = [t for t in val_tasks if len(t["items"]) > 2 * MIN_HALF]
-        if len(train_tasks) < MIN_MATRIX or not val_tasks:
-            continue
+    train_tasks = [_warm(t) for i, t in enumerate(tasks)
+                   if i not in test_ix and i not in val_ix]
+    val_tasks = [_warm(t) for i, t in enumerate(tasks) if i in val_ix]
+    train_tasks = [t for t in train_tasks if len(t["items"]) > 2 * MIN_HALF]
+    val_tasks = [t for t in val_tasks if len(t["items"]) > 2 * MIN_HALF]
+    print(f"train/val/test subjects: {len(train_tasks):,}/{len(val_tasks):,}/{len(test_ix):,}"
+          f"   held-out items: {len(held_i):,}", flush=True)
+    if not train_tasks or not val_tasks:
+        raise RuntimeError("pooled split left no training or validation tasks")
 
-        model = cb.NeuralProcess(emb.shape[1], width=width, n_blocks=n_blocks,
-                                 encoder=encoder, pooling=pooling,
-                                 use_latent=use_latent,
-                                 residual_proj=residual_proj).to(device)
-        opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-        t0 = time.time()
+    model = cb.NeuralProcess(emb.shape[1], width=width, n_blocks=n_blocks,
+                             encoder=encoder, pooling=pooling,
+                             use_latent=use_latent,
+                             residual_proj=residual_proj).to(device)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    print(f"params: {sum(q.numel() for q in model.parameters()):,}", flush=True)
 
-        for step in tqdm(range(steps), desc=f"{bench[:14]}", unit="step",
-                         mininterval=20.0, leave=False):
-            model.train()
-            opt.zero_grad()
-            losses = [model.loss(*_episode(train_tasks[int(rng.integers(len(train_tasks)))],
-                                           rng, device, emb))[0]
-                      for _ in range(EPISODES_PER_STEP)]
-            tr = torch.stack(losses).mean()
-            tr.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-            opt.step()
+    best_val, best_state, since_best = float("inf"), None, 0
+    t0 = time.time()
+    for step in tqdm(range(steps), desc=f"seed={seed}", unit="step", mininterval=20.0):
+        model.train()
+        opt.zero_grad()
+        losses = [model.loss(*_episode(train_tasks[int(rng.integers(len(train_tasks)))],
+                                       rng, device, emb))[0]
+                  for _ in range(EPISODES_PER_STEP)]
+        tr = torch.stack(losses).mean()
+        tr.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+        opt.step()
 
-            if step % VAL_EVERY == 0 or step == steps - 1:
-                model.eval()
-                with torch.no_grad():
-                    vl = torch.stack(
-                        [model.loss(*_episode(t, rng, device, emb))[0]
-                         for t in val_tasks[:16]]).mean()
-                rec = {"benchmark_id": bench, "seed": seed, "step": step,
-                       "train_loss": float(tr), "val_loss": float(vl)}
-                curves.append(rec)
-                if wb is not None:
-                    wb.log({f"{bench}/train_loss": float(tr),
-                            f"{bench}/val_loss": float(vl),
-                            "train_loss": float(tr), "val_loss": float(vl),
-                            "benchmark": bench, "step_in_bench": step}, step=gstep)
-                gstep += 1
-            if step == 49:
-                rate = (time.time() - t0) / 50
-                print(f"{bench}: {rate:.3f} s/step -> {rate * steps / 60:.1f} min/bench",
-                      flush=True)
+        if step % VAL_EVERY == 0 or step == steps - 1:
+            model.eval()
+            with torch.no_grad():
+                vl = torch.stack([
+                    model.loss(*_episode(val_tasks[int(rng.integers(len(val_tasks)))],
+                                         rng, device, emb))[0]
+                    for _ in range(VAL_EPISODES)]).mean()
+            v = float(vl)
+            curves.append({"seed": seed, "step": step,
+                           "train_loss": float(tr), "val_loss": v})
+            if wb is not None:
+                wb.log({"train_loss": float(tr), "val_loss": v,
+                        "best_val": min(best_val, v)}, step=step)
+            # early stopping on held-out SUBJECT loss -- no paper publishes a
+            # step count, and the right one depends on our data, not theirs.
+            if v < best_val - 1e-4:
+                best_val, since_best = v, 0
+                best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
+            else:
+                since_best += 1
+                if since_best >= PATIENCE:
+                    print(f"early stop at step {step} (best val {best_val:.4f})", flush=True)
+                    break
+        if step == 49:
+            rate = (time.time() - t0) / 50
+            print(f"{rate:.3f} s/step -> {rate * steps / 60:.1f} min for {steps} steps",
+                  flush=True)
 
-        # ---- evaluation on held-out subjects, across the budget ladder ----
-        model.eval()
-        with torch.no_grad():
-            for i in sorted(test_ix):
-                t = tasks[i]
-                keep = ~np.isin(t["items"], list(held_i))
-                w_it, w_lb = t["items"][keep], t["labels"][keep]
-                c_it, c_lb = t["items"][~keep], t["labels"][~keep]
-                if len(w_it) < 2 * MIN_HALF:
-                    continue
-                order = rng.permutation(len(w_it))
-                for k in BUDGETS:
-                    if k >= len(order):
-                        continue
-                    ci, ti = order[:k], order[k:]
-                    x_c = emb[torch.as_tensor(w_it[ci], dtype=torch.long, device=device)]
-                    y_c = torch.as_tensor(w_lb[ci], dtype=torch.float32, device=device)
-                    x_t = emb[torch.as_tensor(w_it[ti], dtype=torch.long, device=device)]
-                    p = torch.sigmoid(model.logits(x_c, y_c, x_t)).cpu().numpy()
-                    if len(np.unique(w_lb[ti])) > 1:
-                        a, b = _score(w_lb[ti], p)
-                        rows.append({"benchmark_id": bench, "seed": seed, "arm": arm,
-                                     "encoder": encoder, "pooling": pooling,
-                                     "use_latent": use_latent, "width": width,
-                                     "axis": "subject", "budget": k,
-                                     "n_score": int(len(ti)), "auc": a, "brier": b})
-                    if len(c_it) >= 2 and len(np.unique(c_lb)) > 1:
-                        x_ci = emb[torch.as_tensor(c_it, dtype=torch.long, device=device)]
-                        pc = torch.sigmoid(model.logits(x_c, y_c, x_ci)).cpu().numpy()
-                        a2, b2 = _score(c_lb, pc)
-                        rows.append({"benchmark_id": bench, "seed": seed, "arm": arm,
-                                     "encoder": encoder, "pooling": pooling,
-                                     "use_latent": use_latent, "width": width,
-                                     "axis": "item_coldstart", "budget": k,
-                                     "n_score": int(len(c_lb)), "auc": a2, "brier": b2})
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    print(f"restored best val {best_val:.4f}", flush=True)
+
+    # ---- OFFLINE evaluation: the same three protocols as the IRT jobs -------
+    # The budget ladder is deliberately NOT here. A ladder without an
+    # acquisition policy is just the random-acquisition arm of the online
+    # evaluation, and scoring it inside the training job would quietly pass it
+    # off as an offline result. It belongs in organized/testing/online/.
+    #
+    # For a CNP every protocol below is the same operation -- encode a context
+    # set, decode targets -- differing only in how context and target are
+    # carved. Nothing is fitted at test time.
+    model.eval()
+    with torch.no_grad():
+        for i in tqdm(sorted(test_ix), desc="eval", unit="subj", mininterval=20.0):
+            t = tasks[i]
+            keep = ~np.isin(t["items"], held_i_arr)
+            w_it, w_lb = t["items"][keep], t["labels"][keep]
+            c_it, c_lb = t["items"][~keep], t["labels"][~keep]
+            if len(w_it) < 2 * MIN_HALF:
+                continue
+            base = {"benchmark_id": t["benchmark"], "seed": seed, "arm": arm,
+                    "encoder": encoder, "pooling": pooling,
+                    "use_latent": use_latent, "width": width}
+            order = rng.permutation(len(w_it))
+
+            def _emit(axis, ctx_idx, tgt_idx):
+                if len(tgt_idx) < 2 or len(np.unique(w_lb[tgt_idx])) < 2:
+                    return
+                x_c = emb[torch.as_tensor(w_it[ctx_idx], dtype=torch.long, device=device)]
+                y_c = torch.as_tensor(w_lb[ctx_idx], dtype=torch.float32, device=device)
+                x_t = emb[torch.as_tensor(w_it[tgt_idx], dtype=torch.long, device=device)]
+                p = torch.sigmoid(model.logits(x_c, y_c, x_t)).cpu().numpy()
+                auc, brier = _score(w_lb[tgt_idx], p)
+                rows.append({**base, "axis": axis, "n_score": int(len(tgt_idx)),
+                             "auc": auc, "brier": brier})
+
+            # cell: 80% of this subject's responses as context, 20% as target.
+            # The IRT counterpart gets to fit this subject's own theta; the CNP
+            # fits nothing, so matching it here is the stronger result.
+            cut = int(len(order) * (1.0 - HOLDOUT_FRAC))
+            _emit("cell", order[:cut], order[cut:cut + MAX_EVAL_TARGETS])
+
+            # subject split-half: matches the IRT generalization protocol.
+            half = len(order) // 2
+            _emit("subject_splithalf", order[:half], order[half:half + MAX_EVAL_TARGETS])
+
+            # item cold start: target items the model never trained on, with a
+            # normal context from this subject's warm items.
+            if len(c_it) >= 2 and len(np.unique(c_lb)) > 1:
+                ctx = order[:min(len(order), MAX_CONTEXT)]
+                x_c = emb[torch.as_tensor(w_it[ctx], dtype=torch.long, device=device)]
+                y_c = torch.as_tensor(w_lb[ctx], dtype=torch.float32, device=device)
+                cc = c_it[:MAX_EVAL_TARGETS]
+                x_ci = emb[torch.as_tensor(cc, dtype=torch.long, device=device)]
+                pc = torch.sigmoid(model.logits(x_c, y_c, x_ci)).cpu().numpy()
+                a2, b2 = _score(c_lb[:MAX_EVAL_TARGETS], pc)
+                rows.append({**base, "axis": "item_coldstart", "n_score": int(len(cc)),
+                             "auc": a2, "brier": b2})
 
     frame = pd.DataFrame(rows)
     curve = pd.DataFrame(curves)
@@ -306,8 +355,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     if wb is not None:
         if len(frame):
             for axis, g in frame.groupby("axis"):
-                for k, gg in g.groupby("budget"):
-                    wb.summary[f"final/{axis}/auc@{k}"] = float(gg.auc.mean())
+                wb.summary[f"final/{axis}/auc"] = float(g.auc.mean())
+                wb.summary[f"final/{axis}/brier"] = float(g.brier.mean())
         wb.finish()
     return {"rows": len(frame), "curve_points": len(curve), "seed": seed,
             "encoder": encoder, "pooling": pooling, "use_latent": use_latent,
