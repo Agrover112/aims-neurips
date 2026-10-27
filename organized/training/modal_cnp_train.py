@@ -47,7 +47,10 @@ LR = 3e-4
 WEIGHT_DECAY = 1e-2   # AdamW default; decoupled, so it does not scale with LR
 VAL_EVERY = 50
 VAL_EPISODES = 32      # MC estimate of val loss; cheap and low-variance enough
-PATIENCE = 8           # val checks without improvement before stopping
+PATIENCE = 10_000      # effectively off: the full 3000 steps is only 6.6 min on
+                       # cpu=8, and patience=8 (400 steps of no improvement) quit
+                       # at step 650 -- about 1.3 passes over 4,073 subjects.
+                       # best-val checkpoint restore still applies.
 MAX_EVAL_TARGETS = 512
 CURVE_SUBJECTS = 24    # subsample for the periodic per-axis curves
 MAX_EPISODE_TARGETS = 512  # targets include context; cap for cost only
