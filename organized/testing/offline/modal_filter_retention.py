@@ -35,18 +35,8 @@ STEPS = 300
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24")
+    "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "tqdm>=4.66,<5")
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
-
-# Ship the shared progress helper into the container. Guarded because Modal
-# re-imports this module inside the container, where the local path is absent.
-# In the container this file lives at /root/, so parents[2] does not exist --
-# index it defensively, not just .exists() afterwards.
-_PARENTS = Path(__file__).resolve().parents
-_PROGRESS = _PARENTS[2] / "utils" / "progress.py" if len(_PARENTS) > 2 else None
-if _PROGRESS is not None and _PROGRESS.exists():
-    image = image.add_local_file(_PROGRESS, "/root/progress.py")
-
 
 
 @app.function(image=image, cpu=16, memory=131_072, volumes={"/data": volume},
@@ -56,6 +46,7 @@ def run(seed: int = 20261018) -> dict:
     import pandas as pd
     import torch
 
+    from tqdm import tqdm
     obs = pd.read_parquet(PROCESSED / "observations.parquet",
                           columns=["subject_uid", "item_uid", "benchmark_id", "label"])
     items_meta = pd.read_parquet(PROCESSED / "items.parquet",
@@ -98,7 +89,7 @@ def run(seed: int = 20261018) -> dict:
     item_rows = []
     weights_all = {}
     _benches = list(d.groupby("benchmark_id"))
-    for bench, dd in track(_benches, desc=f"seed={seed} benchmarks", total=len(_benches)):
+    for bench, dd in tqdm(_benches, desc=f"seed={seed}", unit="bench", mininterval=5.0):
         subs = sorted(dd["subject_uid"].unique())
         its = sorted(dd["item_uid"].unique())
         if len(subs) < 5 or len(its) < 5:
@@ -167,6 +158,3 @@ def main() -> None:
     handles = [run.spawn(seed) for seed in SEEDS]
     for h in handles:
         print(h.get())
-    import sys
-    sys.path.insert(0, "/root")
-    from progress import Bar, track

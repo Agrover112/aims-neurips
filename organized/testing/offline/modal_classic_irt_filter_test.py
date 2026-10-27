@@ -40,18 +40,8 @@ MIN_MATRIX = 20  # skip benchmarks too small to fit at all
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2")
+    "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2", "tqdm>=4.66,<5")
 image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
-
-# Ship the shared progress helper into the container. Guarded because Modal
-# re-imports this module inside the container, where the local path is absent.
-# In the container this file lives at /root/, so parents[2] does not exist --
-# index it defensively, not just .exists() afterwards.
-_PARENTS = Path(__file__).resolve().parents
-_PROGRESS = _PARENTS[2] / "utils" / "progress.py" if len(_PARENTS) > 2 else None
-if _PROGRESS is not None and _PROGRESS.exists():
-    image = image.add_local_file(_PROGRESS, "/root/progress.py")
-
 
 
 def _fit_and_score(mat, mask_train, mask_test, kind, steps, rng):
@@ -152,6 +142,7 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
     import numpy as np
     import pandas as pd
 
+    from tqdm import tqdm
     obs = pd.read_parquet(PROCESSED / "observations.parquet",
                           columns=["subject_uid", "item_uid", "benchmark_id", "label"])
     items_meta = pd.read_parquet(PROCESSED / "items.parquet",
@@ -163,7 +154,7 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
     rows = []
     weights_all = {}
     _benches = list(obs.groupby("benchmark_id"))
-    for bench, d in track(_benches, desc=f"seed={seed} benchmarks", total=len(_benches)):
+    for bench, d in tqdm(_benches, desc=f"seed={seed}", unit="bench", mininterval=5.0):
         for stage in ("before", "after"):
             dd = d.copy()
             if stage == "after":
@@ -193,7 +184,6 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
             if pruned is None:
                 continue
             m2, train_mask, test_mask = pruned
-            _model_bar = Bar(total=3, desc=f"seed={seed} {bench} fits")
             for kind in ("1pl", "2pl", "3pl"):
                 result = _fit_and_score(m2, train_mask, test_mask, kind, STEPS, rng)
                 if result is None:
@@ -206,7 +196,6 @@ def run(seed: int = SEED, min_subjects: int = MIN_SUBJECTS) -> dict:
                             "n_subjects": len(subs), "n_items": len(its),
                             "n_subjects_fit": m2.shape[0], "n_items_fit": m2.shape[1],
                             "n_test_cells": n_test, "auc": auc, "brier": brier})
-                _model_bar.step(f"kind={kind}")
             print(f"{bench:<20}{stage:<8}subs={len(subs):<6}items={len(its):<8}"
                   f"fit={m2.shape}", flush=True)
 
@@ -230,6 +219,3 @@ def main(min_subjects: int = MIN_SUBJECTS) -> None:
     handles = [run.spawn(seed, min_subjects) for seed in SEEDS]
     for h in handles:
         print(h.get())
-    import sys
-    sys.path.insert(0, "/root")
-    from progress import Bar, track
