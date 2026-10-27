@@ -28,7 +28,7 @@ PROCESSED = Path("/data/datasets/full/processed")
 OUT_COUNTS = Path("/data/results/data-analysis/filter-retention.parquet")
 OUT_ITEMS = Path("/data/results/data-analysis/filter-2pl-items.parquet")
 
-MIN_SUBJECTS = 15
+MIN_SUBJECTS = 30  # project standard; n=15 was the old exploratory threshold
 MIN_ITEMS_PER_TASK = 80
 STEPS = 300
 
