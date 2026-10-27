@@ -216,11 +216,13 @@ class MeanPool(nn.Module):
         return x.mean(dim=1)
 
 
-class AttentionPool(nn.Module):
-    """Pooling by Multihead Attention (PMA) -- Set Transformer's learned pooling.
+class MHSAPool(nn.Module):
+    """Learned pooling by multihead attention.
 
-    A single learned seed query attends over the set. Strictly more expressive
-    than a mean, but it gives up the O(1) streaming update above.
+    A single learned seed query attends over the set, collapsing it to one
+    vector. Strictly more expressive than a mean, but it gives up the O(1)
+    streaming update above. This is what the Active-Evaluation paper means by
+    "learned pooling by multihead attention".
     """
 
     def __init__(self, width: int, heads: int = 4):
@@ -241,9 +243,9 @@ class AttentionPool(nn.Module):
 def make_pool(kind: str, width: int, heads: int = 4) -> nn.Module:
     if kind == "mean":
         return MeanPool()
-    if kind in ("learned", "pma", "attention"):
-        return AttentionPool(width, heads)
-    raise ValueError(f"unknown pooling {kind!r}; options: mean | learned")
+    if kind in ("mhsa", "learned", "attention"):
+        return MHSAPool(width, heads)
+    raise ValueError(f"unknown pooling {kind!r}; options: mean | mhsa")
 
 
 # ---------------------------------------------------------------------------

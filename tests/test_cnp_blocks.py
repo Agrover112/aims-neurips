@@ -30,7 +30,7 @@ except ModuleNotFoundError:
 
 EMB = 32
 ENCODERS = ["linear", "mhsa", "set_transformer", "sgformer"]
-POOLINGS = ["mean", "learned"]
+POOLINGS = ["mean", "mhsa"]
 
 
 @unittest.skipIf(cb is None, "PyTorch is not installed in the lightweight test environment")

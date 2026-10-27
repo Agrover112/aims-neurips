@@ -4,7 +4,7 @@ Architecture lives in ``cnp_blocks.py`` so it is unit-testable without Modal;
 this file is data, training loop, validation and logging.
 
     --encoder   linear | mhsa | set_transformer | sgformer
-    --pooling   mean | learned
+    --pooling   mean | mhsa
     --use-latent            latent NP (ELBO) instead of deterministic CNP
     --width 64              working width (see cnp_blocks docstring: 64, not 256)
 
