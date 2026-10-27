@@ -535,6 +535,36 @@ Three axes: `cell` (random 20% holdout), `subject` (split-half on held-out subje
 
 **Embedding arm comparison (D=2, averaged across axes):** bge_m3_long 0.640 ± 0.004, qwen3_8b 0.640 ± 0.003, me5_instruct 0.633 ± 0.002. bge_m3_long and qwen3_8b are statistically tied and both edge out me5_instruct by ~0.007 AUC — a real but small gap, not a reason to drop any arm.
 
+### Everything run so far, side by side (2026-10-27)
+
+AUC, mean ± 1 std.dev. over 3 seeds (20261018/19/20), n≥30 filtered data. `cell` = random 20% cell holdout, `subject`/`item` = split-half generalization (the held-out unit still contributes half its responses to scoring), `item_coldstart` = **zero** responses to the held-out item.
+
+| family | cell | subject | item (50% responses) | item_coldstart (0 responses) |
+|---|---:|---:|---:|---:|
+| Classic 1PL | — | 0.855 ± 0.003 | 0.611 ± 0.006 | not possible |
+| Classic 2PL | — | 0.856 ± 0.001 | 0.599 ± 0.008 | not possible |
+| Classic 3PL | — | 0.857 ± 0.001 | 0.588 ± 0.005 | not possible |
+| MIRT 2PL D=2 | 0.884 ± 0.000 | 0.851 ± 0.004 | 0.759 ± 0.010 | not possible |
+| MIRT 2PL D=4 | 0.891 ± 0.002 | 0.852 ± 0.001 | 0.760 ± 0.004 | not possible |
+| Bayes MIRT 2PL D=2 | 0.891 ± 0.001 | — | — | not possible |
+| Bayes MIRT 2PL D=4 | 0.896 ± 0.002 | — | — | not possible |
+| Amortized 2PL D=2, me5_instruct | 0.799 ± 0.002 | 0.759 ± 0.002 | — | 0.620 ± 0.002 |
+| Amortized 2PL D=2, bge_m3_long | 0.826 ± 0.001 | 0.788 ± 0.000 | — | **0.624 ± 0.004** |
+| Amortized 2PL D=2, qwen3_8b | 0.826 ± 0.001 | 0.795 ± 0.001 | — | 0.623 ± 0.003 |
+
+"not possible" is the point, not a gap in testing: classic/MIRT/Bayesian MIRT all fit a free parameter per item from its responses, so an item with 0 responses has no parameter to predict with. Only the amortized model takes text as input, so it is the only family that can be asked about an item before any response exists.
+
+**Best setting per family, against what the competition needs (streaming, scoring items as they arrive with few or no labels):**
+
+| family | best setting | AUC | usable on an unseen item? |
+|---|---|---:|---|
+| Classic IRT | 1PL | 0.611 ± 0.006 (item) | ❌ |
+| MIRT | 2PL D=4 | 0.760 ± 0.004 (item) | ❌ |
+| Bayesian MIRT | 2PL D=4 | 0.896 ± 0.002 (cell) | ❌ |
+| **Amortized IRT** | **2PL D=2, bge_m3_long or qwen3_8b** | **0.624 ± 0.004** (item_coldstart) | **✅ only one** |
+
+Bayesian MIRT 2PL D=4 is the strongest fit overall (0.896) but only once an item already has responses in the pool. For a brand-new item arriving in a streaming setting, amortized IRT is the only family with a usable prediction at all — 0.624 looks lower only because it is being compared against chance (0.5), not against the response-using numbers above.
+
 **Embedding coverage check (2026-10-27):** before planning Amortized IRT, checked whether the existing embedding stores cover the n≥30 filtered item universe (56,576 items, 7 benchmarks) or need re-encoding — `organized/utils/modal_embedding_coverage.py`. Result: **100% coverage, nothing missing**, for the four v2 arms built over the full 1.36M-item corpus:
 
 | embedding arm | dim | coverage |
