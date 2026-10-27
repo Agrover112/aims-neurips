@@ -30,8 +30,11 @@ image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.or
 
 # Ship the shared progress helper into the container. Guarded because Modal
 # re-imports this module inside the container, where the local path is absent.
-_PROGRESS = Path(__file__).resolve().parents[2] / "utils" / "progress.py"
-if _PROGRESS.exists():
+# In the container this file lives at /root/, so parents[2] does not exist --
+# index it defensively, not just .exists() afterwards.
+_PARENTS = Path(__file__).resolve().parents
+_PROGRESS = _PARENTS[2] / "utils" / "progress.py" if len(_PARENTS) > 2 else None
+if _PROGRESS is not None and _PROGRESS.exists():
     image = image.add_local_file(_PROGRESS, "/root/progress.py")
 
 
