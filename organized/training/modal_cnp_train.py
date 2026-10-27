@@ -63,7 +63,7 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2",
     "tqdm>=4.66,<5", "wandb>=0.17,<1")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 # Ship the architecture module. The container copy of this file lives at /root,
 # so guard on BOTH existence and not-already-in-the-container: a bare
@@ -211,7 +211,10 @@ def _axis_scores(model, tasks, *, held_i_arr, emb, device, rng, n_subjects,
     return out
 
 
-@app.function(image=image, gpu="L4", memory=65_536, volumes={"/data": volume},
+# CPU: measured 0.036 s/step on 4 threads (3000 steps ~ 2 min). 171k
+# params, <=64 context and <=512 target items per episode -- the matmuls
+# are far too small for a GPU to help, and L4 capacity was queueing.
+@app.function(image=image, cpu=4, memory=32_768, volumes={"/data": volume},
               secrets=_SECRETS, timeout=6 * 60 * 60)
 def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         pooling: str = "mean", use_latent: bool = False, width: int = 64,
