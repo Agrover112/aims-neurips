@@ -361,7 +361,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             # these are evaluation carves, not separate training heads.
             kw = dict(held_i_arr=held_i_arr, emb=emb, device=device,
                       n_subjects=CURVE_SUBJECTS, max_targets=MAX_EVAL_TARGETS,
-                      min_half=MIN_HALF, holdout_frac=HOLDOUT_FRAC,
+                      min_half=MIN_HALF, holdout_frac=HELD_OUT_FRAC,
                       max_context=MAX_CONTEXT)
             val_axis = _axis_scores(model, val_tasks,
                                     rng=np.random.default_rng(seed), **kw)
@@ -430,7 +430,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             # cell: 80% of this subject's responses as context, 20% as target.
             # The IRT counterpart gets to fit this subject's own theta; the CNP
             # fits nothing, so matching it here is the stronger result.
-            cut = int(len(order) * (1.0 - HOLDOUT_FRAC))
+            cut = int(len(order) * (1.0 - HELD_OUT_FRAC))
             _emit("cell", order[:cut], order[cut:cut + MAX_EVAL_TARGETS])
 
             # subject split-half: matches the IRT generalization protocol.
