@@ -61,6 +61,10 @@ LR = 1e-3
 HIDDEN = 256
 SEEDS = (20261018, 20261019, 20261020)
 DEFAULT_ARM = "me5_instruct"
+# Scope set 2026-10-27: 2PL only (it captured all the lift over 1PL on the
+# item axis in the MIRT reruns; 3PL was worse there), D=1 and D=2.
+KINDS = ("2pl",)
+DIMS = (1, 2)
 
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
@@ -90,15 +94,23 @@ class AmortizedIRT:
     harder to separate.
     """
 
-    def __init__(self, n_subjects, emb_dim, kind, n_items, seed, device=None):
+    def __init__(self, n_subjects, emb_dim, kind, n_items, seed, device=None, d_dim=1):
+        """``d_dim`` is the ability dimensionality D.
+
+        theta is (n_subjects, D) and the discrimination head emits a D-vector
+        per item, so z = <a_j, theta_i> - b_j. Difficulty stays a scalar: it is
+        the item's overall location, not a per-dimension quantity. D=1 reduces
+        exactly to the unidimensional model.
+        """
         import torch
 
         torch.manual_seed(seed)
         self.kind = kind
+        self.d_dim = d_dim
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.theta = torch.zeros(n_subjects, device=self.device, requires_grad=True)
-        self.b_head = _head(emb_dim, HIDDEN).to(self.device)
-        self.d_head = (_head(emb_dim, HIDDEN).to(self.device)
+        self.theta = torch.zeros(n_subjects, d_dim, device=self.device, requires_grad=True)
+        self.b_head = _head(emb_dim, HIDDEN, 1).to(self.device)
+        self.d_head = (_head(emb_dim, HIDDEN, d_dim).to(self.device)
                        if kind in ("2pl", "3pl") else None)
         self.logit_c = (torch.full((n_items,), -2.0, device=self.device, requires_grad=True)
                         if kind == "3pl" else None)
@@ -114,23 +126,36 @@ class AmortizedIRT:
         return list(itertools.chain(ps))
 
     def item_params(self, emb):
-        """(b, d) for the given item embeddings. d is softplus-positive."""
+        """(b, a) for the given item embeddings.
+
+        b is (n_items,); a is (n_items, D) and softplus-positive.
+        """
         import torch
         import torch.nn.functional as F
 
         b = self.b_head(emb).squeeze(-1)
         if self.d_head is None:
-            d = torch.ones_like(b)
+            a = torch.ones(emb.shape[0], self.d_dim, device=b.device, dtype=b.dtype)
         else:
             # softplus keeps discrimination positive without exp's blow-up
-            d = F.softplus(self.d_head(emb).squeeze(-1)) + 1e-3
-        return b, d
+            a = F.softplus(self.d_head(emb)) + 1e-3
+        return b, a
 
     def probs(self, theta_vals, emb, item_idx=None):
+        """``theta_vals`` is (n, D), ``emb`` is (n, emb_dim) -- per-pair.
+
+        Paper-faithful difficulty form: p = sigma(<a, theta - b>), matching
+        "2PL: p(y=1|z; theta,d) = sigma(d(theta - z))" from the paper. The
+        slope-intercept form sigma(<a,theta> - b) used by the MIRT jobs is
+        equally expressive but makes b an intercept equal to a*difficulty, so
+        the embedding head would have to predict a product of difficulty and
+        discrimination rather than difficulty itself -- and b would not be
+        comparable with the paper's z or with the classic-IRT b.
+        """
         import torch
 
-        b, d = self.item_params(emb)
-        p = torch.sigmoid(d * (theta_vals - b))
+        b, a = self.item_params(emb)
+        p = torch.sigmoid((a * (theta_vals - b.unsqueeze(-1))).sum(-1))
         if self.logit_c is not None and item_idx is not None:
             c = torch.sigmoid(self.logit_c[item_idx]) * 0.5
             p = c + (1 - c) * p
@@ -148,8 +173,8 @@ class AmortizedIRT:
         import torch
 
         b = b_all[item_idx]
-        d = d_all[item_idx]
-        p = torch.sigmoid(d * (theta_vals - b))
+        a = d_all[item_idx]
+        p = torch.sigmoid((a * (theta_vals - b.unsqueeze(-1))).sum(-1))
         if self.logit_c is not None:
             c = torch.sigmoid(self.logit_c[item_idx]) * 0.5
             p = c + (1 - c) * p
@@ -201,17 +226,17 @@ def _fit_theta_only(model, emb, i_idx, y, steps=200, lr=0.1):
     """Cold-start a new subject: item params frozen, fit a single theta."""
     import torch
 
-    theta = torch.zeros(1, device=model.device, requires_grad=True)
+    theta = torch.zeros(1, model.d_dim, device=model.device, requires_grad=True)
     i_t = torch.as_tensor(i_idx, dtype=torch.long, device=model.device)
     y_t = torch.as_tensor(y, dtype=torch.float32, device=model.device)
     with torch.no_grad():
-        b, d = model.item_params(emb[i_t])
+        b, a = model.item_params(emb[i_t])
         c = (torch.sigmoid(model.logit_c[i_t]) * 0.5
              if model.logit_c is not None else None)
     opt = torch.optim.AdamW([theta], lr=lr)
     for _ in range(steps):
         opt.zero_grad()
-        p = torch.sigmoid(d * (theta - b))
+        p = torch.sigmoid((a * (theta - b.unsqueeze(-1))).sum(-1))
         if c is not None:
             p = c + (1 - c) * p
         p = p.clamp(1e-6, 1 - 1e-6)
@@ -305,70 +330,71 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
 
         rng = np.random.default_rng([seed, hash(bench) % (2**31)])
 
-        for kind in ("1pl", "2pl", "3pl"):
-            # ---------- protocol A: random 20% cell holdout ----------
-            perm = rng.permutation(len(yy))
-            n_test = int(len(yy) * HOLDOUT_FRAC)
-            te, tr = perm[:n_test], perm[n_test:]
-            model = AmortizedIRT(len(subs), emb_dim, kind, len(its),
-                                 int(rng_global.integers(0, 2**31)), device=device)
-            hist = _fit(model, emb, si[tr], ii[tr], yy[tr],
-                        desc=f"{bench[:14]} {kind} cell")
-            with torch.no_grad():
-                i_te = torch.as_tensor(ii[te], dtype=torch.long, device=device)
-                s_te = torch.as_tensor(si[te], dtype=torch.long, device=device)
-                p = model.probs(model.theta[s_te], emb[i_te], i_te).cpu().numpy()
-            auc, brier = _score(yy[te], p)
-            rows.append({"benchmark_id": bench, "model": f"amort_{kind}", "arm": arm,
-                         "seed": seed, "axis": "cell", "n_score": len(te),
-                         "label": yy[te], "pred_prob": p, "auc": auc, "brier": brier})
-            weights_all[f"{bench}_amort_{kind}"] = {
-                **model.state(), "loss_history": hist,
-                "item_ids": np.array(its), "subject_ids": np.array(subs)}
-
-            # ---------- protocol B: held-out subjects and items ----------
-            held_s = rng.choice(len(subs), max(1, int(len(subs) * HELD_OUT_FRAC)), replace=False)
-            held_i = rng.choice(len(its), max(1, int(len(its) * HELD_OUT_FRAC)), replace=False)
-            core = ~(np.isin(si, held_s) | np.isin(ii, held_i))
-            if core.sum() < MIN_MATRIX:
-                continue
-            gmodel = AmortizedIRT(len(subs), emb_dim, kind, len(its),
-                                  int(rng_global.integers(0, 2**31)), device=device)
-            _fit(gmodel, emb, si[core], ii[core], yy[core],
-                 desc=f"{bench[:14]} {kind} gen")
-
-            # subject axis: split-half, theta fit on half 1
-            for row in held_s:
-                sel = np.flatnonzero((si == row) & ~np.isin(ii, held_i))
-                if len(sel) < 2 * MIN_HALF:
-                    continue
-                sh = rng.permutation(sel)
-                h1, h2 = sh[: len(sh) // 2], sh[len(sh) // 2:]
-                th = _fit_theta_only(gmodel, emb, ii[h1], yy[h1])
+        for kind in KINDS:
+            for d_dim in DIMS:
+                # ---------- protocol A: random 20% cell holdout ----------
+                perm = rng.permutation(len(yy))
+                n_test = int(len(yy) * HOLDOUT_FRAC)
+                te, tr = perm[:n_test], perm[n_test:]
+                model = AmortizedIRT(len(subs), emb_dim, kind, len(its),
+                                     int(rng_global.integers(0, 2**31)), device=device, d_dim=d_dim)
+                hist = _fit(model, emb, si[tr], ii[tr], yy[tr],
+                            desc=f"{bench[:14]} {kind} D{d_dim} cell")
                 with torch.no_grad():
-                    i2 = torch.as_tensor(ii[h2], dtype=torch.long, device=device)
-                    p2 = gmodel.probs(th, emb[i2], i2).cpu().numpy()
-                if len(np.unique(yy[h2])) < 2:
-                    continue
-                auc, brier = _score(yy[h2], p2)
-                rows.append({"benchmark_id": bench, "model": f"amort_{kind}", "arm": arm,
-                             "seed": seed, "axis": "subject", "n_score": len(h2),
-                             "label": yy[h2], "pred_prob": p2, "auc": auc, "brier": brier})
+                    i_te = torch.as_tensor(ii[te], dtype=torch.long, device=device)
+                    s_te = torch.as_tensor(si[te], dtype=torch.long, device=device)
+                    p = model.probs(model.theta[s_te], emb[i_te], i_te).cpu().numpy()
+                auc, brier = _score(yy[te], p)
+                rows.append({"benchmark_id": bench, "model": f"amort_{kind}_d{d_dim}", "arm": arm,
+                             "seed": seed, "axis": "cell", "n_score": len(te),
+                             "label": yy[te], "pred_prob": p, "auc": auc, "brier": brier})
+                weights_all[f"{bench}_amort_{kind}_d{d_dim}"] = {
+                    **model.state(), "loss_history": hist,
+                    "item_ids": np.array(its), "subject_ids": np.array(subs)}
 
-            # item axis: COLD START -- b and d straight from the embedding, the
-            # held-out item contributes no responses to the fit at all.
-            for col in held_i:
-                sel = np.flatnonzero((ii == col) & ~np.isin(si, held_s))
-                if len(sel) < 2 * MIN_HALF or len(np.unique(yy[sel])) < 2:
+                # ---------- protocol B: held-out subjects and items ----------
+                held_s = rng.choice(len(subs), max(1, int(len(subs) * HELD_OUT_FRAC)), replace=False)
+                held_i = rng.choice(len(its), max(1, int(len(its) * HELD_OUT_FRAC)), replace=False)
+                core = ~(np.isin(si, held_s) | np.isin(ii, held_i))
+                if core.sum() < MIN_MATRIX:
                     continue
-                with torch.no_grad():
-                    ic = torch.as_tensor(ii[sel], dtype=torch.long, device=device)
-                    sc = torch.as_tensor(si[sel], dtype=torch.long, device=device)
-                    pc = gmodel.probs(gmodel.theta[sc], emb[ic], ic).cpu().numpy()
-                auc, brier = _score(yy[sel], pc)
-                rows.append({"benchmark_id": bench, "model": f"amort_{kind}", "arm": arm,
-                             "seed": seed, "axis": "item_coldstart", "n_score": len(sel),
-                             "label": yy[sel], "pred_prob": pc, "auc": auc, "brier": brier})
+                gmodel = AmortizedIRT(len(subs), emb_dim, kind, len(its),
+                                      int(rng_global.integers(0, 2**31)), device=device, d_dim=d_dim)
+                _fit(gmodel, emb, si[core], ii[core], yy[core],
+                     desc=f"{bench[:14]} {kind} D{d_dim} gen")
+
+                # subject axis: split-half, theta fit on half 1
+                for row in held_s:
+                    sel = np.flatnonzero((si == row) & ~np.isin(ii, held_i))
+                    if len(sel) < 2 * MIN_HALF:
+                        continue
+                    sh = rng.permutation(sel)
+                    h1, h2 = sh[: len(sh) // 2], sh[len(sh) // 2:]
+                    th = _fit_theta_only(gmodel, emb, ii[h1], yy[h1])
+                    with torch.no_grad():
+                        i2 = torch.as_tensor(ii[h2], dtype=torch.long, device=device)
+                        p2 = gmodel.probs(th, emb[i2], i2).cpu().numpy()
+                    if len(np.unique(yy[h2])) < 2:
+                        continue
+                    auc, brier = _score(yy[h2], p2)
+                    rows.append({"benchmark_id": bench, "model": f"amort_{kind}_d{d_dim}", "arm": arm,
+                                 "seed": seed, "axis": "subject", "n_score": len(h2),
+                                 "label": yy[h2], "pred_prob": p2, "auc": auc, "brier": brier})
+
+                # item axis: COLD START -- b and d straight from the embedding, the
+                # held-out item contributes no responses to the fit at all.
+                for col in held_i:
+                    sel = np.flatnonzero((ii == col) & ~np.isin(si, held_s))
+                    if len(sel) < 2 * MIN_HALF or len(np.unique(yy[sel])) < 2:
+                        continue
+                    with torch.no_grad():
+                        ic = torch.as_tensor(ii[sel], dtype=torch.long, device=device)
+                        sc = torch.as_tensor(si[sel], dtype=torch.long, device=device)
+                        pc = gmodel.probs(gmodel.theta[sc], emb[ic], ic).cpu().numpy()
+                    auc, brier = _score(yy[sel], pc)
+                    rows.append({"benchmark_id": bench, "model": f"amort_{kind}_d{d_dim}", "arm": arm,
+                                 "seed": seed, "axis": "item_coldstart", "n_score": len(sel),
+                                 "label": yy[sel], "pred_prob": pc, "auc": auc, "brier": brier})
 
     frame = pd.DataFrame(rows)
     OUT.parent.mkdir(parents=True, exist_ok=True)
