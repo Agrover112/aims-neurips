@@ -317,14 +317,21 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     print(f"params: {sum(q.numel() for q in model.parameters()):,}", flush=True)
 
+    epoch_order: list[int] = []
     best_val, best_state, since_best = float("inf"), None, 0
     t0 = time.time()
     for step in tqdm(range(steps), desc=f"seed={seed}", unit="step", mininterval=20.0):
         model.train()
         opt.zero_grad()
-        losses = [model.loss(*_episode(train_tasks[int(rng.integers(len(train_tasks)))],
-                                       rng, device, emb))[0]
-                  for _ in range(EPISODES_PER_STEP)]
+        # Shuffled epochs, not sampling with replacement: every subject is
+        # seen once per pass. With replacement and early stopping at ~step 400
+        # only ~54% of the 4,071 train subjects would ever be visited.
+        batch = []
+        for _ in range(EPISODES_PER_STEP):
+            if not epoch_order:
+                epoch_order.extend(rng.permutation(len(train_tasks)).tolist())
+            batch.append(train_tasks[epoch_order.pop()])
+        losses = [model.loss(*_episode(t, rng, device, emb))[0] for t in batch]
         tr = torch.stack(losses).mean()
         tr.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
