@@ -67,7 +67,7 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2",
     "tqdm>=4.66,<5")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 
 def _head(in_dim, hidden, out_dim=1):
@@ -90,15 +90,17 @@ class AmortizedIRT:
     harder to separate.
     """
 
-    def __init__(self, n_subjects, emb_dim, kind, n_items, seed):
+    def __init__(self, n_subjects, emb_dim, kind, n_items, seed, device=None):
         import torch
 
         torch.manual_seed(seed)
         self.kind = kind
-        self.theta = torch.zeros(n_subjects, requires_grad=True)
-        self.b_head = _head(emb_dim, HIDDEN)
-        self.d_head = _head(emb_dim, HIDDEN) if kind in ("2pl", "3pl") else None
-        self.logit_c = (torch.full((n_items,), -2.0, requires_grad=True)
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.theta = torch.zeros(n_subjects, device=self.device, requires_grad=True)
+        self.b_head = _head(emb_dim, HIDDEN).to(self.device)
+        self.d_head = (_head(emb_dim, HIDDEN).to(self.device)
+                       if kind in ("2pl", "3pl") else None)
+        self.logit_c = (torch.full((n_items,), -2.0, device=self.device, requires_grad=True)
                         if kind == "3pl" else None)
 
     def parameters(self):
@@ -134,6 +136,25 @@ class AmortizedIRT:
             p = c + (1 - c) * p
         return p.clamp(1e-6, 1 - 1e-6)
 
+    def probs_gathered(self, theta_vals, b_all, d_all, item_idx):
+        """Same curve, but from item params computed ONCE over the unique items.
+
+        ``probs`` runs the MLP on ``emb[item_idx]`` -- one forward pass per
+        *response*. There are far fewer unique items than responses (often by
+        10-100x), so the heads should be evaluated on the (n_items, dim)
+        embedding matrix once per step and the results gathered. Same maths,
+        a fraction of the compute.
+        """
+        import torch
+
+        b = b_all[item_idx]
+        d = d_all[item_idx]
+        p = torch.sigmoid(d * (theta_vals - b))
+        if self.logit_c is not None:
+            c = torch.sigmoid(self.logit_c[item_idx]) * 0.5
+            p = c + (1 - c) * p
+        return p.clamp(1e-6, 1 - 1e-6)
+
     def train_mode(self, flag=True):
         self.b_head.train(flag)
         if self.d_head is not None:
@@ -157,14 +178,16 @@ def _fit(model, emb, s_idx, i_idx, y, steps=STEPS, lr=LR, desc=""):
     from tqdm import tqdm
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
-    s_t = torch.as_tensor(s_idx, dtype=torch.long)
-    i_t = torch.as_tensor(i_idx, dtype=torch.long)
-    y_t = torch.as_tensor(y, dtype=torch.float32)
+    s_t = torch.as_tensor(s_idx, dtype=torch.long, device=model.device)
+    i_t = torch.as_tensor(i_idx, dtype=torch.long, device=model.device)
+    y_t = torch.as_tensor(y, dtype=torch.float32, device=model.device)
     loss_history = []
     model.train_mode(True)
     for _ in tqdm(range(steps), desc=desc, unit="step", mininterval=10.0, leave=False):
         opt.zero_grad()
-        p = model.probs(model.theta[s_t], emb[i_t], i_t)
+        # Heads run once over the unique items, then gather per response.
+        b_all, d_all = model.item_params(emb)
+        p = model.probs_gathered(model.theta[s_t], b_all, d_all, i_t)
         loss = -(y_t * torch.log(p) + (1 - y_t) * torch.log(1 - p)).mean()
         loss = loss + 0.125 * model.theta.square().mean()
         loss.backward()
@@ -178,9 +201,9 @@ def _fit_theta_only(model, emb, i_idx, y, steps=200, lr=0.1):
     """Cold-start a new subject: item params frozen, fit a single theta."""
     import torch
 
-    theta = torch.zeros(1, requires_grad=True)
-    i_t = torch.as_tensor(i_idx, dtype=torch.long)
-    y_t = torch.as_tensor(y, dtype=torch.float32)
+    theta = torch.zeros(1, device=model.device, requires_grad=True)
+    i_t = torch.as_tensor(i_idx, dtype=torch.long, device=model.device)
+    y_t = torch.as_tensor(y, dtype=torch.float32, device=model.device)
     with torch.no_grad():
         b, d = model.item_params(emb[i_t])
         c = (torch.sigmoid(model.logit_c[i_t]) * 0.5
@@ -230,8 +253,11 @@ def _load_filtered(min_subjects):
     return d
 
 
-@app.function(image=image, gpu="L4", memory=131_072, volumes={"/data": volume},
-              timeout=12 * 60 * 60)
+# CPU only. The heads are evaluated once over the unique items rather than
+# once per response, which made this ~17x cheaper and removed any need for a
+# GPU -- ~0.1 s/step on CPU. Modal CPU is far cheaper than an L4.
+@app.function(image=image, cpu=16, memory=65_536, volumes={"/data": volume},
+              timeout=6 * 60 * 60)
 def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
     import numpy as np
     import pandas as pd
@@ -247,6 +273,9 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
     d = _load_filtered(MIN_SUBJECTS)
     print(f"filtered (n>={MIN_SUBJECTS}): {len(d):,} rows, "
           f"{d.benchmark_id.nunique()} benchmarks", flush=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"training device: {device}", flush=True)
 
     rows, weights_all = [], {}
     rng_global = np.random.default_rng(seed)
@@ -266,7 +295,8 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
         s_map = {s: i for i, s in enumerate(subs)}
         i_map = {s: i for i, s in enumerate(its)}
         emb = torch.as_tensor(
-            np.asarray(emb_all[[emb_pos[u] for u in its]], dtype=np.float32))
+            np.asarray(emb_all[[emb_pos[u] for u in its]], dtype=np.float32)
+        ).to(device)
         emb_dim = emb.shape[1]
 
         si = dd["subject_uid"].map(s_map).to_numpy()
@@ -281,13 +311,13 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
             n_test = int(len(yy) * HOLDOUT_FRAC)
             te, tr = perm[:n_test], perm[n_test:]
             model = AmortizedIRT(len(subs), emb_dim, kind, len(its),
-                                 int(rng_global.integers(0, 2**31)))
+                                 int(rng_global.integers(0, 2**31)), device=device)
             hist = _fit(model, emb, si[tr], ii[tr], yy[tr],
                         desc=f"{bench[:14]} {kind} cell")
             with torch.no_grad():
-                i_te = torch.as_tensor(ii[te], dtype=torch.long)
-                p = model.probs(model.theta[torch.as_tensor(si[te], dtype=torch.long)],
-                                emb[i_te], i_te).cpu().numpy()
+                i_te = torch.as_tensor(ii[te], dtype=torch.long, device=device)
+                s_te = torch.as_tensor(si[te], dtype=torch.long, device=device)
+                p = model.probs(model.theta[s_te], emb[i_te], i_te).cpu().numpy()
             auc, brier = _score(yy[te], p)
             rows.append({"benchmark_id": bench, "model": f"amort_{kind}", "arm": arm,
                          "seed": seed, "axis": "cell", "n_score": len(te),
@@ -303,7 +333,7 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
             if core.sum() < MIN_MATRIX:
                 continue
             gmodel = AmortizedIRT(len(subs), emb_dim, kind, len(its),
-                                  int(rng_global.integers(0, 2**31)))
+                                  int(rng_global.integers(0, 2**31)), device=device)
             _fit(gmodel, emb, si[core], ii[core], yy[core],
                  desc=f"{bench[:14]} {kind} gen")
 
@@ -316,7 +346,7 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
                 h1, h2 = sh[: len(sh) // 2], sh[len(sh) // 2:]
                 th = _fit_theta_only(gmodel, emb, ii[h1], yy[h1])
                 with torch.no_grad():
-                    i2 = torch.as_tensor(ii[h2], dtype=torch.long)
+                    i2 = torch.as_tensor(ii[h2], dtype=torch.long, device=device)
                     p2 = gmodel.probs(th, emb[i2], i2).cpu().numpy()
                 if len(np.unique(yy[h2])) < 2:
                     continue
@@ -332,9 +362,9 @@ def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
                 if len(sel) < 2 * MIN_HALF or len(np.unique(yy[sel])) < 2:
                     continue
                 with torch.no_grad():
-                    ic = torch.as_tensor(ii[sel], dtype=torch.long)
-                    pc = gmodel.probs(gmodel.theta[torch.as_tensor(si[sel], dtype=torch.long)],
-                                      emb[ic], ic).cpu().numpy()
+                    ic = torch.as_tensor(ii[sel], dtype=torch.long, device=device)
+                    sc = torch.as_tensor(si[sel], dtype=torch.long, device=device)
+                    pc = gmodel.probs(gmodel.theta[sc], emb[ic], ic).cpu().numpy()
                 auc, brier = _score(yy[sel], pc)
                 rows.append({"benchmark_id": bench, "model": f"amort_{kind}", "arm": arm,
                              "seed": seed, "axis": "item_coldstart", "n_score": len(sel),
