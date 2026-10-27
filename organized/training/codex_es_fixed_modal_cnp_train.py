@@ -90,8 +90,11 @@ image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.or
 # there. Both of those crash-looped jobs earlier in this project.
 _HERE = Path(__file__).resolve().parent
 _BLOCKS = _HERE / "cnp_blocks.py"
+_ANP_BLOCKS = _HERE / "anp_crossattn_blocks.py"
 if str(_HERE) != "/root" and _BLOCKS.exists():
     image = image.add_local_file(_BLOCKS, "/root/cnp_blocks.py")
+if str(_HERE) != "/root" and _ANP_BLOCKS.exists():
+    image = image.add_local_file(_ANP_BLOCKS, "/root/anp_crossattn_blocks.py")
 
 # Optional: live W&B curves need a secret holding WANDB_API_KEY.
 try:
@@ -393,7 +396,9 @@ def _described_protocol_metrics(population, scores):
 def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         pooling: str = "mean", use_latent: bool = False, width: int = 64,
         n_blocks: int = 2, steps: int = STEPS, residual_proj: bool = False,
-        wandb_mode: str = "online", run_label: str = "") -> dict:
+        wandb_mode: str = "online", run_label: str = "",
+        model_family: str = "cnp", cross_attention_heads: int = 4,
+        latent_dim: int = 32, dropout: float = 0.0) -> dict:
     import os
     import sys
     import time
@@ -406,6 +411,10 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
 
     sys.path.insert(0, "/root")
     import cnp_blocks as cb
+    if model_family == "anp_cross_attention":
+        import anp_crossattn_blocks as anp_cb
+    elif model_family != "cnp":
+        raise ValueError("model_family must be 'cnp' or 'anp_cross_attention'")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"training device: {device}", flush=True)
@@ -416,14 +425,24 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     if not run_label:
         run_label = f"run-{int(time.time())}-{uuid.uuid4().hex[:8]}"
     run_label = "".join(c if c.isalnum() or c in "-_" else "-" for c in run_label)
+    if model_family == "cnp":
+        architecture_tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}"
+    else:
+        architecture_tag = (
+            f"anp-crossattn{'-latent' if use_latent else ''}-w{width}"
+            f"-sa{n_blocks}-h{cross_attention_heads}-z{latent_dim}"
+        )
     checkpoint_tag = (
-        f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}"
-        f"-es-fixed-{run_label}-{arm}-seed{seed}"
+        f"{architecture_tag}-es-fixed-{run_label}-{arm}-seed{seed}"
     )
     checkpoint_path = CHECKPOINTS / f"{checkpoint_tag}.pt"
 
-    cfg = {"seed": seed, "arm": arm, "encoder": encoder, "pooling": pooling,
+    cfg = {"seed": seed, "arm": arm, "model_family": model_family,
+           "encoder": encoder if model_family == "cnp" else "target_cross_attention",
+           "pooling": pooling if model_family == "cnp" else "none_deterministic_path",
            "use_latent": use_latent, "width": width, "n_blocks": n_blocks,
+           "cross_attention_heads": cross_attention_heads,
+           "latent_dim": latent_dim, "dropout": dropout,
            "steps": steps, "lr": LR, "weight_decay": WEIGHT_DECAY,
            "run_label": run_label,
            "optimizer": "AdamW", "residual_proj": residual_proj,
@@ -443,10 +462,10 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         try:
             import wandb
 
-            tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}-es-fixed-{run_label}"
+            tag = f"{architecture_tag}-es-fixed-{run_label}"
             wb = wandb.init(entity=WANDB_ENTITY, project=WANDB_PROJECT,
-                            name=f"cnp-{tag}-{arm}-seed{seed}", job_type="cnp-train",
-                            config=cfg, tags=["cnp", "es-fixed", encoder, pooling, arm],
+                            name=f"{model_family}-{tag}-{arm}-seed{seed}", job_type="np-train",
+                            config=cfg, tags=["np", model_family, "es-fixed", arm],
                             mode=wandb_mode, reinit=True)
             print("wandb: live", flush=True)
         except Exception as exc:                      # never let logging kill a run
@@ -529,10 +548,18 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     print(f"fixed validation bank: {len(fixed_validation_bank)} held-out-subject episodes",
           flush=True)
 
-    model = cb.NeuralProcess(emb.shape[1], width=width, n_blocks=n_blocks,
-                             encoder=encoder, pooling=pooling,
-                             use_latent=use_latent,
-                             residual_proj=residual_proj).to(device)
+    if model_family == "cnp":
+        model = cb.NeuralProcess(
+            emb.shape[1], width=width, n_blocks=n_blocks,
+            encoder=encoder, pooling=pooling, use_latent=use_latent,
+            latent_dim=latent_dim, residual_proj=residual_proj, dropout=dropout,
+        ).to(device)
+    else:
+        model = anp_cb.AttentiveNeuralProcess(
+            emb.shape[1], width=width, self_attention_blocks=n_blocks,
+            cross_attention_heads=cross_attention_heads, use_latent=use_latent,
+            latent_dim=latent_dim, residual_proj=residual_proj, dropout=dropout,
+        ).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     print(f"params: {sum(q.numel() for q in model.parameters()):,}", flush=True)
 
@@ -806,7 +833,9 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             if len(w_it) < 2 * MIN_HALF:
                 continue
             base = {"benchmark_id": t["benchmark"], "seed": seed, "arm": arm,
-                    "encoder": encoder, "pooling": pooling,
+                    "model_family": model_family,
+                    "encoder": encoder if model_family == "cnp" else "target_cross_attention",
+                    "pooling": pooling if model_family == "cnp" else "none_deterministic_path",
                     "use_latent": use_latent, "width": width}
             order = rng.permutation(len(w_it))
 
@@ -848,7 +877,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     curve = pd.DataFrame(curves)
     final_coverage = coverage.metrics()
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}-es-fixed-{run_label}"
+    tag = f"{architecture_tag}-es-fixed-{run_label}"
     frame.to_parquet(OUT.with_name(f"{OUT.stem}-{tag}-{arm}-seed{seed}{OUT.suffix}"), index=False)
     curve.to_parquet(OUT.with_name(f"{OUT.stem}-curve-{tag}-{arm}-seed{seed}{OUT.suffix}"), index=False)
     coverage.item_frame(np.asarray(items_all, dtype=str)).to_parquet(
@@ -884,7 +913,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                 wb.summary[f"final/test_subjects/{protocol}/brier_score"] = float(g.brier.mean())
         wb.finish()
     return {"rows": len(frame), "curve_points": len(curve), "seed": seed,
-            "encoder": encoder, "pooling": pooling, "use_latent": use_latent,
+            "model_family": model_family, "encoder": encoder, "pooling": pooling,
+            "use_latent": use_latent,
             "run_label": run_label, "checkpoint_path": str(checkpoint_path),
             "best_step": best_step, "best_fixed_bank_brier_score": float(best_brier),
             "benchmarks": int(frame["benchmark_id"].nunique()) if len(frame) else 0}

@@ -51,6 +51,8 @@ mix their checkpoints, data splits, or scores.
 |---|---|---|
 | `organized/training/codex_es_fixed_modal_cnp_train.py` | **Current** | Filtered response-matrix CNP/NP trainer. Uses Qwen item embeddings, shuffled task epochs, disjoint context and target sets, fixed-bank validation, and CPU-only Modal jobs. |
 | `organized/training/cnp_blocks.py` | **Current** | Reusable CNP/NP architecture used by the trainer above. It contains the set encoder, pooling, decoder, deterministic CNP path, and latent NP path. |
+| `organized/training/modal_anp_crossattn_train.py` | **Current ANP entry point** | Target-to-context ANP launcher. It reuses the filtered trainer and replaces deterministic pooling with target-specific cross-attention. |
+| `organized/training/anp_crossattn_blocks.py` | **Current ANP architecture** | Target-to-context cross-attention model. Context self-attention is optional; the latent path remains global and mean-pooled. |
 | `organized/training/modal_cnp_train.py` | Superseded | Earlier version of the filtered trainer. It selects checkpoints from resampled validation episodes and does not save a volume checkpoint. Do not launch it. |
 | `src/aims_starter/faithful_np.py` | Historical submission code | CNP-AIRT/ANP-AIRT code used by the earlier full-protocol submission experiments. It is not the current filtered standalone CNP. |
 | `organized/training/modal_cnp_ladder.py`, `modal_cnp_disjoint.py`, `modal_np_collapse.py` | Historical ablations | Results-specific controls for the earlier CNP-AIRT/BeaverTails branch. Keep them for reproduction, not as a starting point for new filtered CNP runs. |
@@ -104,6 +106,34 @@ Run the local architecture tests before changing `cnp_blocks.py`:
 
 ```bash
 .venv/bin/python -m unittest tests.test_cnp_blocks
+```
+
+### Run the target-to-context ANP
+
+This is the ANP mechanism from the paper: every target item queries the labelled
+context items. It is not attention pooling. The trainer reuses the CNP's
+filtered split, fixed validation bank, coverage accounting, W&B panels, and
+checkpointing.
+
+```bash
+.venv/bin/modal run --detach --profile agrover112 \
+  --name anp-crossattn-YYYYMMDD \
+  organized/training/modal_anp_crossattn_train.py::main \
+  --seed 20261018 --width 64 --self-attention-blocks 2 \
+  --cross-attention-heads 4 --use-latent --latent-dim 32 \
+  --steps 3000 --run-label anp-crossattn-YYYYMMDD
+```
+
+It carries over `seed`, `arm`, `width`, `use_latent`, `latent_dim`,
+`residual_proj`, `dropout`, `steps`, `wandb_mode`, and `run_label`. It drops
+the pooled-CNP `encoder` and `pooling` flags. The ANP-specific controls are
+`self_attention_blocks` and `cross_attention_heads`. Width must divide evenly
+across the number of cross-attention heads.
+
+Run both architecture test files after changing either implementation:
+
+```bash
+.venv/bin/python -m unittest tests.test_cnp_blocks tests.test_anp_crossattn_blocks
 ```
 
 ## Set up
