@@ -281,7 +281,7 @@ def _load_filtered(min_subjects):
 # CPU only. The heads are evaluated once over the unique items rather than
 # once per response, which made this ~17x cheaper and removed any need for a
 # GPU -- ~0.1 s/step on CPU. Modal CPU is far cheaper than an L4.
-@app.function(image=image, cpu=16, memory=65_536, volumes={"/data": volume},
+@app.function(image=image, cpu=4, memory=32_768, volumes={"/data": volume},
               timeout=6 * 60 * 60)
 def run(seed: int = SEEDS[0], arm: str = DEFAULT_ARM) -> dict:
     import numpy as np
