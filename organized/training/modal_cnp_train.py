@@ -48,7 +48,9 @@ WEIGHT_DECAY = 1e-2   # AdamW default; decoupled, so it does not scale with LR
 VAL_EVERY = 50
 VAL_EPISODES = 32      # MC estimate of val loss; cheap and low-variance enough
 PATIENCE = 8           # val checks without improvement before stopping
-MAX_EVAL_TARGETS = 512 # subjects answer up to 3,277 items; scoring every one
+MAX_EVAL_TARGETS = 512
+CURVE_SUBJECTS = 24    # subsample for the periodic per-axis curves
+MAX_EPISODE_TARGETS = 512  # targets include context; cap for cost only
                        # per budget is the same estimator as scoring a sample
 SEEDS = (20261018, 20261019, 20261020)
 # Budget ladder lives in organized/testing/online/, not here.
@@ -101,10 +103,21 @@ def _load_filtered(min_subjects):
 
 
 def _episode(task, rng, device, emb, max_context=MAX_CONTEXT):
-    """Random context size per episode (CNP paper §2.3: N ~ uniform[0, n-1]).
+    """One task, random context size, targets INCLUDING the context (CNP §2.3).
 
-    Varying N during training is what lets one model serve the whole 0..31
-    budget ladder at test time without retraining per budget.
+    The paper: "N ~ uniform[0,...,n-1]. We condition on the subset O_N ... Thus,
+    the targets it scores Q_theta on include both the observed and unobserved
+    values." So targets are the task's full observation set, not the complement.
+
+    Disjoint context/target is the NP/ANP convention and is what this used to
+    do; it is not what the original CNP specifies. Scoring the context points
+    too is also what makes the model honest at budget 0 -- it has to explain
+    what it was just told, not only what it was not.
+
+    This is the "cell" training style: random subset of ONE task's responses as
+    context, score that task's responses. Subject- and item-holdout are test
+    protocols, not training recipes -- the paper draws a fresh f ~ P each step
+    and has no notion of holding out x locations at all.
     """
     import torch
 
@@ -112,9 +125,9 @@ def _episode(task, rng, device, emb, max_context=MAX_CONTEXT):
     n = len(items)
     k = int(rng.integers(0, min(max_context, n - 1) + 1))
     perm = rng.permutation(n)
-    c, t = perm[:k], perm[k:]
-    if len(t) == 0:
-        t = perm[-1:]
+    c = perm[:k]
+    # targets = the whole task (context included), capped for cost
+    t = perm if n <= MAX_EPISODE_TARGETS else perm[:MAX_EPISODE_TARGETS]
     gi = lambda idx: emb[torch.as_tensor(items[idx], dtype=torch.long, device=device)]
     gl = lambda idx: torch.as_tensor(labels[idx], dtype=torch.float32, device=device)
     return gi(c), gl(c), gi(t), gl(t)
@@ -129,6 +142,67 @@ def _score(y, p):
     except ValueError:
         auc = float("nan")
     return auc, float(np.mean((p - y) ** 2))
+
+
+
+def _axis_scores(model, tasks, *, held_i_arr, emb, device, rng, n_subjects,
+                 max_targets, min_half, holdout_frac, max_context):
+    """cell / subject_splithalf / item_coldstart on a subsample of tasks.
+
+    Used both for the periodic curves during training (on VALIDATION subjects,
+    never test -- early stopping reads these, so test here would leak into
+    model selection) and for the final report (on test subjects).
+
+    All three are the same CNP operation: encode a context set, decode targets.
+    Only the carve differs.
+    """
+    import numpy as np
+    import torch
+    from sklearn.metrics import roc_auc_score
+
+    acc = {}
+    picks = rng.choice(len(tasks), min(n_subjects, len(tasks)), replace=False)
+    for ix in picks:
+        t = tasks[ix]
+        keep = ~np.isin(t["items"], held_i_arr)
+        w_it, w_lb = t["items"][keep], t["labels"][keep]
+        c_it, c_lb = t["items"][~keep], t["labels"][~keep]
+        if len(w_it) < 2 * min_half:
+            continue
+        order = rng.permutation(len(w_it))
+
+        def ev(axis, ctx, tgt_items, tgt_labels):
+            if len(tgt_items) < 2 or len(np.unique(tgt_labels)) < 2:
+                return
+            x_c = emb[torch.as_tensor(w_it[ctx], dtype=torch.long, device=device)]
+            y_c = torch.as_tensor(w_lb[ctx], dtype=torch.float32, device=device)
+            x_t = emb[torch.as_tensor(tgt_items, dtype=torch.long, device=device)]
+            p = torch.sigmoid(model.logits(x_c, y_c, x_t)).cpu().numpy()
+            try:
+                auc = float(roc_auc_score(tgt_labels, p))
+            except ValueError:
+                return
+            acc.setdefault(axis, []).append(
+                (auc, float(np.mean((p - tgt_labels) ** 2))))
+
+        cut = int(len(order) * (1.0 - holdout_frac))
+        ti = order[cut:cut + max_targets]
+        ev("cell", order[:cut], w_it[ti], w_lb[ti])
+
+        half = len(order) // 2
+        ti = order[half:half + max_targets]
+        ev("subject_splithalf", order[:half], w_it[ti], w_lb[ti])
+
+        if len(c_it) >= 2:
+            ev("item_coldstart", order[:min(len(order), max_context)],
+               c_it[:max_targets], c_lb[:max_targets])
+
+    out = {}
+    for axis, vals in acc.items():
+        a = np.array(vals)
+        out[f"{axis}/auc"] = float(a[:, 0].mean())
+        out[f"{axis}/brier"] = float(a[:, 1].mean())
+    return out
 
 
 @app.function(image=image, gpu="L4", memory=65_536, volumes={"/data": volume},
@@ -266,9 +340,24 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             v = float(vl)
             curves.append({"seed": seed, "step": step,
                            "train_loss": float(tr), "val_loss": v})
+            # Same three carves on BOTH pools: the train/val gap per axis is
+            # the generalisation gap for that axis. One model, one objective --
+            # these are evaluation carves, not separate training heads.
+            kw = dict(held_i_arr=held_i_arr, emb=emb, device=device,
+                      n_subjects=CURVE_SUBJECTS, max_targets=MAX_EVAL_TARGETS,
+                      min_half=MIN_HALF, holdout_frac=HOLDOUT_FRAC,
+                      max_context=MAX_CONTEXT)
+            val_axis = _axis_scores(model, val_tasks,
+                                    rng=np.random.default_rng(seed), **kw)
+            tr_axis = _axis_scores(model, train_tasks,
+                                   rng=np.random.default_rng(seed + 1), **kw)
+            curves[-1].update({f"val_{k}": x for k, x in val_axis.items()})
+            curves[-1].update({f"train_{k}": x for k, x in tr_axis.items()})
             if wb is not None:
                 wb.log({"train_loss": float(tr), "val_loss": v,
-                        "best_val": min(best_val, v)}, step=step)
+                        "best_val": min(best_val, v),
+                        **{f"val/{k}": x for k, x in val_axis.items()},
+                        **{f"train/{k}": x for k, x in tr_axis.items()}}, step=step)
             # early stopping on held-out SUBJECT loss -- no paper publishes a
             # step count, and the right one depends on our data, not theirs.
             if v < best_val - 1e-4:
