@@ -167,6 +167,9 @@ def _axis_scores(model, tasks, *, held_i_arr, emb, device, rng, n_subjects,
     from sklearn.metrics import roc_auc_score
 
     acc = {}
+    # no_grad: this is called mid-training, so without it the tensors still
+    # require grad and .numpy() raises -- and we would build a useless graph.
+    torch.set_grad_enabled(False)
     picks = rng.choice(len(tasks), min(n_subjects, len(tasks)), replace=False)
     for ix in picks:
         t = tasks[ix]
@@ -203,6 +206,7 @@ def _axis_scores(model, tasks, *, held_i_arr, emb, device, rng, n_subjects,
             ev("item_coldstart", order[:min(len(order), max_context)],
                c_it[:max_targets], c_lb[:max_targets])
 
+    torch.set_grad_enabled(True)
     out = {}
     for axis, vals in acc.items():
         a = np.array(vals)
@@ -214,7 +218,7 @@ def _axis_scores(model, tasks, *, held_i_arr, emb, device, rng, n_subjects,
 # CPU: measured 0.036 s/step on 4 threads (3000 steps ~ 2 min). 171k
 # params, <=64 context and <=512 target items per episode -- the matmuls
 # are far too small for a GPU to help, and L4 capacity was queueing.
-@app.function(image=image, cpu=4, memory=32_768, volumes={"/data": volume},
+@app.function(image=image, cpu=8, memory=32_768, volumes={"/data": volume},
               secrets=_SECRETS, timeout=6 * 60 * 60)
 def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         pooling: str = "mean", use_latent: bool = False, width: int = 64,
