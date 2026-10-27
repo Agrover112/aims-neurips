@@ -502,6 +502,39 @@ With thousands of items the summed prior outweighs the mean likelihood by roughl
 
 Fix: divide the summed prior by the observation count, making it a correct MAP objective. Verified on synthetic data with genuine discrimination spread (true `sd(log a) = 0.6`): `sd(log_a)` recovers **0.0 → 0.64** and 2PL separates from 1PL by 0.0089 AUC. **All pre-fix Bayesian MIRT numbers are void.**
 
+**Rerun complete (2026-10-27), 3/3 seeds, cell holdout, n≥30:**
+
+| model | D=1 | D=2 | D=4 |
+|---|---:|---:|---:|
+| 1PL | 0.865 ± 0.001 | 0.865 ± 0.001 | 0.865 ± 0.001 |
+| 2PL | 0.875 ± 0.001 | 0.891 ± 0.001 | 0.896 ± 0.002 |
+| 3PL | 0.876 ± 0.000 | 0.890 ± 0.001 | 0.893 ± 0.001 |
+
+Sanity check built into the result: 1PL has no discrimination parameter, so it is correctly **flat across D** (0.865 regardless) while 2PL/3PL scale with it — the dimensionality is entering exactly where it should and nowhere else. 2PL/3PL now separate cleanly from 1PL everywhere, confirming the fix on real data (not just the synthetic check above). Matches the non-Bayesian MIRT's D=2 finding: D=2 captures most of the gain, D=4 adds little.
+
+### Amortized IRT (2026-10-27)
+
+Item difficulty **and discrimination** predicted from question-text embeddings via a GELU MLP (`organized/testing/offline/modal_amortized_irt.py`), trained through the IRT likelihood — see the design note above. Scope, set for time/budget: **2PL only**, **D=1 and D=2**, three embedding arms (`me5_instruct`, `bge_m3_long`, `qwen3_8b` — Qwen3-4B skipped), 3 seeds, n≥30 filtered data. Paper-faithful difficulty form `σ(a·(θ−b))`, not the slope-intercept form the MIRT jobs use — verified `p=0.5` exactly when `θ=b`. Ran on `cpu=4` in the `aims-neurips` workspace (~$1.86, ~1h wall; see the workspace section above) after a throughput gate confirmed ~0.26 s/step against the ~17 s/step the earlier GPU misconfiguration produced.
+
+Three axes: `cell` (random 20% holdout), `subject` (split-half on held-out subjects), `item_coldstart` (held-out items scored from the embedding alone — **zero responses contribute to the fit**, the entire point of amortizing).
+
+**AUC by axis, D, embedding arm (3 seeds pooled):**
+
+| axis | D | me5_instruct | bge_m3_long | qwen3_8b |
+|---|---|---:|---:|---:|
+| cell | 1 | 0.798 ± 0.001 | 0.824 ± 0.002 | 0.825 ± 0.000 |
+| cell | 2 | 0.799 ± 0.002 | 0.826 ± 0.001 | 0.826 ± 0.001 |
+| subject | 1 | 0.760 ± 0.003 | 0.790 ± 0.002 | 0.793 ± 0.002 |
+| subject | 2 | 0.759 ± 0.002 | 0.788 ± 0.000 | 0.795 ± 0.001 |
+| **item_coldstart** | **1** | 0.618 ± 0.004 | 0.614 ± 0.003 | 0.618 ± 0.002 |
+| **item_coldstart** | **2** | 0.620 ± 0.002 | 0.624 ± 0.004 | 0.623 ± 0.003 |
+
+**The headline number is item_coldstart ≈ 0.62 AUC with zero responses to the held-out item.** Classic IRT cannot score an unseen item at all (no free parameter exists for it); amortized IRT gets meaningfully-better-than-chance AUC from the embedding alone. It is well below the warm classic-IRT item-generalization number (0.60 with a 50/50 response split, vs this at 0/100) and far below MIRT's 0.76 (which also uses responses) — the right comparison is chance (0.5), which it clears, not the response-using numbers.
+
+**D=1 vs D=2, averaged across arms:** cell +0.001 (real but tiny, sd≈0.0006), subject −0.0003 (noise), item_coldstart **+0.006 (real, sd≈0.0014)**. Dimensionality helps a little on cold-start, nowhere else — a smaller effect than in MIRT, consistent with the amortized model's capacity sitting mostly in the embedding heads rather than in θ.
+
+**Embedding arm comparison (D=2, averaged across axes):** bge_m3_long 0.640 ± 0.004, qwen3_8b 0.640 ± 0.003, me5_instruct 0.633 ± 0.002. bge_m3_long and qwen3_8b are statistically tied and both edge out me5_instruct by ~0.007 AUC — a real but small gap, not a reason to drop any arm.
+
 **Embedding coverage check (2026-10-27):** before planning Amortized IRT, checked whether the existing embedding stores cover the n≥30 filtered item universe (56,576 items, 7 benchmarks) or need re-encoding — `organized/utils/modal_embedding_coverage.py`. Result: **100% coverage, nothing missing**, for the four v2 arms built over the full 1.36M-item corpus:
 
 | embedding arm | dim | coverage |
