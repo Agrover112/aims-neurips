@@ -306,3 +306,49 @@ class AmortizedIRTInvariantTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(torch is None, "PyTorch is not installed in the lightweight test environment")
+class ELBOScaleTests(unittest.TestCase):
+    """The KL must be normalised to the same scale as the likelihood.
+
+    A ``reduction="mean"`` likelihood paired with a summed KL minimises
+    ``(1/n)*sum_nll + KL`` instead of ``sum_nll + KL`` -- the KL is then
+    n_targets times too heavy (64x at n=64, 1000x at n=1000) and the cheapest
+    way to pay it down is posterior collapse. This is the same mean-vs-sum bug
+    as the Bayesian MIRT prior, in a different costume; it has now appeared
+    three times in this codebase, hence the test.
+    """
+
+    def test_faithful_np_kl_shrinks_with_target_count(self):
+        sys.path.insert(0, str(ROOT / "src"))
+        from aims_starter.faithful_np import FaithfulNPAIRT
+
+        torch.manual_seed(0)
+        m = FaithfulNPAIRT(x_dim=16, variant="np")
+        x_c, y_c = torch.randn(5, 16), (torch.rand(5) < 0.5).float()
+        kls = {}
+        for n in (8, 256):
+            torch.manual_seed(1)
+            x_t, y_t = torch.randn(n, 16), (torch.rand(n) < 0.5).float()
+            torch.manual_seed(1)
+            _, diag = m.training_loss(x_c, y_c, x_t, y_t)
+            kls[n] = diag["kl"]
+        # a per-target KL must fall roughly like 1/n; an unnormalised one does not
+        self.assertLess(kls[256], kls[8] / 4.0,
+                        f"KL is not normalised by target count: {kls}")
+
+    def test_prior_sample_likelihood_is_off_by_default(self):
+        """No ELBO contains a prior-sample likelihood term; it also masks
+        posterior collapse by forcing the prior path to predict well."""
+        sys.path.insert(0, str(ROOT / "src"))
+        from aims_starter.faithful_np import FaithfulNPAIRT
+
+        torch.manual_seed(0)
+        m = FaithfulNPAIRT(x_dim=16, variant="np")
+        x_c, y_c = torch.randn(5, 16), (torch.rand(5) < 0.5).float()
+        x_t, y_t = torch.randn(32, 16), (torch.rand(32) < 0.5).float()
+        torch.manual_seed(1)
+        _, d = m.training_loss(x_c, y_c, x_t, y_t)
+        self.assertAlmostEqual(d["nll"], d["nll_T"], places=6,
+                               msg="default nll must be the posterior term alone")

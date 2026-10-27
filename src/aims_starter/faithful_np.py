@@ -330,7 +330,32 @@ class FaithfulNPAIRT(nn.Module):
         n_z_samples: int = 4,
         kl_weight: float = 1.0,
         ability_aux_weight: float = 0.0,
+        prior_nll_weight: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Negative ELBO per target.
+
+        Two corrections against the original version of this function:
+
+        1. **The KL is now divided by the target count.** The likelihood is a
+           ``reduction="mean"`` over targets while ``kl_divergence`` is a sum
+           over latent dimensions, so the old ``nll + kl_weight * kl`` actually
+           minimised ``(1/n)*sum_nll + KL`` -- i.e. the true objective
+           ``sum_nll + KL`` with the KL weighted **n_targets times too
+           heavily** (64x at n=64, 1000x at n=1000). The cheapest way to pay
+           down a KL that large is to make q(z|C u T) equal q(z|C), which is
+           posterior collapse: the latent stops carrying any information about
+           the targets. Correct per-target objective is ``mean_nll + KL/n``.
+
+        2. **The prior-sample likelihood is now opt-in and off by default.**
+           The old code used ``nll = 0.5*(nll_T + nll_C)`` where ``nll_C``
+           scores the targets under a sample from the *prior* q(z|C). No ELBO
+           contains such a term -- the bound is ``E_q[log p(y|z)]`` under the
+           posterior alone. Worse, it masks the collapse above: it forces the
+           prior path to predict well, so the model still looks healthy on the
+           loss curve even when z is uninformative. Set
+           ``prior_nll_weight > 0`` to restore the old heuristic for an
+           ablation.
+        """
         x_C_encoded = self.encode_x(x_C)
         x_T_encoded = self.encode_x(x_T)
         x_C_item_encoded = self.encode_item_x(x_C)
@@ -351,8 +376,12 @@ class FaithfulNPAIRT(nn.Module):
         nll_C = torch.nn.functional.binary_cross_entropy_with_logits(
             logits_C, y_T_batched, reduction="mean"
         )
-        nll = 0.5 * (nll_T + nll_C)
-        kl = kl_divergence(q_z_T, q_z_C)
+        # ELBO uses the posterior-sample likelihood only; the prior term is a
+        # heuristic kept behind a flag (see the docstring).
+        nll = (1.0 - prior_nll_weight) * nll_T + prior_nll_weight * nll_C
+        # Per-target scale: nll is a mean over targets, so the summed KL has to
+        # be divided by the same count or it is n_targets times too strong.
+        kl = kl_divergence(q_z_T, q_z_C) / max(1, y_T.numel())
         ability_aux = torch.zeros((), device=x_C.device)
         if ability_aux_weight > 0.0:
             mu_theta_C = self.theta_from_z(q_z_C.base_dist.loc).squeeze()
