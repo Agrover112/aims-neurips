@@ -26,7 +26,7 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2", "tqdm>=4.66,<5")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 
 def _fit_and_score(mat, mask_train, mask_test, kind, d, steps, rng):
@@ -74,8 +74,11 @@ def _fit_and_score(mat, mask_train, mask_test, kind, d, steps, rng):
             loss = torch.nn.functional.binary_cross_entropy_with_logits(z, y_train)
         # Bayesian: Gaussian priors on theta, b, log_a (and c stays weakly
         # pulled toward 0 via its -2.0 init, matching the non-Bayesian job).
+        # MAP: likelihood is a .mean() over observations, so the summed log-prior
+        # must be divided by that same count or it is n_obs times too strong.
+        # Unscaled, it crushed log_a to 0 (a=1) and collapsed 2PL into 1PL.
         loss = loss + (theta.square().sum() + b.square().sum()
-                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2)
+                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2 * len(y_train))
         loss.backward()
         opt.step()
         loss_history.append(float(loss.detach().cpu().numpy()))
@@ -130,8 +133,10 @@ def _mask_and_prune(mat, rng):
             test_mask[np.ix_(keep_s, keep_i)])
 
 
-@app.function(image=image, gpu="L4", memory=131_072, volumes={"/data": volume},
-              timeout=12 * 60 * 60)
+# CPU: these are free-parameter fits, no embeddings or MLP -- a GPU buys
+# nothing and the classic IRT jobs run the same shape on cpu=16 fine.
+@app.function(image=image, cpu=16, memory=65_536, volumes={"/data": volume},
+              timeout=6 * 60 * 60)
 def run(seed: int = 20261018) -> dict:
     import numpy as np
     import pandas as pd

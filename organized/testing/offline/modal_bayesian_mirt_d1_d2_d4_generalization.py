@@ -27,7 +27,7 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2", "tqdm>=4.66,<5")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 
 def _bce(z, y, c=None):
@@ -84,8 +84,11 @@ def _fit_core(mat, kind, d, steps, seed):
         z = (a[i_t] * theta[s_t]).sum(dim=1) - b[i_t]
         c = _guess(logit_c, kind)
         loss = _bce(z, y, None if c is None else c[i_t])
+        # MAP: likelihood is a .mean(), so the summed log-prior must be divided
+        # by the observation count or it is n_obs times too strong. Unscaled it
+        # crushed log_a to 0 (a=1), collapsing 2PL into 1PL.
         loss = loss + (theta.square().sum() + b.square().sum()
-                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2)
+                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2 * len(y))
         loss.backward()
         opt.step()
         loss_history.append(float(loss.detach().cpu().numpy()))
@@ -103,7 +106,7 @@ def _fit_one_theta(a_known, b_known, y_half, d, c_known=None, steps=200):
         opt.zero_grad()
         z = (a_known * theta).sum(dim=1) - b_known
         loss = _bce(z, y_half, c_known)
-        loss = loss + theta.square().sum() / (2 * PRIOR_SCALE**2)
+        loss = loss + theta.square().sum() / (2 * PRIOR_SCALE**2 * len(y_half))
         loss.backward()
         opt.step()
     return theta.detach()
@@ -130,15 +133,18 @@ def _fit_one_item(theta_known, y_half, kind, steps=200):
         a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1, d)
         z = (a * theta_known).sum(dim=1) - b
         loss = _bce(z, y_half, _guess(logit_c, kind))
-        loss = loss + (b.square().sum() + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2)
+        loss = loss + (b.square().sum()
+                       + 0.5 * log_a.square().sum()) / (2 * PRIOR_SCALE**2 * len(y_half))
         loss.backward()
         opt.step()
     a = torch.exp(log_a) if kind in ("2pl", "3pl") else torch.ones(1, d)
     return a.detach(), b.detach(), logit_c.detach()
 
 
-@app.function(image=image, gpu="L4", memory=131_072, volumes={"/data": volume},
-              timeout=12 * 60 * 60)
+# CPU: these are free-parameter fits, no embeddings or MLP -- a GPU buys
+# nothing and the classic IRT jobs run the same shape on cpu=16 fine.
+@app.function(image=image, cpu=16, memory=65_536, volumes={"/data": volume},
+              timeout=6 * 60 * 60)
 def run(seed: int = 20261018) -> dict:
     import numpy as np
     import pandas as pd
