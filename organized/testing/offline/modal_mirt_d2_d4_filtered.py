@@ -25,7 +25,7 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2", "tqdm>=4.66,<5")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu118")
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
 
 
 def _fit_and_score(mat, mask_train, mask_test, kind, d, steps, rng):
@@ -126,8 +126,9 @@ def _mask_and_prune(mat, rng):
             test_mask[np.ix_(keep_s, keep_i)])
 
 
-@app.function(image=image, gpu="L4", memory=131_072, volumes={"/data": volume},
-              timeout=12 * 60 * 60)
+# CPU: free-parameter fits, no embeddings or MLP -- a GPU buys nothing.
+@app.function(image=image, cpu=16, memory=65_536, volumes={"/data": volume},
+              timeout=6 * 60 * 60)
 def run(seed: int = 20261018) -> dict:
     import numpy as np
     import pandas as pd

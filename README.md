@@ -365,6 +365,41 @@ Subject generalization is strong (AUC ~0.85, matches the paper). Item generaliza
 - `labeled` / `item_features` / cold-start generalization to never-seen items is unaffected by this filtering question and still needs the text/embedding-based difficulty predictor; the filtered classic-IRT result establishes an upper bound (0.98 within-benchmark, in-sample), not a deployable solution.
 - Adam vs L-BFGS for classic IRT fitting: not yet compared head-to-head.
 
+### Modal workspaces: `agrover112` vs `aims-neurips` — what runs where (2026-10-27)
+
+There are **two separate Modal workspaces**, each with its own volume that happens to share the name `aims-neurips-data`. They are **different volumes**. A file written in one is not visible from the other. Check which profile is active before launching anything:
+
+```bash
+modal profile list                 # the • marks the active one
+MODAL_PROFILE=aims-neurips modal run --detach <script>    # per-command override (preferred)
+```
+
+| | `agrover112` | `aims-neurips` |
+|---|---|---|
+| role | personal account, shared with unrelated projects | project workspace |
+| other volumes present | yes — `airfoil-metrics`, `tdl-*`, `gram-*`, `gnn-fairness-vol` | none, only `aims-neurips-data` |
+| `datasets/full/processed` | ✅ | ✅ |
+| v2 embedding stores (me5_instruct, bge_m3_long, qwen3_4b, qwen3_8b) | ✅ all 4 | ✅ all 4 |
+| v1 embedding stores (stale, 64% coverage) | ✅ | ✅ |
+| `results/data-analysis` (IRT/MIRT reruns) | ✅ **all current results live here** | ⚠️ only the Bayesian rerun |
+
+**Input data is identical in both.** Verified: the Bayesian job launched in `aims-neurips` reports `filtered (n>=30): 5,150,869 rows, 7 benchmarks`, matching the `agrover112` runs exactly.
+
+**Where things currently are:**
+
+| job | workspace | status |
+|---|---|---|
+| classic IRT (filter-test, generalization, lbfgs) | `agrover112` | ✅ done, 3/3 seeds + weights |
+| filter-retention | `agrover112` | ✅ done, 3/3 seeds + weights |
+| MIRT (filtered, generalization) | `agrover112` | ✅ done, 3/3 seeds + weights |
+| Bayesian MIRT (old, prior bug) | `agrover112` | ❌ void — do not use |
+| **Bayesian MIRT (reruns, prior fixed)** | **`aims-neurips`** | 🔄 running |
+| amortized IRT | not yet run | — |
+
+**Consequence to keep in mind:** results are now **split across two workspaces**. Any aggregation step has to pull from both, or everything should be consolidated into one workspace first. Don't assume a single `modal volume ls` shows you the whole picture.
+
+**Hardware rule:** everything under `organized/testing/offline/` is now **CPU only** (`cpu=16`, CPU torch wheel). No offline job needs a GPU — see the budget note below. Scripts under `organized/training/` still contain `gpu="L4"` and one `gpu="H100"`; those are older neural-training jobs and must not be launched casually.
+
 ### Standing rule: filtered data, shared code under `organized/` (2026-10-27)
 
 **Everything from here on runs on the n≥30 filtered data and lives under `organized/`.** This applies to every model — classic IRT, MIRT, Bayesian MIRT, Amortized IRT, and any neural retrain — and to every agent working in this repo (Claude Code, Codex, OpenCode alike).
