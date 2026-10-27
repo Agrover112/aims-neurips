@@ -126,8 +126,14 @@ def _episode(task, rng, device, emb, max_context=MAX_CONTEXT):
     k = int(rng.integers(0, min(max_context, n - 1) + 1))
     perm = rng.permutation(n)
     c = perm[:k]
-    # targets = the whole task (context included), capped for cost
-    t = perm if n <= MAX_EPISODE_TARGETS else perm[:MAX_EPISODE_TARGETS]
+    # Disjoint targets, following "Active Evaluation Acquisition" sec B.2:
+    # "we randomly sample two non-overlapping subsets from each model as
+    # Y^(o) and Y^(u)". That paper solves this exact task. Garnelo's CNP
+    # instead scores targets that include the context; we take the
+    # Active-Evaluation convention here.
+    t = perm[k:k + MAX_EPISODE_TARGETS]
+    if len(t) == 0:
+        t = perm[-1:]
     gi = lambda idx: emb[torch.as_tensor(items[idx], dtype=torch.long, device=device)]
     gl = lambda idx: torch.as_tensor(labels[idx], dtype=torch.float32, device=device)
     return gi(c), gl(c), gi(t), gl(t)
