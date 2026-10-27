@@ -436,6 +436,72 @@ Three more crash bugs surfaced while fixing the above — these jobs produced **
 
 3 seeds (20261018/19/20) each, as before. Old weights/results/plots for these models get replaced by the reruns, not kept alongside them — but only once the reruns land, not before.
 
+#### Rerun status and results (2026-10-27)
+
+| script | status | results + weights |
+|---|---|---|
+| `modal_classic_irt_filter_test.py` | ✅ complete | 3/3 seeds, n=15 and n=30 |
+| `modal_classic_irt_generalization.py` | ✅ complete | 3/3 seeds + weights |
+| `modal_classic_irt_generalization_lbfgs.py` | ✅ complete | 3/3 seeds + weights |
+| `modal_filter_retention.py` | ✅ complete | 3/3 seeds + weights |
+| `modal_mirt_d2_d4_filtered.py` | ✅ complete | 3/3 seeds + weights |
+| `modal_mirt_d2_d4_generalization.py` | ✅ complete | 3/3 seeds + weights |
+| `modal_bayesian_mirt_*` | ❌ void, rerunning | third bug found — see below |
+
+**Classic IRT, subject/item split-half generalization, n≥30, 3 seeds (Adam):**
+
+| axis | model | AUC | Brier | n pooled |
+|---|---|---:|---:|---:|
+| subject | 1PL | 0.855 ± 0.003 | 0.160 ± 0.000 | 3,393 |
+| subject | 2PL | 0.856 ± 0.001 | 0.105 ± 0.002 | 3,400 |
+| subject | 3PL | 0.857 ± 0.001 | 0.105 ± 0.001 | 3,398 |
+| item | 1PL | 0.611 ± 0.006 | 0.200 ± 0.002 | 30,757 |
+| item | 2PL | 0.599 ± 0.008 | 0.170 ± 0.002 | 30,710 |
+| item | 3PL | 0.588 ± 0.005 | 0.169 ± 0.003 | 30,758 |
+
+L-BFGS gives the same picture (subject 0.853/0.853/0.854, item 0.611/0.610/0.610), confirming the earlier "optimizer choice doesn't matter" finding still holds post-fix.
+
+**3PL is now a distinct model.** Before the fix it was a byte-identical clone of 2PL. Classic item AUC now separates: 2PL 0.599 vs 3PL 0.588.
+
+**MIRT, subject/item split-half generalization, n≥30, 3 seeds — the headline result:**
+
+| axis | model | AUC | Brier | n pooled |
+|---|---|---:|---:|---:|
+| subject | 1PL D=2 | 0.851 ± 0.002 | 0.142 ± 0.002 | 3,414 |
+| subject | 2PL D=2 | 0.851 ± 0.004 | 0.106 ± 0.001 | 3,411 |
+| subject | 2PL D=4 | 0.852 ± 0.001 | 0.103 ± 0.002 | 3,414 |
+| subject | 3PL D=4 | 0.855 ± 0.001 | 0.102 ± 0.002 | 3,406 |
+| item | 1PL D=2 | 0.611 ± 0.003 | 0.196 ± 0.003 | 30,920 |
+| **item** | **2PL D=2** | **0.759 ± 0.010** | **0.151 ± 0.004** | 30,915 |
+| **item** | **2PL D=4** | **0.760 ± 0.004** | 0.164 ± 0.003 | 30,938 |
+| item | 3PL D=2 | 0.730 ± 0.014 | 0.157 ± 0.003 | 30,908 |
+| item | 3PL D=4 | 0.749 ± 0.003 | 0.168 ± 0.003 | 30,950 |
+
+**Multidimensional MIRT transforms item generalization: 0.599 → 0.759 AUC** (classic 2PL vs MIRT 2PL D=2), while subject generalization is unchanged at ~0.85. This was completely invisible before the fix, because the scalar-`a` bug made D=2 and D=4 algebraically identical to D=1. A held-out item's response pattern is explained by a *direction* in ability space rather than one scalar. The held-out item's `a_j ∈ R^D` is fit on half the subjects and scored on the other half, so it is honestly held out — no leakage.
+
+**D=2 is enough.** Testing spread against seed sd (not an arbitrary threshold): on the generalization protocol, 5 of 6 D=2-vs-D=4 comparisons fall within 2 sd, i.e. noise. D only separates reliably on the easier cell-holdout protocol. D=4 costs more and buys nothing on the axis that matters.
+
+**MIRT, random 20% cell holdout, n≥30, 3 seeds:**
+
+| model | AUC | Brier |
+|---|---:|---:|
+| 1PL D=2 | 0.860 ± 0.001 | 0.162 ± 0.000 |
+| 2PL D=2 | 0.884 ± 0.000 | 0.131 ± 0.000 |
+| 2PL D=4 | 0.891 ± 0.002 | 0.127 ± 0.001 |
+| 3PL D=4 | 0.887 ± 0.002 | 0.130 ± 0.001 |
+
+#### Third bug: Bayesian MIRT prior scaling (found 2026-10-27, fixed, rerunning)
+
+The Bayesian jobs mixed a `.mean()` likelihood with a `.sum()` log-prior:
+
+```python
+loss = BCE.mean() + (theta².sum() + b².sum() + 0.5*log_a².sum()) / (2*PRIOR_SCALE²)
+```
+
+With thousands of items the summed prior outweighs the mean likelihood by roughly the observation count. It crushed `log_a → 0`, so `a = 1`, so **every 2PL silently collapsed into a 1PL**. Evidence: in the completed runs Bayesian 1PL and 2PL agree to **8e-6 AUC**, while the non-Bayesian MIRT differs by **0.063** on the same data. Brier was also inflated (0.22 vs 0.13).
+
+Fix: divide the summed prior by the observation count, making it a correct MAP objective. Verified on synthetic data with genuine discrimination spread (true `sd(log a) = 0.6`): `sd(log_a)` recovers **0.0 → 0.64** and 2PL separates from 1PL by 0.0089 AUC. **All pre-fix Bayesian MIRT numbers are void.**
+
 **Embedding coverage check (2026-10-27):** before planning Amortized IRT, checked whether the existing embedding stores cover the n≥30 filtered item universe (56,576 items, 7 benchmarks) or need re-encoding — `organized/utils/modal_embedding_coverage.py`. Result: **100% coverage, nothing missing**, for the four v2 arms built over the full 1.36M-item corpus:
 
 | embedding arm | dim | coverage |
