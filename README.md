@@ -561,9 +561,18 @@ AUC, mean ± 1 std.dev. over 3 seeds (20261018/19/20), n≥30 filtered data. `ce
 | Classic IRT | 1PL | 0.611 ± 0.006 (item) | ❌ |
 | MIRT | 2PL D=4 | 0.760 ± 0.004 (item) | ❌ |
 | Bayesian MIRT | 2PL D=4 | 0.896 ± 0.002 (cell) | ❌ |
-| **Amortized IRT** | **2PL D=2, bge_m3_long or qwen3_8b** | **0.624 ± 0.004** (item_coldstart) | **✅ only one** |
+| **Amortized IRT** | **2PL D=2, qwen3_8b** | **0.623 ± 0.003** (item_coldstart) | **✅ only one** |
 
-Bayesian MIRT 2PL D=4 is the strongest fit overall (0.896) but only once an item already has responses in the pool. For a brand-new item arriving in a streaming setting, amortized IRT is the only family with a usable prediction at all — 0.624 looks lower only because it is being compared against chance (0.5), not against the response-using numbers above.
+Bayesian MIRT 2PL D=4 is the strongest fit overall (0.896) but only once an item already has responses in the pool. For a brand-new item arriving in a streaming setting, amortized IRT is the only family with a usable prediction at all — 0.623 looks lower only because it is being compared against chance (0.5), not against the response-using numbers above.
+
+**qwen3_8b over bge_m3_long, decided on `subject`, not `item_coldstart`:**
+
+| | cell | subject | item_coldstart |
+|---|---:|---:|---:|
+| bge_m3_long | 0.826 ± 0.001 | 0.788 ± 0.000 | 0.624 ± 0.004 |
+| qwen3_8b | 0.826 ± 0.001 | **0.795 ± 0.001** | 0.623 ± 0.003 |
+
+`item_coldstart` is a dead heat (0.001 gap, inside both sds). `subject` is where they actually separate: qwen3_8b leads by 0.007 AUC, outside both sds — a real gap. Recommendation: **ship 2PL, D=2, `qwen3_8b`**.
 
 **Embedding coverage check (2026-10-27):** before planning Amortized IRT, checked whether the existing embedding stores cover the n≥30 filtered item universe (56,576 items, 7 benchmarks) or need re-encoding — `organized/utils/modal_embedding_coverage.py`. Result: **100% coverage, nothing missing**, for the four v2 arms built over the full 1.36M-item corpus:
 
