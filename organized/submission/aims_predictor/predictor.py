@@ -1,4 +1,4 @@
-"""Exact-runtime predictor for the staged latent CNP checkpoint.
+"""Metadata-driven runtime predictor for staged NP checkpoints.
 
 The competition calls this statelessly. The only online state is reconstructed
 from the complete ``labeled`` list passed into each call.
@@ -16,14 +16,13 @@ things:
    texts are grouped by token length and batches are capped by a *token*
    budget rather than a row count. One very long item then forms its own batch
    instead of padding thirty short ones out to its length.
-3. **Separate CUDA and CPU tuning.** GPU allocation is automatic on CodaBench,
-   so the CUDA path is the expected one and is tuned for throughput. The CPU
-   path is a correctness-preserving fallback with much smaller batches.
+3. **Separate CUDA and CPU tuning.** CPU is the expected CodaBench path. The
+   encoder is loaded once per worker, and each batch is bounded by padded-token
+   count.
 
-Nothing here changes the embedding contract: last-token pooling, the first
-1,024 Matryoshka components, then L2 normalisation, with ``max_length`` left at
-the store's 32,768 so long questions are encoded exactly as training encoded
-them.
+The checkpoint metadata defines the embedding contract. This keeps pooling,
+token cap, output width, and normalisation aligned with the store used for
+training.
 """
 
 from __future__ import annotations
@@ -43,11 +42,14 @@ from .anp_crossattn_blocks import AttentiveNeuralProcess
 ASSET_ROOT = Path(__file__).resolve().parents[1] / "assets"
 METADATA = json.loads((ASSET_ROOT / "metadata.json").read_text())
 CHECKPOINT_NAME = str(METADATA["checkpoint"])
-MODEL_ID = "Qwen/Qwen3-Embedding-8B"
-EMBEDDING_DIM = 1024
-# The store's contract. Long questions are encoded in full, not truncated.
-MAX_LENGTH = 32_768
-MAX_CONTEXT = 64
+EMBEDDING = dict(METADATA.get("embedding") or {})
+MODEL_ID = str(EMBEDDING.get("model", "Qwen/Qwen3-Embedding-8B"))
+EMBEDDING_DIM = int(EMBEDDING.get("output_dimension", EMBEDDING.get("mrl_dimension", 1024)))
+MAX_LENGTH = int(EMBEDDING.get("max_length", 32_768))
+POOLING = str(EMBEDDING.get("pooling", "last")).replace("_token", "")
+if POOLING not in {"cls", "last", "mean"}:
+    raise ValueError(f"Unsupported embedding pooling mode: {POOLING!r}")
+MAX_CONTEXT = int((METADATA.get("model") or {}).get("max_context", 64))
 SMOKE_ENV = "PREDICTIVE_EVAL_LOCAL_SMOKE_TEST"
 # The organizer validator enables this only while importing model.py, then
 # clears the environment before it calls predict().  Capture it now so the
@@ -178,8 +180,8 @@ def _quantize_dynamic_int8(model) -> None:
             del as_float, child
 
 
-class _QwenMRL:
-    """Qwen3 last-token embeddings with the training-time MRL reduction."""
+class _ItemEmbedder:
+    """Embed item content according to the saved training-time contract."""
 
     def __init__(self) -> None:
         self.cache: dict[str, np.ndarray] = {}
@@ -216,18 +218,18 @@ class _QwenMRL:
                 pass
 
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, local_files_only=True)
-        # Left padding keeps the final position a real token for every row in a
-        # batch, which is what makes batched last-token pooling correct.
-        self.tokenizer.padding_side = "left"
+        # Last-token pooling needs the final position to be a real token in
+        # every row. CLS and masked-mean pooling work with the tokenizer default.
+        if POOLING == "last":
+            self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        dtype = torch.bfloat16 if on_cuda else torch.float32
         self.model = AutoModel.from_pretrained(
             MODEL_ID,
             local_files_only=True,
-            torch_dtype=torch.bfloat16,
-            # Matches the store build. Also keeps attention memory manageable
-            # on the long tail of items.
+            torch_dtype=dtype,
             attn_implementation="sdpa",
         )
         self.model.eval()
@@ -278,10 +280,16 @@ class _QwenMRL:
         ).to(self.device)
         with torch.inference_mode():
             hidden = self.model(**encoded).last_hidden_state
-            # Left padding puts the real final token at position -1 for every
-            # row. Slice to the Matryoshka width first, then renormalise, in
-            # that order, exactly as the store was built.
-            vectors = hidden[:, -1, :EMBEDDING_DIM].float()
+            if POOLING == "cls":
+                vectors = hidden[:, 0]
+            elif POOLING == "last":
+                vectors = hidden[:, -1]
+            else:
+                mask = encoded["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                vectors = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+            # Slice before normalising for a Matryoshka encoder. This is a no-op
+            # for BGE-M3, whose native output is already 1,024 dimensions.
+            vectors = vectors[:, :EMBEDDING_DIM].float()
             vectors = torch.nn.functional.normalize(vectors, p=2, dim=-1)
         return vectors.cpu().numpy().astype("float32")
 
@@ -351,7 +359,7 @@ class NeuralPredictor:
             raise ValueError(f"Unsupported checkpoint model_family: {family!r}")
         self.model.load_state_dict(checkpoint["state_dict"], strict=True)
         self.model.eval()
-        self.embedder = _QwenMRL()
+        self.embedder = _ItemEmbedder()
 
     def predict(self, input_pair: list, labeled: list | None) -> float:
         if not isinstance(input_pair, list) or len(input_pair) != 2:
