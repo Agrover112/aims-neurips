@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from modal_mirt_acquisition import _posterior_covariance, _rung_config
+from aims_starter.mirt_acquisition import _posterior_covariance, _rung_config
 
 
 def test_joint_rung_config() -> None:
