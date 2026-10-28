@@ -98,6 +98,7 @@ _BLOCKS = _HERE / "cnp_blocks.py"
 _ANP_BLOCKS = _HERE / "anp_crossattn_blocks.py"
 _SET_ANP_BLOCKS = _HERE / "set_anp_blocks.py"
 _AEA_BLOCKS = _HERE / "aea_np_blocks.py"
+_BENCHMARK_FILTERS = _HERE / "benchmark_holdout_filters.py"
 _WANDB_INSPECTOR = None
 if str(_HERE) != "/root":
     _WANDB_INSPECTOR = _HERE.parents[1] / "scripts" / "inspect_np_wandb.py"
@@ -109,6 +110,8 @@ if str(_HERE) != "/root" and _SET_ANP_BLOCKS.exists():
     image = image.add_local_file(_SET_ANP_BLOCKS, "/root/set_anp_blocks.py")
 if str(_HERE) != "/root" and _AEA_BLOCKS.exists():
     image = image.add_local_file(_AEA_BLOCKS, "/root/aea_np_blocks.py")
+if str(_HERE) != "/root" and _BENCHMARK_FILTERS.exists():
+    image = image.add_local_file(_BENCHMARK_FILTERS, "/root/benchmark_holdout_filters.py")
 if _WANDB_INSPECTOR is not None and _WANDB_INSPECTOR.exists():
     image = image.add_local_file(_WANDB_INSPECTOR, "/root/inspect_np_wandb.py")
 
@@ -504,7 +507,10 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         latent_dim: int = 32, dropout: float = 0.0, n_inducing: int = 16,
         decoder_blocks: int | None = None, item_dim: int = 16,
         label_dim: int = 16, requested_accelerator: str = "cpu",
-        resume: bool = True, max_context: int = MAX_CONTEXT) -> dict:
+        resume: bool = True, max_context: int = MAX_CONTEXT,
+        benchmark_holdout: bool = False,
+        benchmark_min_item_responders: int = 15,
+        benchmark_min_items_per_subject: int = MIN_ITEMS_PER_TASK) -> dict:
     import os
     import sys
     import time
@@ -558,9 +564,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             f"-dec{resolved_decoder_blocks}-h{cross_attention_heads}"
             f"-ind{n_inducing}-z{latent_dim}"
         )
-    checkpoint_tag = (
-        f"{architecture_tag}-es-fixed-{run_label}-{arm}-seed{seed}"
-    )
+    split_tag = "benchmark-heldout" if benchmark_holdout else "subject-heldout"
+    checkpoint_tag = f"{architecture_tag}-{split_tag}-es-fixed-{run_label}-{arm}-seed{seed}"
     checkpoint_path = CHECKPOINTS / f"{checkpoint_tag}.pt"
     resume_path = CHECKPOINTS / f"{checkpoint_tag}.resume.pt"
 
@@ -591,6 +596,12 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
            "optimizer": "AdamW", "residual_proj": residual_proj,
            "episodes_per_step": EPISODES_PER_STEP, "max_context": max_context,
            "min_subjects": MIN_SUBJECTS, "val_frac": VAL_FRAC,
+           "split_protocol": (
+               "frozen_benchmark_train_validation_test" if benchmark_holdout
+               else "random_subject_train_validation_test"
+           ),
+           "benchmark_min_item_responders": benchmark_min_item_responders,
+           "benchmark_min_items_per_subject": benchmark_min_items_per_subject,
            "training_objective": (
                "negative_elbo_per_target" if use_latent else "target_nll"
            ),
@@ -607,7 +618,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             "width", "n_blocks", "cross_attention_heads", "latent_dim", "dropout",
             "n_inducing", "decoder_blocks", "item_dim", "label_dim", "optimizer",
             "lr", "weight_decay", "episodes_per_step", "max_context", "min_subjects",
-            "val_frac", "fixed_val_episodes", "fixed_val_max_targets",
+            "val_frac", "split_protocol", "benchmark_min_item_responders",
+            "benchmark_min_items_per_subject", "fixed_val_episodes", "fixed_val_max_targets",
         )
     }
 
@@ -653,7 +665,21 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                 "mode": wandb_mode, "reinit": True, "id": wandb_run_id,
                 "resume": "allow",
             }
-            wb = wandb.init(**wandb_options)
+            try:
+                wb = wandb.init(**wandb_options)
+            except Exception as exc:
+                # A user can delete a stopped W&B run while Modal retains its
+                # resume checkpoint. W&B correctly refuses to resurrect that
+                # ID; use a fresh run ID instead of silently training without
+                # curves. The next atomic resume checkpoint records this ID.
+                if "previously created and deleted" not in str(exc):
+                    raise
+                wandb_run_id = "np-" + hashlib.sha1(
+                    (run_identity + "|retry|" + uuid.uuid4().hex).encode("utf-8")
+                ).hexdigest()[:20]
+                wandb_options.update({"id": wandb_run_id, "resume": "never"})
+                wb = wandb.init(**wandb_options)
+                print(f"wandb: deleted run ID replaced with {wandb_run_id}", flush=True)
             wb.summary["model/family"] = model_family
             wb.summary["execution/requested_accelerator"] = requested_accelerator
             wb.summary["execution/actual_device"] = str(device)
@@ -670,9 +696,27 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     pos = {u: i for i, u in enumerate(emb_ids)}
     print(f"embedding store {arm}: {emb_all.shape}", flush=True)
 
-    d = _load_filtered(MIN_SUBJECTS)
-    print(f"filtered (n>={MIN_SUBJECTS}): {len(d):,} rows, "
-          f"{d.benchmark_id.nunique()} benchmarks", flush=True)
+    if benchmark_holdout:
+        import benchmark_holdout_filters as benchmark_filters
+
+        d, benchmark_filter_audit = benchmark_filters.load_benchmark_holdout_filtered(
+            PROCESSED,
+            min_item_responders=benchmark_min_item_responders,
+            min_items_per_subject=benchmark_min_items_per_subject,
+            split_seed=seed,
+        )
+        print(
+            "benchmark-holdout filtered "
+            f"(per-benchmark n>={benchmark_min_item_responders}, "
+            f"subject items>={benchmark_min_items_per_subject}): {len(d):,} rows, "
+            f"{d.benchmark_id.nunique()} benchmarks; {benchmark_filter_audit['final']['by_split']}",
+            flush=True,
+        )
+    else:
+        d = _load_filtered(MIN_SUBJECTS)
+        benchmark_filter_audit = None
+        print(f"filtered (n>={MIN_SUBJECTS}): {len(d):,} rows, "
+              f"{d.benchmark_id.nunique()} benchmarks", flush=True)
 
     rows, curves, rng = [], [], np.random.default_rng(seed)
 
@@ -692,34 +736,58 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         np.asarray(emb_all[[pos[u] for u in items_all]], dtype=np.float32)).to(device)
     print(f"pooled item matrix: {tuple(emb.shape)}", flush=True)
 
+    if benchmark_holdout:
+        if set(d["benchmark_split"].unique()) != {"train", "validation", "test"}:
+            raise RuntimeError("benchmark filter did not produce all three split roles")
+
     tasks = []
     for (sub, bench), g in d.groupby(["subject_uid", "benchmark_id"]):
         tasks.append({"subject": sub, "benchmark": bench,
+                      "benchmark_split": (
+                          str(g["benchmark_split"].iloc[0]) if benchmark_holdout else None
+                      ),
                       "items": g["item_uid"].map(i_map).to_numpy(),
                       "labels": g["label"].to_numpy().astype(np.float32)})
     print(f"pooled tasks (subject x benchmark): {len(tasks):,}", flush=True)
 
-    n_s = len(tasks)
-    perm = rng.permutation(n_s)
-    n_test = max(1, int(n_s * HELD_OUT_FRAC))
-    n_val = max(1, int(n_s * VAL_FRAC))
-    test_ix = set(perm[:n_test].tolist())
-    val_ix = set(perm[n_test:n_test + n_val].tolist())
-    held_i = set(rng.choice(len(items_all), max(1, int(len(items_all) * HELD_OUT_FRAC)),
-                            replace=False).tolist())
-    held_i_arr = np.fromiter(held_i, dtype=np.int64)
+    if benchmark_holdout:
+        # No random item holdout is applied here.  Every validation/test item
+        # is already cold because its whole benchmark is absent from training.
+        # Context/target partitions are sampled inside those tasks at episode
+        # time, matching the CNP/ANP inference interface.
+        held_i_arr = np.empty(0, dtype=np.int64)
+        train_tasks = [t for t in tasks if t["benchmark_split"] == "train"]
+        val_tasks = [t for t in tasks if t["benchmark_split"] == "validation"]
+        test_ix = {i for i, t in enumerate(tasks) if t["benchmark_split"] == "test"}
+        held_item_count = 0
+    else:
+        n_s = len(tasks)
+        perm = rng.permutation(n_s)
+        n_test = max(1, int(n_s * HELD_OUT_FRAC))
+        n_val = max(1, int(n_s * VAL_FRAC))
+        test_ix = set(perm[:n_test].tolist())
+        val_ix = set(perm[n_test:n_test + n_val].tolist())
+        held_i = set(rng.choice(len(items_all), max(1, int(len(items_all) * HELD_OUT_FRAC)),
+                                replace=False).tolist())
+        held_i_arr = np.fromiter(held_i, dtype=np.int64)
 
-    def _warm(t):
-        keep = ~np.isin(t["items"], held_i_arr)
-        return {**t, "items": t["items"][keep], "labels": t["labels"][keep]}
+        def _warm(t):
+            keep = ~np.isin(t["items"], held_i_arr)
+            return {**t, "items": t["items"][keep], "labels": t["labels"][keep]}
 
-    train_tasks = [_warm(t) for i, t in enumerate(tasks)
-                   if i not in test_ix and i not in val_ix]
-    val_tasks = [_warm(t) for i, t in enumerate(tasks) if i in val_ix]
+        train_tasks = [_warm(t) for i, t in enumerate(tasks)
+                       if i not in test_ix and i not in val_ix]
+        val_tasks = [_warm(t) for i, t in enumerate(tasks) if i in val_ix]
+        held_item_count = len(held_i)
     train_tasks = [t for t in train_tasks if len(t["items"]) > 2 * MIN_HALF]
     val_tasks = [t for t in val_tasks if len(t["items"]) > 2 * MIN_HALF]
     print(f"train/val/test subjects: {len(train_tasks):,}/{len(val_tasks):,}/{len(test_ix):,}"
-          f"   held-out items: {len(held_i):,}", flush=True)
+          f"   held-out items: {held_item_count:,}", flush=True)
+    if benchmark_holdout:
+        print("benchmark split: " + ", ".join(
+            f"{name}={sum(t['benchmark_split'] == name for t in tasks):,} tasks"
+            for name in ("train", "validation", "test")
+        ), flush=True)
     if not train_tasks or not val_tasks:
         raise RuntimeError("pooled split left no training or validation tasks")
     coverage = _TrainingCoverage(train_tasks, len(items_all))

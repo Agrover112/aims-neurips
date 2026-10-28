@@ -43,7 +43,9 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
          residual_proj: bool = False, dropout: float = 0.0, steps: int = 3000,
          wandb_mode: str = "online", run_label: str = "", gpu: str = "",
          cpu: int = 8, max_context: int = 64,
-         wandb_secret: str = "wandb") -> None:
+         wandb_secret: str = "wandb", benchmark_holdout: bool = False,
+         benchmark_min_item_responders: int = 15,
+         benchmark_min_items_per_subject: int = 80) -> None:
     """Run one ANP configuration. Use a distinct label for every rerun."""
     if not run_label:
         run_label = datetime.now(timezone.utc).strftime("anp-%Y%m%dT%H%M%SZ")
@@ -84,5 +86,8 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
         latent_dim=latent_dim,
         dropout=dropout,
         requested_accelerator=requested_accelerator,
+        benchmark_holdout=benchmark_holdout,
+        benchmark_min_item_responders=benchmark_min_item_responders,
+        benchmark_min_items_per_subject=benchmark_min_items_per_subject,
     )
     print(f"spawned Modal call {call.object_id}")
