@@ -98,7 +98,9 @@ _BLOCKS = _HERE / "cnp_blocks.py"
 _ANP_BLOCKS = _HERE / "anp_crossattn_blocks.py"
 _SET_ANP_BLOCKS = _HERE / "set_anp_blocks.py"
 _AEA_BLOCKS = _HERE / "aea_np_blocks.py"
-_WANDB_INSPECTOR = _HERE.parents[1] / "scripts" / "inspect_np_wandb.py"
+_WANDB_INSPECTOR = None
+if str(_HERE) != "/root":
+    _WANDB_INSPECTOR = _HERE.parents[1] / "scripts" / "inspect_np_wandb.py"
 if str(_HERE) != "/root" and _BLOCKS.exists():
     image = image.add_local_file(_BLOCKS, "/root/cnp_blocks.py")
 if str(_HERE) != "/root" and _ANP_BLOCKS.exists():
@@ -107,7 +109,7 @@ if str(_HERE) != "/root" and _SET_ANP_BLOCKS.exists():
     image = image.add_local_file(_SET_ANP_BLOCKS, "/root/set_anp_blocks.py")
 if str(_HERE) != "/root" and _AEA_BLOCKS.exists():
     image = image.add_local_file(_AEA_BLOCKS, "/root/aea_np_blocks.py")
-if str(_HERE) != "/root" and _WANDB_INSPECTOR.exists():
+if _WANDB_INSPECTOR is not None and _WANDB_INSPECTOR.exists():
     image = image.add_local_file(_WANDB_INSPECTOR, "/root/inspect_np_wandb.py")
 
 def _load_filtered(min_subjects):
