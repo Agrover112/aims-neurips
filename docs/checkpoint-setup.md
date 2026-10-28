@@ -93,7 +93,7 @@ retained unchanged in `src/aims_starter/mirt_acquisition.py`, and the tests
 import them from there. The retired Modal experiment is not restored.
 The Bayesian-MIRT test also imports its moved module from
 `organized.training`, so an obsolete root import no longer silently skips
-tests in an environment where Torch and Modal are installed. Install the
-declared development dependencies when running the suite. The existing CI
-workflow installs only the base package; its development-dependency setup is
-a separate issue and this change leaves that workflow untouched.
+tests in an environment where Torch and Modal are installed. CI now installs
+the declared development dependencies before running the suite; the former
+base-only install failed on NumPy imports in a clean runner. Optional Torch
+and Modal tests run locally when those dependencies are installed.
