@@ -51,8 +51,11 @@ mix their checkpoints, data splits, or scores.
 |---|---|---|
 | `organized/training/codex_es_fixed_modal_cnp_train.py` | **Current** | Filtered response-matrix CNP/NP trainer. Uses Qwen item embeddings, shuffled task epochs, disjoint context and target sets, fixed-bank validation, and CPU-only Modal jobs. |
 | `organized/training/cnp_blocks.py` | **Current** | Reusable CNP/NP architecture used by the trainer above. It contains the set encoder, pooling, decoder, deterministic CNP path, and latent NP path. |
+| `organized/training/modal_latent_cnp_train.py` | **Current latent-CNP entry point** | Matched pooled-latent baseline for ANP: linear context encoder, mean pooling, and global Gaussian latent. |
 | `organized/training/modal_anp_crossattn_train.py` | **Current ANP entry point** | Target-to-context ANP launcher. It reuses the filtered trainer and replaces deterministic pooling with target-specific cross-attention. |
 | `organized/training/anp_crossattn_blocks.py` | **Current ANP architecture** | Target-to-context cross-attention model. Context self-attention is optional; the latent path remains global and mean-pooled. |
+| `organized/training/modal_aea_np_train.py` | **Current AEA-NP entry point** | Set-Transformer latent NP matching the neural-process architecture in the Active Evaluation Acquisition paper. It is a separate model from the ANP implementation. |
+| `organized/training/aea_np_blocks.py` | **Current AEA-NP architecture** | Induced Set Transformer context encoder, learned attention pooling for the Gaussian latent, target-to-context cross-attention, and Set Transformer target decoder. |
 | `organized/training/modal_cnp_train.py` | Superseded | Earlier version of the filtered trainer. It selects checkpoints from resampled validation episodes and does not save a volume checkpoint. Do not launch it. |
 | `src/aims_starter/faithful_np.py` | Historical submission code | CNP-AIRT/ANP-AIRT code used by the earlier full-protocol submission experiments. It is not the current filtered standalone CNP. |
 | `organized/training/modal_cnp_ladder.py`, `modal_cnp_disjoint.py`, `modal_np_collapse.py` | Historical ablations | Results-specific controls for the earlier CNP-AIRT/BeaverTails branch. Keep them for reproduction, not as a starting point for new filtered CNP runs. |
@@ -96,6 +99,19 @@ selection metric, Brier value, and optimizer step:
 /data/results/cnp/checkpoints/<architecture>-<run-label>-<arm>-seed<seed>.pt
 ```
 
+It also writes an atomic resumable checkpoint every 500 steps at the same path
+with a `.resume.pt` suffix. This contains model and AdamW states, NumPy and
+Torch RNG states, the remaining shuffled-task queue, best-model state,
+coverage counters, fixed validation bank, curves, and the W&B run ID. Reusing
+the same run label resumes automatically after a preemption. A different
+architecture, optimiser, split, or embedding arm is rejected; increasing the
+step budget is allowed.
+
+These paths are inside the Modal Volume of the workspace used to launch the
+job. The path is identical across workspaces, but the stored weights are not:
+`aims-neurips-data:/data/results/cnp/checkpoints/` in `aims-neurips` is
+separate from the volume with that name in `agrover112`.
+
 It also saves result rows, training curves, and exact target-coverage Parquet
 files under `/data/results/cnp/`. W&B run names include architecture, width,
 run label, embedding arm, and seed. Its paired panels show training versus
@@ -130,10 +146,54 @@ the pooled-CNP `encoder` and `pooling` flags. The ANP-specific controls are
 `self_attention_blocks` and `cross_attention_heads`. Width must divide evenly
 across the number of cross-attention heads.
 
+**Path note.** ANP has two representations: a target-specific deterministic
+path $r_t$ from target-to-context cross-attention, and an optional global
+Gaussian latent path $z$. In the current implementation, the context
+self-attention blocks are **shared** by these paths: their output supplies both
+the cross-attention values for $r_t$ and the mean-pooled input to $z$. Figure 8
+of Attentive Neural Processes depicts separate deterministic and latent
+encoders, so this is a deliberate implementation difference to keep in mind
+when interpreting the ablation.
+
 Run both architecture test files after changing either implementation:
 
 ```bash
 .venv/bin/python -m unittest tests.test_cnp_blocks tests.test_anp_crossattn_blocks
+```
+
+### Run the AEA-NP Set Transformer model
+
+AEA-NP is the paper's latent Neural Process structure, not the paper's PPO
+acquisition policy. It keeps a Gaussian latent, encodes context pairs with
+induced Set Transformer blocks, infers the latent with learned attention
+pooling, cross-attends from targets to the labelled context, then applies
+induced Set Transformer decoder blocks over all targets.
+
+```bash
+.venv/bin/modal run --detach --profile agrover112 \
+  --name aea-np-YYYYMMDD \
+  organized/training/modal_aea_np_train.py::main \
+  --seed 20261018 --width 32 --item-dim 16 --label-dim 16 \
+  --encoder-blocks 2 --decoder-blocks 2 --attention-heads 8 \
+  --n-inducing 16 --latent-dim 32 --steps 3000 \
+  --run-label aea-np-YYYYMMDD
+```
+
+The first three dimensions, 16, 16, and 32, match the paper's small-model
+setting. `n_inducing` controls the Set Transformer bottleneck. AEA-NP always
+uses its latent, so it deliberately has no `use_latent`, `encoder`, or
+`pooling` launcher flags. The shared trainer supplies the same data split,
+validation bank, checkpoint policy, W&B panels, and coverage diagnostics as
+the CNP and ANP runs.
+
+Both ANP and AEA-NP launchers accept `--gpu T4` for an explicit GPU run. GPU
+runs request 4 CPU cores and 16 GiB host RAM. W&B records the requested
+accelerator and actual device, and groups CNP, ANP, and AEA-NP runs with the
+same embedding arm and seed under `filtered-np-<embedding>-seed<seed>`.
+
+```bash
+.venv/bin/python -m unittest \
+  tests.test_cnp_blocks tests.test_anp_crossattn_blocks tests.test_aea_np_blocks
 ```
 
 ## Set up

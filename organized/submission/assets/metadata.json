@@ -1,0 +1,27 @@
+{
+  "checkpoint": "latent-cnp128-qwen3-8b-seed20261018.pt",
+  "checkpoint_selection": {
+    "metric": "validation/fixed_bank/unseen_target_brier_score",
+    "step": 41350,
+    "value": 0.12720591342804255
+  },
+  "embedding": {
+    "model": "Qwen/Qwen3-Embedding-8B",
+    "item_text": "content_only",
+    "native_dimension": 4096,
+    "mrl_dimension": 1024,
+    "pooling": "last_token",
+    "l2_normalized": true
+  },
+  "model": {
+    "family": "latent_cnp",
+    "width": 128,
+    "latent_dimension": 128,
+    "encoder": "linear",
+    "pooling": "mean",
+    "encoder_blocks": 2,
+    "max_context": 64
+  },
+  "acquisition": "random_streaming_with_reserve_rule",
+  "provenance_note": "NOT the completed deterministic CNP d=128 width sweep; this is its separately trained latent-CNP-128 checkpoint."
+}

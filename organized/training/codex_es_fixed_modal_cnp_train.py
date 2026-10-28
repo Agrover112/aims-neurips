@@ -19,15 +19,16 @@ the lowest Brier score on one fixed bank of held-out-subject episodes. The
 original script chose the lowest loss from newly sampled validation episodes,
 which made checkpoint selection dominated by episode noise.
 
-W&B is optional. With a ``wandb`` Modal secret present the run streams live
-curves; without one it still trains and writes the curve to the volume, so a
-missing secret degrades to "no live plot" rather than "no run".
+W&B is optional. Launchers opt into the ``wandb`` Modal secret only in a
+workspace where it exists. Without it, training still writes curves to the
+volume, so a missing secret degrades to "no live plot" rather than "no run".
 
 Run:  modal run --detach codex_es_fixed_modal_cnp_train.py::main --encoder sgformer
 """
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import modal
@@ -56,6 +57,7 @@ VAL_EPISODES = 32      # fresh episodic loss, logged only as a diagnostic
 FIXED_VAL_EPISODES = 64
 FIXED_VAL_MAX_TARGETS = 256
 COVERAGE_HIST_EVERY = 250  # W&B histogram; scalar coverage logs every validation
+RESUME_CHECKPOINT_EVERY = 500  # about one shuffled pass; atomic volume save
 PATIENCE = 10_000      # deliberately exceeds the 3000-step budget
 MAX_EVAL_TARGETS = 512
 CURVE_SUBJECTS = 24    # subsample for the periodic per-axis curves
@@ -81,7 +83,10 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=False)
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "numpy>=2,<3", "pandas>=2.2,<3", "pyarrow>=17,<24", "scikit-learn>=1.5,<2",
     "tqdm>=4.66,<5", "wandb>=0.17,<1")
-image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
+# The same image supports default CPU jobs and explicit GPU variants created
+# through ``run.with_options(gpu=...)``. CPU-only PyTorch would silently make
+# those variants train on CPU while billing for a GPU.
+image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cu124")
 
 # Ship the architecture module. The container copy of this file lives at /root,
 # so guard on BOTH existence and not-already-in-the-container: a bare
@@ -91,17 +96,19 @@ image = image.pip_install("torch==2.5.1", index_url="https://download.pytorch.or
 _HERE = Path(__file__).resolve().parent
 _BLOCKS = _HERE / "cnp_blocks.py"
 _ANP_BLOCKS = _HERE / "anp_crossattn_blocks.py"
+_SET_ANP_BLOCKS = _HERE / "set_anp_blocks.py"
+_AEA_BLOCKS = _HERE / "aea_np_blocks.py"
+_WANDB_INSPECTOR = _HERE.parents[1] / "scripts" / "inspect_np_wandb.py"
 if str(_HERE) != "/root" and _BLOCKS.exists():
     image = image.add_local_file(_BLOCKS, "/root/cnp_blocks.py")
 if str(_HERE) != "/root" and _ANP_BLOCKS.exists():
     image = image.add_local_file(_ANP_BLOCKS, "/root/anp_crossattn_blocks.py")
-
-# Optional: live W&B curves need a secret holding WANDB_API_KEY.
-try:
-    _SECRETS = [modal.Secret.from_name("wandb")]
-except Exception:
-    _SECRETS = []
-
+if str(_HERE) != "/root" and _SET_ANP_BLOCKS.exists():
+    image = image.add_local_file(_SET_ANP_BLOCKS, "/root/set_anp_blocks.py")
+if str(_HERE) != "/root" and _AEA_BLOCKS.exists():
+    image = image.add_local_file(_AEA_BLOCKS, "/root/aea_np_blocks.py")
+if str(_HERE) != "/root" and _WANDB_INSPECTOR.exists():
+    image = image.add_local_file(_WANDB_INSPECTOR, "/root/inspect_np_wandb.py")
 
 def _load_filtered(min_subjects):
     import pandas as pd
@@ -191,6 +198,36 @@ class _TrainingCoverage:
             "coverage/training_task_exposure_max": int(self.task_draw_count.max()),
             "coverage/training_target_draws_total": self.target_draws_total,
         }
+
+    def state_dict(self):
+        """Everything needed to continue exact coverage accounting."""
+        return {
+            "response_target_count": self.response_target_count,
+            "item_target_count": self.item_target_count,
+            "task_draw_count": self.task_draw_count,
+            "response_target_seen": self.response_target_seen,
+            "item_target_seen": self.item_target_seen,
+            "task_seen": self.task_seen,
+            "target_draws_total": self.target_draws_total,
+        }
+
+    def load_state_dict(self, state):
+        """Restore counters only after checking they match this task stream."""
+        response_counts = state["response_target_count"]
+        if len(response_counts) != len(self.response_target_count):
+            raise ValueError("resume checkpoint has a different number of training tasks")
+        if any(len(old) != len(new)
+               for old, new in zip(response_counts, self.response_target_count)):
+            raise ValueError("resume checkpoint has different task response counts")
+        if state["item_target_count"].shape != self.item_target_count.shape:
+            raise ValueError("resume checkpoint has a different item universe")
+        self.response_target_count = response_counts
+        self.item_target_count = state["item_target_count"]
+        self.task_draw_count = state["task_draw_count"]
+        self.response_target_seen = int(state["response_target_seen"])
+        self.item_target_seen = int(state["item_target_seen"])
+        self.task_seen = int(state["task_seen"])
+        self.target_draws_total = int(state["target_draws_total"])
 
     def item_frame(self, item_uids):
         import pandas as pd
@@ -388,17 +425,84 @@ def _described_protocol_metrics(population, scores):
     }
 
 
+def _latent_diagnostics(model, episodes):
+    """Prior/posterior diagnostics for detecting latent collapse.
+
+    Each entry in ``episodes`` is ``(x_context, y_context, x_target,
+    y_target)``.  We log distributions over both episodes and latent
+    dimensions, never labels or item identities.
+    """
+    import torch
+
+    prior_mu, posterior_mu = [], []
+    prior_var, posterior_var, kl_by_dim = [], [], []
+    for x_c, y_c, x_t, y_t in episodes:
+        mu_prior, lv_prior = model.latent_params(x_c, y_c)
+        mu_posterior, lv_posterior = model.latent_params(
+            torch.cat([x_c, x_t], dim=0), torch.cat([y_c, y_t], dim=0)
+        )
+        var_prior, var_posterior = lv_prior.exp(), lv_posterior.exp()
+        kl = 0.5 * (
+            lv_prior - lv_posterior
+            + (var_posterior + (mu_posterior - mu_prior).square()) / var_prior
+            - 1.0
+        )
+        prior_mu.append(mu_prior)
+        posterior_mu.append(mu_posterior)
+        prior_var.append(var_prior)
+        posterior_var.append(var_posterior)
+        kl_by_dim.append(kl)
+
+    prior_mu = torch.stack(prior_mu)
+    posterior_mu = torch.stack(posterior_mu)
+    prior_var = torch.stack(prior_var)
+    posterior_var = torch.stack(posterior_var)
+    kl_by_dim = torch.stack(kl_by_dim)
+    mean_shift = posterior_mu - prior_mu
+    mean_kl_per_dim = kl_by_dim.mean(dim=0)
+    active = mean_kl_per_dim > 0.01  # conventional diagnostic threshold in nats
+
+    scalars = {
+        "latent/prior/mu_mean": float(prior_mu.mean()),
+        "latent/prior/mu_std": float(prior_mu.std(unbiased=False)),
+        "latent/posterior/mu_mean": float(posterior_mu.mean()),
+        "latent/posterior/mu_std": float(posterior_mu.std(unbiased=False)),
+        "latent/prior/variance_mean": float(prior_var.mean()),
+        "latent/prior/variance_std": float(prior_var.std(unbiased=False)),
+        "latent/posterior/variance_mean": float(posterior_var.mean()),
+        "latent/posterior/variance_std": float(posterior_var.std(unbiased=False)),
+        "latent/posterior_minus_prior/mu_abs_mean": float(mean_shift.abs().mean()),
+        "latent/kl/per_dimension_mean": float(kl_by_dim.mean()),
+        "latent/kl/per_dimension_max": float(mean_kl_per_dim.max()),
+        "latent/kl/active_dimensions_above_0.01_nat": int(active.sum()),
+        "latent/kl/active_dimension_fraction_above_0.01_nat": float(active.float().mean()),
+    }
+    distributions = {
+        "prior_mu": prior_mu.detach().flatten().cpu().numpy(),
+        "posterior_mu": posterior_mu.detach().flatten().cpu().numpy(),
+        "prior_variance": prior_var.detach().flatten().cpu().numpy(),
+        "posterior_variance": posterior_var.detach().flatten().cpu().numpy(),
+        "kl_per_dimension": kl_by_dim.detach().flatten().cpu().numpy(),
+        "mean_kl_by_dimension": mean_kl_per_dim.detach().cpu().numpy(),
+        "posterior_minus_prior_mu": mean_shift.detach().flatten().cpu().numpy(),
+    }
+    return scalars, distributions
+
+
 # CPU: measured 0.036 s/step on 4 threads (3000 steps ~ 2 min). 171k
 # params, <=64 context and <=512 target items per episode -- the matmuls
 # are far too small for a GPU to help, and L4 capacity was queueing.
 @app.function(image=image, cpu=8, memory=32_768, volumes={"/data": volume},
-              secrets=_SECRETS, timeout=6 * 60 * 60)
+              timeout=6 * 60 * 60)
 def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         pooling: str = "mean", use_latent: bool = False, width: int = 64,
         n_blocks: int = 2, steps: int = STEPS, residual_proj: bool = False,
         wandb_mode: str = "online", run_label: str = "",
         model_family: str = "cnp", cross_attention_heads: int = 4,
-        latent_dim: int = 32, dropout: float = 0.0) -> dict:
+        latent_dim: int = 32, dropout: float = 0.0, n_inducing: int = 16,
+        decoder_blocks: int | None = None, item_dim: int = 16,
+        label_dim: int = 16, requested_accelerator: str = "cpu",
+        resume: bool = True, max_context: int = MAX_CONTEXT) -> dict:
     import os
     import sys
     import time
@@ -413,8 +517,16 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     import cnp_blocks as cb
     if model_family == "anp_cross_attention":
         import anp_crossattn_blocks as anp_cb
+    elif model_family == "set_anp":
+        import set_anp_blocks as set_anp_cb
+    elif model_family == "aea_np":
+        import aea_np_blocks as aea_cb
+        if not use_latent:
+            raise ValueError("AEA-NP always requires its Gaussian latent")
     elif model_family != "cnp":
-        raise ValueError("model_family must be 'cnp' or 'anp_cross_attention'")
+        raise ValueError(
+            "model_family must be 'cnp', 'anp_cross_attention', 'set_anp', or 'aea_np'"
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"training device: {device}", flush=True)
@@ -427,26 +539,55 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     run_label = "".join(c if c.isalnum() or c in "-_" else "-" for c in run_label)
     if model_family == "cnp":
         architecture_tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}"
-    else:
+    elif model_family == "anp_cross_attention":
         architecture_tag = (
             f"anp-crossattn{'-latent' if use_latent else ''}-w{width}"
             f"-sa{n_blocks}-h{cross_attention_heads}-z{latent_dim}"
+        )
+    elif model_family == "set_anp":
+        architecture_tag = (
+            f"set-anp-crossattn{'-latent' if use_latent else ''}-w{width}"
+            f"-isab{n_blocks}-ind{n_inducing}-h{cross_attention_heads}-z{latent_dim}"
+        )
+    else:
+        resolved_decoder_blocks = n_blocks if decoder_blocks is None else decoder_blocks
+        architecture_tag = (
+            f"aea-np-w{width}-x{item_dim}-y{label_dim}-enc{n_blocks}"
+            f"-dec{resolved_decoder_blocks}-h{cross_attention_heads}"
+            f"-ind{n_inducing}-z{latent_dim}"
         )
     checkpoint_tag = (
         f"{architecture_tag}-es-fixed-{run_label}-{arm}-seed{seed}"
     )
     checkpoint_path = CHECKPOINTS / f"{checkpoint_tag}.pt"
+    resume_path = CHECKPOINTS / f"{checkpoint_tag}.resume.pt"
 
+    if model_family == "cnp":
+        encoder_description, pooling_description = encoder, pooling
+    elif model_family == "anp_cross_attention":
+        encoder_description, pooling_description = (
+            "context_self_attention", "none_deterministic_path"
+        )
+    elif model_family == "set_anp":
+        encoder_description, pooling_description = (
+            "context_induced_set_attention", "none_deterministic_path"
+        )
+    else:
+        encoder_description, pooling_description = (
+            "induced_set_transformer", "learned_multihead_attention_for_latent"
+        )
     cfg = {"seed": seed, "arm": arm, "model_family": model_family,
-           "encoder": encoder if model_family == "cnp" else "target_cross_attention",
-           "pooling": pooling if model_family == "cnp" else "none_deterministic_path",
+           "encoder": encoder_description, "pooling": pooling_description,
            "use_latent": use_latent, "width": width, "n_blocks": n_blocks,
            "cross_attention_heads": cross_attention_heads,
-           "latent_dim": latent_dim, "dropout": dropout,
+           "latent_dim": latent_dim, "dropout": dropout, "n_inducing": n_inducing,
+           "decoder_blocks": decoder_blocks, "item_dim": item_dim,
+           "label_dim": label_dim, "requested_accelerator": requested_accelerator,
+           "resume": resume, "resume_checkpoint_every_steps": RESUME_CHECKPOINT_EVERY,
            "steps": steps, "lr": LR, "weight_decay": WEIGHT_DECAY,
            "run_label": run_label,
            "optimizer": "AdamW", "residual_proj": residual_proj,
-           "episodes_per_step": EPISODES_PER_STEP, "max_context": MAX_CONTEXT,
+           "episodes_per_step": EPISODES_PER_STEP, "max_context": max_context,
            "min_subjects": MIN_SUBJECTS, "val_frac": VAL_FRAC,
            "training_objective": (
                "negative_elbo_per_target" if use_latent else "target_nll"
@@ -456,17 +597,64 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
            "fixed_val_max_targets": FIXED_VAL_MAX_TARGETS,
            "coverage_tracking": "exact_training_response_and_item_target_counts",
            "coverage_hist_every_steps": COVERAGE_HIST_EVERY}
+    # A longer budget may resume a shorter run, but no architecture, data, or
+    # optimiser setting may silently change underneath a checkpoint.
+    resume_identity = {
+        key: cfg[key] for key in (
+            "seed", "arm", "model_family", "encoder", "pooling", "use_latent",
+            "width", "n_blocks", "cross_attention_heads", "latent_dim", "dropout",
+            "n_inducing", "decoder_blocks", "item_dim", "label_dim", "optimizer",
+            "lr", "weight_decay", "episodes_per_step", "max_context", "min_subjects",
+            "val_frac", "fixed_val_episodes", "fixed_val_max_targets",
+        )
+    }
+
+    resume_state = None
+    if resume and resume_path.exists():
+        try:
+            resume_state = torch.load(resume_path, map_location="cpu", weights_only=False)
+            if resume_state.get("format_version") != 2:
+                raise ValueError("unsupported resume checkpoint format")
+            if resume_state.get("checkpoint_tag") != checkpoint_tag:
+                raise ValueError("resume checkpoint belongs to a different run")
+            if resume_state.get("resume_identity") != resume_identity:
+                raise ValueError("resume checkpoint configuration does not match this run")
+            print(f"found resume checkpoint next_step={resume_state['next_step']} "
+                  f"path={resume_path}", flush=True)
+        except Exception as exc:
+            raise RuntimeError(f"could not restore resume checkpoint {resume_path}: {exc}") from exc
 
     wb = None
     if os.environ.get("WANDB_API_KEY"):
         try:
             import wandb
 
-            tag = f"{architecture_tag}-es-fixed-{run_label}"
-            wb = wandb.init(entity=WANDB_ENTITY, project=WANDB_PROJECT,
-                            name=f"{model_family}-{tag}-{arm}-seed{seed}", job_type="np-train",
-                            config=cfg, tags=["np", model_family, "es-fixed", arm],
-                            mode=wandb_mode, reinit=True)
+            # Display names are not W&B identities: identical names otherwise
+            # become separate dashboard runs.  The ID below is deterministic
+            # across retries, while every result-bearing configuration choice
+            # is part of the identity.
+            run_identity = "|".join(
+                (model_family, architecture_tag, run_label, arm, str(seed))
+            )
+            deterministic_wandb_id = (
+                "np-" + hashlib.sha1(run_identity.encode("utf-8")).hexdigest()[:20]
+            )
+            saved_wandb_id = (resume_state or {}).get("wandb_run_id")
+            wandb_run_id = saved_wandb_id or deterministic_wandb_id
+            wandb_options = {
+                "entity": WANDB_ENTITY, "project": WANDB_PROJECT,
+                "name": f"{model_family}--{architecture_tag}--{run_label}--{arm}--s{seed}",
+                "group": f"filtered-np-{arm}-seed{seed}",
+                "job_type": f"{model_family}-train", "config": cfg,
+                "tags": ["np", model_family, "es-fixed", arm,
+                         f"accelerator-{requested_accelerator.lower()}"],
+                "mode": wandb_mode, "reinit": True, "id": wandb_run_id,
+                "resume": "allow",
+            }
+            wb = wandb.init(**wandb_options)
+            wb.summary["model/family"] = model_family
+            wb.summary["execution/requested_accelerator"] = requested_accelerator
+            wb.summary["execution/actual_device"] = str(device)
             print("wandb: live", flush=True)
         except Exception as exc:                      # never let logging kill a run
             print(f"wandb disabled ({exc})", flush=True)
@@ -543,7 +731,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     for task_index in fixed_task_indices:
         task_index = int(task_index)
         fixed_validation_bank.append(
-            (task_index, *_episode_indices(val_tasks[task_index], fixed_rng))
+            (task_index, *_episode_indices(val_tasks[task_index], fixed_rng,
+                                           max_context=max_context))
         )
     print(f"fixed validation bank: {len(fixed_validation_bank)} held-out-subject episodes",
           flush=True)
@@ -554,11 +743,26 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             encoder=encoder, pooling=pooling, use_latent=use_latent,
             latent_dim=latent_dim, residual_proj=residual_proj, dropout=dropout,
         ).to(device)
-    else:
+    elif model_family == "anp_cross_attention":
         model = anp_cb.AttentiveNeuralProcess(
             emb.shape[1], width=width, self_attention_blocks=n_blocks,
             cross_attention_heads=cross_attention_heads, use_latent=use_latent,
             latent_dim=latent_dim, residual_proj=residual_proj, dropout=dropout,
+        ).to(device)
+    elif model_family == "set_anp":
+        model = set_anp_cb.SetAttentiveNeuralProcess(
+            emb.shape[1], width=width, self_attention_blocks=n_blocks,
+            cross_attention_heads=cross_attention_heads, n_inducing=n_inducing,
+            use_latent=use_latent, latent_dim=latent_dim,
+            residual_proj=residual_proj, dropout=dropout,
+        ).to(device)
+    else:
+        model = aea_cb.ActiveEvaluationNeuralProcess(
+            emb.shape[1], width=width, item_dim=item_dim, label_dim=label_dim,
+            encoder_blocks=n_blocks,
+            decoder_blocks=n_blocks if decoder_blocks is None else decoder_blocks,
+            attention_heads=cross_attention_heads, n_inducing=n_inducing,
+            latent_dim=latent_dim, dropout=dropout,
         ).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     print(f"params: {sum(q.numel() for q in model.parameters()):,}", flush=True)
@@ -576,14 +780,86 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         panel_history.update({
             "train_posterior_nll": [], "val_posterior_nll": [],
             "train_kl": [], "val_kl": [],
+            "prior_variance": [], "posterior_variance": [],
+            "mean_shift": [], "active_dimensions": [],
         })
     diagnostic_panel_history = {
         axis: {"step": [], "train_auc": [], "val_auc": [],
                "train_brier": [], "val_brier": []}
         for axis in PROTOCOL_LABELS
     }
+    next_step = 0
+    if resume_state is not None:
+        model.load_state_dict(resume_state["model_state_dict"])
+        opt.load_state_dict(resume_state["optimizer_state_dict"])
+        coverage.load_state_dict(resume_state["coverage_state"])
+        epoch_order = list(resume_state["epoch_order"])
+        rng.bit_generator.state = resume_state["numpy_rng_state"]
+        torch.set_rng_state(resume_state["torch_rng_state"])
+        if device.type == "cuda" and resume_state.get("torch_cuda_rng_state") is not None:
+            torch.cuda.set_rng_state_all(resume_state["torch_cuda_rng_state"])
+        best_brier = float(resume_state["best_brier"])
+        best_state = resume_state["best_state"]
+        best_step = resume_state["best_step"]
+        curves = resume_state["curves"]
+        rows = resume_state["rows"]
+        panel_history = resume_state["panel_history"]
+        diagnostic_panel_history = resume_state["diagnostic_panel_history"]
+        fixed_validation_bank = resume_state["fixed_validation_bank"]
+        next_step = int(resume_state["next_step"])
+        if use_latent:
+            # Checkpoints written before the latent-distribution dashboard was
+            # added remain resumable.
+            for key in ("prior_variance", "posterior_variance", "mean_shift",
+                        "active_dimensions"):
+                panel_history.setdefault(key, [])
+        print(f"resumed exact training state at step={next_step} "
+              f"best_step={best_step} best_Brier={best_brier:.6f}", flush=True)
+
+    def _save_resume(next_step_to_run):
+        """Atomically persist every mutable state required for continuation."""
+        CHECKPOINTS.mkdir(parents=True, exist_ok=True)
+        resume_tmp = resume_path.with_suffix(".resume.pt.tmp")
+        torch.save({
+            "format_version": 2,
+            "checkpoint_tag": checkpoint_tag,
+            "config": cfg,
+            "resume_identity": resume_identity,
+            "next_step": int(next_step_to_run),
+            "model_state_dict": {
+                key: value.detach().cpu().clone()
+                for key, value in model.state_dict().items()
+            },
+            "optimizer_state_dict": opt.state_dict(),
+            "epoch_order": list(epoch_order),
+            "numpy_rng_state": rng.bit_generator.state,
+            "torch_rng_state": torch.get_rng_state(),
+            "torch_cuda_rng_state": (
+                torch.cuda.get_rng_state_all() if device.type == "cuda" else None
+            ),
+            "best_brier": float(best_brier),
+            "best_state": best_state,
+            "best_step": best_step,
+            "coverage_state": coverage.state_dict(),
+            "curves": curves,
+            "rows": rows,
+            "panel_history": panel_history,
+            "diagnostic_panel_history": diagnostic_panel_history,
+            "fixed_validation_bank": fixed_validation_bank,
+            "wandb_run_id": wb.id if wb is not None else None,
+        }, resume_tmp)
+        resume_tmp.replace(resume_path)
+        volume.commit()
+        print(f"saved resume checkpoint next_step={next_step_to_run} path={resume_path}",
+              flush=True)
+        if wb is not None:
+            wb.summary["checkpoint/resume_volume_path"] = str(resume_path)
+            wb.summary["checkpoint/resume_next_step"] = int(next_step_to_run)
+
     t0 = time.time()
-    for step in tqdm(range(steps), desc=f"seed={seed}", unit="step", mininterval=20.0):
+    if next_step == 0:
+        _save_resume(0)
+    for step in tqdm(range(next_step, steps), desc=f"seed={seed}", unit="step", mininterval=20.0):
         model.train()
         opt.zero_grad()
         # Shuffled epochs, not sampling with replacement: every subject is
@@ -596,6 +872,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             batch_indices.append(epoch_order.pop())
         batch_losses = [
             model.loss(*_episode(train_tasks[task_index], rng, device, emb,
+                                 max_context=max_context,
                                  coverage=coverage, task_index=task_index))
             for task_index in batch_indices
         ]
@@ -608,12 +885,18 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         if step % VAL_EVERY == 0 or step == steps - 1:
             model.eval()
             with torch.no_grad():
-                sampled_val = [
-                    model.loss(*_episode(val_tasks[int(rng.integers(len(val_tasks)))],
-                                         rng, device, emb))
+                sampled_val_episodes = [
+                    _episode(val_tasks[int(rng.integers(len(val_tasks)))], rng, device, emb,
+                             max_context=max_context)
                     for _ in range(VAL_EPISODES)
                 ]
+                sampled_val = [model.loss(*episode) for episode in sampled_val_episodes]
                 sampled_val_loss = torch.stack([loss for loss, _ in sampled_val]).mean()
+                latent_scalars, latent_distributions = ({}, {})
+                if use_latent:
+                    latent_scalars, latent_distributions = _latent_diagnostics(
+                        model, sampled_val_episodes
+                    )
                 fixed_val = _fixed_validation_metrics(
                     model, val_tasks, fixed_validation_bank, emb, device
                 )
@@ -637,13 +920,16 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                 curves[-1]["validation_resampled_latent_kl_total"] = float(
                     np.mean([aux["kl"] for _, aux in sampled_val])
                 )
+                curves[-1].update({
+                    key.replace("/", "_"): value for key, value in latent_scalars.items()
+                })
             # Same three carves on BOTH pools: the train/val gap per axis is
             # the generalisation gap for that axis. One model, one objective --
             # these are evaluation carves, not separate training heads.
             kw = dict(held_i_arr=held_i_arr, emb=emb, device=device,
                       n_subjects=CURVE_SUBJECTS, max_targets=MAX_EVAL_TARGETS,
                       min_half=MIN_HALF, holdout_frac=HELD_OUT_FRAC,
-                      max_context=MAX_CONTEXT)
+                      max_context=max_context)
             val_axis = _axis_scores(model, val_tasks,
                                     rng=np.random.default_rng(seed), **kw)
             tr_axis = _axis_scores(model, train_tasks,
@@ -689,7 +975,11 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                         "loss/posterior_target_nll/validation_resampled_episodes": curves[-1]["validation_resampled_posterior_target_nll"],
                         "loss/latent_kl_total/training": curves[-1]["training_latent_kl_total"],
                         "loss/latent_kl_total/validation_resampled_episodes": curves[-1]["validation_resampled_latent_kl_total"],
+                        **latent_scalars,
                     })
+                    if step % COVERAGE_HIST_EVERY == 0 or step == steps - 1:
+                        for name, values in latent_distributions.items():
+                            wandb_metrics[f"latent/distribution/{name}"] = wandb.Histogram(values)
                 panel_history["step"].append(step)
                 panel_history["train_objective"].append(float(tr))
                 panel_history["resampled_val_objective"].append(float(sampled_val_loss))
@@ -725,6 +1015,10 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                     panel_history["val_posterior_nll"].append(curves[-1]["validation_resampled_posterior_target_nll"])
                     panel_history["train_kl"].append(curves[-1]["training_latent_kl_total"])
                     panel_history["val_kl"].append(curves[-1]["validation_resampled_latent_kl_total"])
+                    panel_history["prior_variance"].append(latent_scalars["latent/prior/variance_mean"])
+                    panel_history["posterior_variance"].append(latent_scalars["latent/posterior/variance_mean"])
+                    panel_history["mean_shift"].append(latent_scalars["latent/posterior_minus_prior/mu_abs_mean"])
+                    panel_history["active_dimensions"].append(latent_scalars["latent/kl/active_dimensions_above_0.01_nat"])
                     wandb_metrics.update({
                         "panels/loss/posterior_target_nll_training_vs_validation": wandb.plot.line_series(
                             xs=[panel_history["step"], panel_history["step"]],
@@ -738,6 +1032,27 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                             ys=[panel_history["train_kl"], panel_history["val_kl"]],
                             keys=["training", "validation (resampled episodes)"],
                             title="Latent KL: training vs validation",
+                            xname="optimizer step",
+                        ),
+                        "panels/latent/prior_vs_posterior_variance": wandb.plot.line_series(
+                            xs=[panel_history["step"], panel_history["step"]],
+                            ys=[panel_history["prior_variance"], panel_history["posterior_variance"]],
+                            keys=["prior variance", "posterior variance"],
+                            title="Latent variance on validation episodes",
+                            xname="optimizer step",
+                        ),
+                        "panels/latent/prior_posterior_mean_shift": wandb.plot.line_series(
+                            xs=[panel_history["step"]],
+                            ys=[panel_history["mean_shift"]],
+                            keys=["mean |posterior − prior|"],
+                            title="Prior–posterior latent mean shift",
+                            xname="optimizer step",
+                        ),
+                        "panels/latent/active_dimensions": wandb.plot.line_series(
+                            xs=[panel_history["step"]],
+                            ys=[panel_history["active_dimensions"]],
+                            keys=["dimensions with mean KL > 0.01 nat"],
+                            title="Active latent dimensions",
                             xname="optimizer step",
                         ),
                     })
@@ -808,6 +1123,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             rate = (time.time() - t0) / 50
             print(f"{rate:.3f} s/step -> {rate * steps / 60:.1f} min for {steps} steps",
                   flush=True)
+        if ((step + 1) % RESUME_CHECKPOINT_EVERY == 0) or step == steps - 1:
+            _save_resume(step + 1)
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -834,7 +1151,11 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                 continue
             base = {"benchmark_id": t["benchmark"], "seed": seed, "arm": arm,
                     "model_family": model_family,
-                    "encoder": encoder if model_family == "cnp" else "target_cross_attention",
+                    "encoder": (
+                        encoder if model_family == "cnp"
+                        else "context_induced_set_attention" if model_family == "set_anp"
+                        else "target_cross_attention"
+                    ),
                     "pooling": pooling if model_family == "cnp" else "none_deterministic_path",
                     "use_latent": use_latent, "width": width}
             order = rng.permutation(len(w_it))
@@ -863,7 +1184,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             # item cold start: target items the model never trained on, with a
             # normal context from this subject's warm items.
             if len(c_it) >= 2 and len(np.unique(c_lb)) > 1:
-                ctx = order[:min(len(order), MAX_CONTEXT)]
+                ctx = order[:min(len(order), max_context)]
                 x_c = emb[torch.as_tensor(w_it[ctx], dtype=torch.long, device=device)]
                 y_c = torch.as_tensor(w_lb[ctx], dtype=torch.float32, device=device)
                 cc = c_it[:MAX_EVAL_TARGETS]
@@ -924,11 +1245,12 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
 def main(arm: str = ARM, encoder: str = "linear", pooling: str = "mean",
          use_latent: bool = False, width: int = 64, n_blocks: int = 2,
          steps: int = STEPS, residual_proj: bool = False,
-         run_label: str = "") -> None:
+         run_label: str = "", max_context: int = MAX_CONTEXT) -> None:
     if not run_label:
         from datetime import datetime, timezone
         run_label = datetime.now(timezone.utc).strftime("sweep-%Y%m%dT%H%M%SZ")
     handles = [run.spawn(s, arm, encoder, pooling, use_latent, width, n_blocks,
-                         steps, residual_proj, "online", run_label) for s in SEEDS]
+                         steps, residual_proj, "online", run_label,
+                         max_context=max_context) for s in SEEDS]
     for h in handles:
         print(h.get())

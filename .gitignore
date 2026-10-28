@@ -31,3 +31,5 @@ dist/
 .vscode/
 *~
 *:Zone.Identifier
+__pycache__/
+*.py[cod]
