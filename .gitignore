@@ -21,6 +21,9 @@ demo/.demo-runtime/
 data/
 artifacts/
 results/
+reports/
+organized/submission/assets/sam-acquisition-bank.json
+organized/submission/assets/sam-acquisition-bank.npz
 dist/
 *.zip
 *.tar.gz

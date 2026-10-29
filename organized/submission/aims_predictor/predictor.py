@@ -30,6 +30,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -65,7 +67,7 @@ DEVICE_LIMITS = {
 }
 
 CACHE_DIR_ENV = "AIMS_EMB_CACHE_DIR"
-CACHE_DIR_DEFAULT = Path(os.environ.get("TMPDIR", "/tmp")) / "aims-np-embcache"
+CACHE_DIR_DEFAULT = Path(tempfile.gettempdir()) / "aims-np-embcache"
 # Opt-in dynamic int8 for the CPU fallback. Off by default: it is roughly
 # 2-3x faster but perturbs the vectors the frozen checkpoint was trained on.
 INT8_ENV = "AIMS_EMB_INT8"
@@ -115,7 +117,15 @@ class _DiskCache:
     """
 
     def __init__(self, root: Path | None = None) -> None:
-        self.root = Path(os.environ.get(CACHE_DIR_ENV) or root or CACHE_DIR_DEFAULT)
+        # Equal text and output width do not imply equal embeddings. Isolate
+        # encoders, contracts, precision and interface-only synthetic vectors.
+        contract = {"embedding": EMBEDDING, "model": MODEL_ID,
+                    "dimension": EMBEDDING_DIM, "max_length": MAX_LENGTH,
+                    "pooling": POOLING, "smoke": LOCAL_SMOKE_TEST,
+                    "int8": bool(os.environ.get(INT8_ENV)),
+                    "precision": "cuda-bfloat16" if torch.cuda.is_available() else "cpu-float32"}
+        namespace = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()[:24]
+        self.root = Path(os.environ.get(CACHE_DIR_ENV) or root or CACHE_DIR_DEFAULT) / namespace
         self.n_bytes = EMBEDDING_DIM * 4  # float32
         self.enabled = True
         try:
@@ -135,13 +145,14 @@ class _DiskCache:
             return None
         if len(raw) != self.n_bytes:
             return None
-        return np.frombuffer(raw, dtype=np.float32).copy()
+        vector = np.frombuffer(raw, dtype=np.float32).copy()
+        return vector if np.isfinite(vector).all() else None
 
     def put(self, key: str, vector: np.ndarray) -> None:
         if not self.enabled:
             return
         path = self._path(key)
-        temporary = path.with_name(f"{key}.{os.getpid()}.tmp")
+        temporary = path.with_name(f"{key}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_bytes(np.ascontiguousarray(vector, dtype=np.float32).tobytes())
@@ -213,7 +224,7 @@ class _ItemEmbedder:
             # One process owns the whole container on the CPU fallback, so take
             # every core. Left at the default, torch often picks far fewer.
             try:
-                torch.set_num_threads(max(1, os.cpu_count() or 1))
+                torch.set_num_threads(max(1, int(os.environ.get("AIMS_TORCH_THREADS", os.environ.get("OMP_NUM_THREADS", "4")))))
             except (RuntimeError, ValueError):
                 pass
 
@@ -327,6 +338,8 @@ class _ItemEmbedder:
 
 class NeuralPredictor:
     def __init__(self) -> None:
+        if not torch.cuda.is_available():
+            torch.set_num_threads(max(1, int(os.environ.get("AIMS_TORCH_THREADS", os.environ.get("OMP_NUM_THREADS", "4")))))
         checkpoint = torch.load(ASSET_ROOT / CHECKPOINT_NAME, map_location="cpu", weights_only=False)
         config = checkpoint["config"]
         family = str(config.get("model_family", "cnp"))
