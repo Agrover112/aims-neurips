@@ -125,6 +125,19 @@ Explain why common shortcuts make this setting easier: random masked cells can
 share benchmark structure, and full-pool acquisition can inspect candidates
 that a streaming evaluator has not yet revealed.
 
+Place the result next to aggregate benchmark prediction. Zhang et al. (2025)
+compare 11 methods on 19 benchmarks for predicting a model's overall accuracy
+from a few evaluated items. Learned predictors work when the new model
+resembles models already seen, but fail to beat a random-sample average on
+newer, more capable models; only an augmented inverse propensity weighting
+(AIPW) estimator, which corrects a learned prediction with the observed
+labels, stays consistently ahead, and modestly. Our setting differs in three
+ways: the shift is to unseen *benchmarks* rather than stronger *subjects*,
+predictions are item-level probabilities scored by Brier rather than one
+aggregate accuracy, and acquisition is streaming. The conclusion agrees: a
+learned prior helps only when the test resembles training, and the
+context-only estimator is hard to beat under shift.
+
 Contributions:
 
 1. A benchmark-held-out streaming replay protocol with disjoint acquisition
@@ -570,6 +583,15 @@ change, not a solved direction. The present evidence is consistent with
 difficulty transfer being a bottleneck, but does not isolate it causally from
 model calibration or online adaptation.
 
+Relate this to Zhang et al. (2025): their learned benchmark predictors also
+fail under extrapolation (to stronger models), and the estimator that survives
+is the one anchored to observed labels (AIPW). The item-level analogue here is
+a predictor that starts from the context-only Beta-Binomial and lets the
+network move it only when that helps, which is what the prior-anchor variant
+and a gated or per-budget blend of ANP and Beta-Binomial implement. Only the
+prior-anchor checkpoint was trained; the gate and the blend have not been
+replayed, so this is a hypothesis to test, not a result.
+
 **Future work.** A causal-masked ANP could encode acquired responses in their
 arrival order, so each new label extends a prefix representation rather than
 re-encoding the whole context set. With cached attention states, this could
@@ -677,6 +699,10 @@ link, not cited as substitutes for the scientific literature.
   Transformer Neural Processes." *ICML*, PMLR 306:90425--90469, 2026.
   [PMLR](https://proceedings.mlr.press/v306/mortimer26a.html);
   [local PDF](literature/Incremental%20Transformer%20Neural%20Processes.pdf).
+- **[Zhang et al., 2025]** Guanhua Zhang, Florian E. Dorner, and Moritz Hardt.
+  "How Benchmark Prediction from Fewer Data Misses the Mark."
+  arXiv:2506.07673, 2025 (v2 2026).
+  [arXiv](https://arxiv.org/abs/2506.07673).
 - **[Truong et al., 2025]** Sang T. Truong, Yuheng Tu, Percy Liang, Bo Li, and
   Sanmi Koyejo. "Reliable and Efficient Amortized Model-based Evaluation."
   *ICML*, PMLR 267:60238--60265, 2025.
