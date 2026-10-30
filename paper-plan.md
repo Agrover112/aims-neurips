@@ -699,15 +699,15 @@ link, not cited as substitutes for the scientific literature.
   Transformer Neural Processes." *ICML*, PMLR 306:90425--90469, 2026.
   [PMLR](https://proceedings.mlr.press/v306/mortimer26a.html);
   [local PDF](literature/Incremental%20Transformer%20Neural%20Processes.pdf).
-- **[Zhang et al., 2025]** Guanhua Zhang, Florian E. Dorner, and Moritz Hardt.
-  "How Benchmark Prediction from Fewer Data Misses the Mark."
-  arXiv:2506.07673, 2025 (v2 2026).
-  [arXiv](https://arxiv.org/abs/2506.07673).
 - **[Truong et al., 2025]** Sang T. Truong, Yuheng Tu, Percy Liang, Bo Li, and
   Sanmi Koyejo. "Reliable and Efficient Amortized Model-based Evaluation."
   *ICML*, PMLR 267:60238--60265, 2025.
   [PMLR](https://proceedings.mlr.press/v267/truong25c.html);
   [local PDF](literature/Reliable%20and%20Amortized%20Model-based%20Evaluation.pdf).
+- **[Zhang et al., 2025]** Guanhua Zhang, Florian E. Dorner, and Moritz Hardt.
+  "How Benchmark Prediction from Fewer Data Misses the Mark."
+  arXiv:2506.07673, 2025 (v2 2026).
+  [arXiv](https://arxiv.org/abs/2506.07673).
 
 ### Competition and repository sources
 
