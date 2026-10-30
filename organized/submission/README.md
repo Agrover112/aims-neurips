@@ -1,86 +1,96 @@
-# Latent CNP-128 submission staging area
+# Submission workspace
 
-This directory stages a CodaBench submission around the selected checkpoint
-below. It uses a random streaming acquisition policy.
+This folder builds ZIP files for the online evaluation interface. It does not
+upload anything. The `submission` Git branch is where we keep these packages
+separate from training and analysis work.
 
-## Checkpoint provenance
+## Start here
 
-- File: `assets/latent-cnp128-qwen3-8b-seed20261018.pt`
-- Source workspace / volume: `aims-neurips:aims-neurips-data`
-- Source run label: `latent-cnp128-cpu10-diagnostics-100k-s20261018`
-- Architecture: latent CNP, linear pair encoder, mean pooling, width 128,
-  latent dimension 128, Qwen3-Embedding-8B item embeddings truncated to 1,024
-  dimensions.
-- Selected fixed-validation checkpoint: step 41,350, unseen-target Brier
-  0.1272059134.
+There are two current benchmark-holdout ANP candidate packages. Both use the
+same architecture, item embeddings, and random streaming acquisition rule.
+They differ only in how the training loop sampled the number of observed
+labels.
 
-**Important:** this is **not** the completed deterministic CNP d=128 width
-sweep. That run wrote result/curve Parquets but did not save its model weights.
-This package instead uses the available *in-training latent-CNP-128* checkpoint
-above. Do not label it as the completed deterministic CNP d=128 result or
-compare its submission outcome to that run's offline table.
+| Candidate ZIP | What differs during training | Selected checkpoint | Status |
+| --- | --- | --- | --- |
+| `benchmark-holdout-anp-w64-filtered.zip` | ordinary episodic training | step 1,200; fixed-validation Brier 0.16749 | candidate |
+| `benchmark-holdout-anp-w64-bhold-budgetladder.zip` | samples the official budgets 0, 1, 3, 7, 15, 31 with their Brier-ALC weights | step 50; fixed-validation Brier 0.21051 | candidate |
 
-## Runtime contract and status
+Neither row is a declared final submission. The checkpoint score selects a
+checkpoint *within its own run*. It does not replace a matched, held-out replay
+comparison between the two packages.
 
-The checkpoint expects the exact Qwen3-Embedding-8B content-only embedding:
-last-token pooling, first 1,024 Matryoshka dimensions, then L2 normalisation.
-`models.txt` declares that model so CodaBench pre-downloads it before the
-offline runtime starts. `prediction_config.json` sets concurrency to one because
-the 8B encoder must not be loaded by several CPU workers at once.
+## What both candidates contain
 
-Slicing to 1,024 and then renormalising is equivalent to the store's
-normalise-then-slice-then-renormalise, because both drop a positive scalar, so
-the predictor reproduces `allbench-embed-qwen3_8b-v2` exactly.
+- **Model:** latent Attentive Neural Process, width 64, latent dimension 32,
+  one context self-attention block, and four target cross-attention heads.
+- **Item representation:** 1,024-dimensional BGE-M3 embedding of `item_content`
+  only. The submission recomputes this embedding from the incoming item text.
+- **Online update:** it rebuilds the prediction from the labels acquired for
+  the current subject--benchmark pair. It does not change model weights at
+  inference time.
+- **Acquisition:** seeded random streaming order with a reserve rule, so it
+  cannot inspect future candidates and still fills the label budget.
+- **Training data:** benchmark holdout with the retained-response rules
+  `min_item_responders=15` and `min_items_per_subject=80`.
 
-### Embedding performance
+## Build and check
 
-Embedding is the entire cost of this submission. Three things address it, and
-none of them change the vectors:
-
-- **A disk cache** under `$AIMS_EMB_CACHE_DIR` (default `$TMPDIR/aims-np-embcache`).
-  The platform restarts prediction workers between budget checkpoints, so an
-  in-process dictionary is discarded about six times per run and every item is
-  re-encoded. On disk, each distinct item text is encoded once per run. Entries
-  are fixed-size float32 written to a temporary name and `os.replace`d into
-  place, so concurrent workers need no locking; verified with eight processes
-  contending over one directory. Any filesystem error disables the cache
-  instead of failing the run.
-- **Batched, length-sorted encoding.** Padding costs real compute, so batches
-  are capped by a *token* budget rather than a row count and are filled longest
-  first. One long item forms its own batch instead of padding short ones out to
-  its length. This mirrors how the store itself was built
-  (`modal_embed_v2.py::_encode`), including left padding, which is what makes
-  batched last-token pooling correct.
-- **Separate CUDA and CPU tuning** in `DEVICE_LIMITS`. GPU allocation is
-  automatic on CodaBench, so the CUDA path is the expected one and uses a
-  32,768-token budget matching the store build. The CPU path is a
-  correctness-preserving fallback: 4,096 tokens, every core via
-  `torch.set_num_threads`, and optional dynamic int8 behind `AIMS_EMB_INT8`.
-  int8 is off by default because it perturbs the vectors the frozen checkpoint
-  was trained on.
-
-`max_length` stays at the store's 32,768. Long questions are encoded in full
-rather than truncated.
-
-Because `_load` is lazy, a budget checkpoint whose items are all cached never
-loads the encoder at all.
-
-`labeling.py` implements reproducible streaming random acquisition with the
-standard reserve rule. It is intentionally unrelated to the model score.
-
-Build a ZIP with:
+Build the four saved BGE-M3 ANP packages. The first two archives listed below
+are the benchmark-holdout candidates; the other two are older random-subject
+split ablations.
 
 ```bash
-.venv/bin/python organized/submission/build_submission.py
+.venv/bin/python organized/submission/build_bge_anp_submissions.py
 ```
 
-The generated ZIP is only eligible for upload after the organizer ZIP check and
-smoke test succeed. This folder has not created a CodaBench submission.
+The archives are written to `dist/`. Check a ZIP before any upload:
 
-## Other saved ablations
+```bash
+.venv/bin/python reference/paiec_baseline/check_submission_zip.py \
+  dist/benchmark-holdout-anp-w64-filtered.zip
+```
 
-`build_anp_ablations.py` builds three **local-only** archives with the same
-random acquisition policy: CA-only ANP (`SA=0`), ANP (`SA=1`), and stacked ANP
-(`SA=2`). They use their in-training checkpoints and are not final/refit
-models. The prior deterministic CNP width ablations cannot be packaged: those
-runs saved metrics but not checkpoint weights.
+The checker verifies the ZIP layout, imports `model.py`, calls `predict()`, and
+checks the acquisition hook. It uses a local synthetic embedding for that smoke
+test; it does not measure the real BGE-M3 runtime or score quality.
+
+Both benchmark-holdout archives were built and passed this checker on this
+branch. They have not been uploaded by this preparation step.
+
+## How the ZIP chooses its model
+
+`build_bge_anp_submissions.py` makes one ZIP per entry in its `VARIANTS`
+dictionary. Each ZIP contains:
+
+```text
+model.py                    evaluation entry point
+labeling.py                 random streaming acquisition
+aims_predictor/             ANP code and text embedder
+assets/<checkpoint>.pt      one trained checkpoint
+assets/metadata.json        architecture and embedding contract for that checkpoint
+models.txt                  BGE-M3 model to pre-download
+```
+
+`model.py` is generic. At runtime it reads `assets/metadata.json`, loads the
+checkpoint named there, and constructs the matching ANP. This is why one
+predictor implementation can package several checkpoints safely.
+
+## Other files in this folder
+
+- `build_anp_ablations.py`: packages older Qwen ANP ablations. They are useful
+  for debugging architecture changes, not current benchmark-holdout candidates.
+- `build_submission.py`: packages an older latent CNP with Qwen-8B embeddings.
+  Its checkpoint came from an in-training run, not the completed deterministic
+  CNP width sweep. Keep it only for reproducibility.
+- `modal_router_check.py`, `modal_per_budget_brier.py`, and the latency scripts:
+  local diagnostics. They do not upload a ZIP.
+
+## Before choosing or uploading a candidate
+
+1. Compare the two ANPs on the same frozen replay panel, candidate orders, and
+   acquisition policy.
+2. Check per-budget Brier, not only one checkpoint-selection Brier.
+3. Build the selected archive again and run the ZIP checker.
+4. Record the archive filename, checkpoint filename, Git commit, and replay
+   result next to the upload record.

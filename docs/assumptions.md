@@ -10,13 +10,27 @@ The official starting kit remains the authority if the website, local kit, and t
 
 The reference predictor treats revealed outcomes as exchangeable within a subject and anonymous benchmark. It uses beta-binomial shrinkage and does not model item text, item difficulty, response dependence, temporal drift, or repeated-outcome correlation. These choices make the baseline easy to audit, but they are unlikely to be competitive on their own.
 
-The predictor uses evidence from the same subject across benchmarks as a weak intermediate estimate. This assumes that a subject's observed performance carries information across benchmarks. Ablate `subject_strength` to test whether that transfer helps.
+The current benchmark-holdout ANP conditions on labels from the same
+subject-benchmark task. It does not rely on benchmark names or descriptions:
+the test-time interface exposes only an opaque benchmark alias. Any proposed
+cross-benchmark transfer must be tested separately because held-out benchmarks
+have no training responses.
 
 ## Test-time adaptation
 
-The acquisition policy selects predictions near 0.5 and forces purchases near the end of the candidate stream so the budget can be filled. Uncertainty sampling need not produce a representative sample. It may bias a simple group mean toward harder items. Compare it with the platform's default random policy and report both predictive accuracy and calibration.
+The acquisition policy receives one candidate at a time. It may use the
+current candidate, previously accepted labels, and remaining counts. It may
+not inspect future candidates, read a rejected label, or use the hidden
+evaluation pool. A reserve rule can force purchases near the end of the stream.
+Uncertainty sampling need not produce a representative sample and may bias a
+simple group mean toward harder items. Compare it with random-prefix
+acquisition on the same streams.
 
-No prediction may use future acquisition candidates, hidden evaluation outcomes, or state left by earlier worker calls. Every prediction must depend only on its input, bundled artifacts, and the supplied `labeled` evidence.
+No prediction may use future acquisition candidates, hidden evaluation outcomes,
+or state left by earlier worker calls. Every prediction must depend only on its
+input, bundled artifacts, and the supplied `labeled` evidence. The interface
+contains plain text fields only. It does not provide images, attachments, audio,
+benchmark descriptions, or grading criteria.
 
 ## Offline evaluation
 
@@ -27,4 +41,3 @@ Report variability across seeds or folds. The aggregate leaderboard gives equal 
 ## Literature review
 
 The files in `literature/` are leads, not constraints. Candidate methods should be judged against explicit assumptions, relevant evidence, and controlled experiments. Their inclusion does not imply that their claims have been independently verified.
-

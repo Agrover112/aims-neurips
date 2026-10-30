@@ -1,6 +1,12 @@
 # NP-AIRT implementation skeleton
 
-Status: implemented experimental skeleton; not yet final competition evidence.
+> Historical AIRT design note. The current filtered benchmark-holdout work uses
+> the standalone ANP in `organized/training/anp_crossattn_blocks.py`, documented
+> in [`methods-guide.md`](methods-guide.md). This file is retained to explain
+> the earlier IRT-anchored architecture. Do not treat its \(C\subseteq T\)
+> objective or its feature contract as the current trainer.
+
+Status: implemented experimental skeleton; not final competition evidence.
 The canonical symbols are defined in [`notation.md`](notation.md).
 
 ## Model

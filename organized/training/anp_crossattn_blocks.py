@@ -16,6 +16,13 @@ try:  # Package import during local tests; flat import in the Modal container.
 except ImportError:  # pragma: no cover - exercised by the remote container.
     from cnp_blocks import Projection
 
+# Shrinkage constants of the shipped beta-binomial submission, copied from
+# ``submission/aims_predictor/predictor.py`` so the anchored model starts from
+# exactly that estimator rather than an approximation of it.
+PRIOR_MEAN = 0.5
+PRIOR_STRENGTH = 4.0
+SUBJECT_STRENGTH = 8.0
+
 
 class _SelfAttentionBlock(nn.Module):
     """One permutation-equivariant context self-attention block."""
@@ -53,7 +60,8 @@ class AttentiveNeuralProcess(nn.Module):
                  self_attention_blocks: int = 2,
                  cross_attention_heads: int = 4,
                  use_latent: bool = True, latent_dim: int = 32,
-                 residual_proj: bool = False, dropout: float = 0.0) -> None:
+                 residual_proj: bool = False, dropout: float = 0.0,
+                 prior_anchor: bool = False) -> None:
         super().__init__()
         if width % cross_attention_heads:
             raise ValueError(
@@ -65,6 +73,7 @@ class AttentiveNeuralProcess(nn.Module):
 
         self.width = width
         self.use_latent = use_latent
+        self.prior_anchor = prior_anchor
         self.latent_dim = latent_dim
         self.self_attention_blocks = self_attention_blocks
         self.cross_attention_heads = cross_attention_heads
@@ -95,6 +104,14 @@ class AttentiveNeuralProcess(nn.Module):
             nn.Dropout(dropout), nn.Linear(width, 1),
         )
 
+        if prior_anchor:
+            # Zero the read-out so the network contributes exactly nothing at
+            # initialisation and ``logits`` is the closed-form prior alone.
+            # Without this the anchor would be buried under random noise of
+            # order one, which is the whole failure it exists to prevent.
+            nn.init.zeros_(self.decoder[-1].weight)
+            nn.init.zeros_(self.decoder[-1].bias)
+
     def _context_values(self, x_c: torch.Tensor, y_c: torch.Tensor) -> torch.Tensor:
         """Return self-attended context values with shape ``(1, |C|, d)``."""
         values = self.item_to_value(x_c) + self.label_to_value(2.0 * y_c[:, None] - 1.0)
@@ -122,6 +139,26 @@ class AttentiveNeuralProcess(nn.Module):
         mu, logvar = self.to_latent(pooled).chunk(2)
         return mu, logvar.clamp(-8.0, 8.0)
 
+    def _prior_logit(self, y_c: torch.Tensor) -> torch.Tensor:
+        """Nested beta-binomial shrinkage over the context labels, as a logit.
+
+        Context points share the subject and the benchmark, so the shipped
+        predictor's subject-level and group-level tallies coincide; both stages
+        are kept so this stays a copy of that math rather than a
+        simplification. With no context both stages collapse to
+        ``PRIOR_MEAN``, giving a zero logit.
+
+        The result depends only on observed labels, never on a parameter, so
+        no gradient flows through it. It is an offset, not a learned term.
+        """
+        count = float(len(y_c))
+        successes = y_c.sum() if count else y_c.new_zeros(())
+        subject_mean = (PRIOR_STRENGTH * PRIOR_MEAN + successes) / (PRIOR_STRENGTH + count)
+        estimate = (SUBJECT_STRENGTH * subject_mean + successes) / (SUBJECT_STRENGTH + count)
+        # Strictly interior by construction; clamped only against float error.
+        estimate = estimate.clamp(1e-6, 1.0 - 1e-6)
+        return torch.log(estimate) - torch.log1p(-estimate)
+
     def logits(self, x_c: torch.Tensor, y_c: torch.Tensor, x_t: torch.Tensor,
                z: torch.Tensor | None = None) -> torch.Tensor:
         r_t = self._cross_representation(x_c, y_c, x_t)
@@ -132,7 +169,13 @@ class AttentiveNeuralProcess(nn.Module):
             decoder_input = torch.cat([x_t, r_t, z_t], dim=-1)
         else:
             decoder_input = torch.cat([x_t, r_t], dim=-1)
-        return self.decoder(decoder_input).squeeze(-1)
+        residual = self.decoder(decoder_input).squeeze(-1)
+        if not self.prior_anchor:
+            return residual
+        # logit p = logit(shrinkage(y_c)) + f_theta(x_t, context). The model
+        # can only move away from the shipped baseline by learning something,
+        # so the baseline is a floor rather than a target.
+        return self._prior_logit(y_c) + residual
 
     def loss(self, x_c: torch.Tensor, y_c: torch.Tensor, x_t: torch.Tensor,
              y_t: torch.Tensor, kl_weight: float = 1.0) -> tuple[torch.Tensor, dict[str, float]]:

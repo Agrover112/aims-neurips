@@ -27,7 +27,10 @@ from plotstyle import INK, MUTED, SEQUENTIAL, SUBTLE, TEXTWIDTH, style  # noqa: 
 def _header(fig, title, subtitle):
     """A slightly roomier report header than the default plotstyle helper."""
     fig.suptitle(title, fontsize=10, fontweight="bold", x=.02, ha="left", y=.985)
-    fig.text(.02, .935, subtitle, fontsize=7.2, color=SUBTLE, va="top")
+    # This is a fixed-width report rather than a crop-to-content paper figure.
+    # Wrapping avoids the otherwise subtle right-edge truncation in a PDF viewer.
+    fig.text(.02, .935, textwrap.fill(subtitle, width=112), fontsize=7.2, color=SUBTLE,
+             va="top", linespacing=1.15)
 
 
 def _heatmap(ax, values, labels, title, value_format, vmin=None, vmax=None):
@@ -204,7 +207,7 @@ def _page_spectra(pdf, spectra):
 def _page_laplacian(pdf, laplacian, graph_meta):
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.85))
     _header(fig, "Laplacian spectrum of the symmetrised Qwen kNN graph",
-            r"Cosine chooses each item's 20 neighbours; $W$ is then the binary symmetrised kNN adjacency. $L_{\rm sym}=I-D^{-1/2}WD^{-1/2}$. Near-zero values count disconnected pieces; a later eigengap suggests a coarse cluster count.")
+            "The graph symmetrises directed Top-20 cosine edges. Near-zero values count components; an eigengap is only a clustering heuristic.")
     values = laplacian.sort_values("rank")["eigenvalue"].to_numpy()
     ranks = np.arange(1, len(values) + 1)
     gaps = np.diff(values)
@@ -226,7 +229,7 @@ def _page_fiedler(pdf, fiedler, graph_meta):
     frame = fiedler.dropna(subset=["fiedler_value"]).copy()
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.0), gridspec_kw={"width_ratios": [1.08, .92]})
     _header(fig, "What the Fiedler vector can, and cannot, show",
-            r"The Fiedler vector is the eigenvector for the second-smallest $\mu_2$. It is computed inside the largest weak component because the global graph has several disconnected components and no unique global Fiedler vector.")
+            "It is the second-smallest-eigenvalue vector, computed inside the largest weak component; the disconnected global graph has no unique Fiedler vector.")
     labels = sorted(frame["benchmark_id"].unique())
     data = [frame.loc[frame.benchmark_id == label, "fiedler_value"].to_numpy() for label in labels]
     violin = axes[0].violinplot(data, showextrema=False, showmedians=True)

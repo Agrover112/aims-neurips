@@ -2,43 +2,52 @@
 
 ## Purpose
 
-This note defines how to train a paper-faithful Conditional Neural Process
-(CNP) on the current filtered response data. It also specifies where a graph
-layer could be added without confusing the graph model with the CNP baseline.
+This note distinguishes a paper-faithful CNP control from the current filtered
+benchmark-holdout ANP work. It specifies where a graph layer could be added
+without confusing a graph model with the CNP baseline.
+
+The active model is not the CNP described below. It is a latent ANP with
+target-to-context cross-attention, documented in
+[`methods-guide.md`](methods-guide.md). A graph extension remains an ablation;
+we have no evidence yet that an embedding-neighbour graph improves held-out
+benchmark transfer.
 
 ## Current implementation: actual training algorithm
 
-This section describes what `codex_es_fixed_modal_cnp_train.py` actually does
-today. A **function realisation** is one filtered `(subject, benchmark)` task:
+This section describes the shared trainer
+`codex_es_fixed_modal_cnp_train.py`. A **function realisation** is one filtered `(subject, benchmark)` task:
 its item embeddings are inputs and its right/wrong responses are outputs. It is
 not one response cell.
 
-For the clean seed-20261018 split, there are 4,073 training tasks. One run has
-3,000 outer iterations (optimizer updates), with a minibatch of 8 task episodes
-per iteration: 24,000 task exposures, or about 5.9 passes over the training
-tasks. The context/target split is newly sampled every time a task is exposed.
+The number of tasks depends on the split and filter. The current
+benchmark-holdout configuration uses BGE-M3-long item vectors, keeps at least
+15 responders per item and 80 items per subject-benchmark task, and assigns
+whole benchmarks to train, validation, and test. The context/target split is
+newly sampled every time a task is exposed.
 
 | Loop level | Current value | Meaning |
 |---|---:|---|
-| outer loop | 3,000 steps | one AdamW update |
+| outer loop | configured per run | one AdamW or SAM-AdamW update |
 | inner loop | 8 episodes per step | eight subject-functions in the minibatch |
 | task scheduler | shuffled without replacement | every training task is used before the next shuffle |
-| context size | uniformly 0 to 64 | observed right/wrong labels available to the CNP |
+| context size | scored budget ladder | 0, 1, 3, 7, 15, or 31; ALC-weighted or uniform by ablation |
 | target size | at most 512 | unobserved labels scored by the loss |
 
-For step `s = 1, …, 3,000`, the exact update is:
+For optimizer step `s`, the update is:
 
 1. If the shuffled task queue is empty, replace it with a fresh permutation of
    all training tasks.
 2. Pop 8 tasks from that queue. If the queue empties inside a batch, reshuffle
    immediately and continue; no task is skipped.
 3. For each task `j`, randomly permute its eligible item-response pairs. Draw
-   `k_j` uniformly from the integers 0 through `min(64, n_j − 1)`. The first
-   `k_j` pairs are context `C_j`; the next at most 512 pairs are target `T_j`.
+   `k_j` from the scored budget ladder, either with ALC weights or uniformly
+   across eligible ladder values. The first `k_j` pairs are context `C_j`;
+   the next at most 512 pairs are disjoint target `T_j`.
 4. Compute one Bernoulli target NLL for each task, then average the eight task
    losses.
 5. Backpropagate the mean, clip the gradient norm to 5, and take one AdamW
-   update.
+   update. Under SAM, first evaluate the gradient at the local adversarial
+   perturbation and then take the AdamW update from that gradient.
 
 \[
 \mathcal{L}_s=\frac{1}{8}\sum_{j=1}^{8}
@@ -54,15 +63,15 @@ included in the target set. The old `_episode` docstring says otherwise, but the
 actual slice `perm[k:k + 512]` is disjoint; the implementation, not that stale
 docstring, is the source of truth.
 
-Every 50 steps, the fixed-validation copy evaluates the same bank of 64
-held-out-subject episodes. It logs context reconstruction NLL, unseen-target
+Every 50 steps, the fixed-validation copy evaluates the same held-out
+benchmark episode bank. It logs context reconstruction NLL, unseen-target
 NLL, and unseen-target Brier score; it restores the checkpoint with the lowest
 fixed-bank unseen-target Brier score. These are diagnostics and checkpoint
 selection, not extra optimizer updates.
 
-The current bottleneck is `d = 64`: the hidden width and pooled representation
-`r` are 64-dimensional. The deterministic CNP run has no latent `z`; the
-current optional latent-NP implementation defaults to `z ∈ ℝ³²`.
+The current ANP bottleneck is `d = 64`; its global latent is
+`z ∈ ℝ³²`. Its deterministic representation is target-specific and is not
+mean-pooled. Mean pooling is used only to parameterize the latent path.
 
 ## Paper-faithful reconstruction control
 
@@ -109,11 +118,14 @@ Use the shared filtering and data rules under `organized/`:
 1. Aggregate repeated subject-item observations to one binary response.
 2. Remove duplicate item content.
 3. Remove zero-variance training items.
-4. Keep items answered by at least 30 distinct subjects.
+4. Keep items answered by at least 15 distinct subjects in the active
+   benchmark-holdout configuration. The 30-responder threshold remains a
+   separate stricter filtering ablation.
 5. Keep subject-benchmark tasks with at least 80 remaining items.
 6. Leave missing responses absent. Never fill them with zero or a mean.
 
-Use the frozen `me5_instruct-v2` embedding of `item_content` as \(e_i\). The
+Use a frozen item embedding available at test time. The active benchmark-holdout
+runs use `bge_m3_long` on the test-time item text fields. The
 paper-faithful baseline uses no subject block. The context labels identify the
 task-specific function.
 

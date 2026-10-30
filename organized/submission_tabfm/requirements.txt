@@ -1,0 +1,4 @@
+tabfm==1.0.1
+transformers
+torch
+safetensors

@@ -11,6 +11,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -89,6 +90,11 @@ def main() -> int:
         "--follow", action="store_true", help="print new log output as it appears"
     )
     parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="save raw submission details and logs to this directory",
+    )
+    parser.add_argument(
         "--interval", type=float, default=15, help="seconds between checks in follow mode"
     )
     args = parser.parse_args()
@@ -105,6 +111,12 @@ def main() -> int:
         while True:
             details = fetch_details(session, args.submission_id)
             logs = details.get("logs") or []
+            if args.output_dir:
+                args.output_dir.mkdir(parents=True, exist_ok=True)
+                (args.output_dir / "details.json").write_text(
+                    json.dumps(details, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             if args.list:
                 if not logs:
                     print("No logs available.")
@@ -122,6 +134,11 @@ def main() -> int:
                 if selected and name not in selected:
                     continue
                 text = fetch_log(log["data_file"])
+                if args.output_dir:
+                    safe_name = name.replace("/", "_").replace("\\", "_")
+                    (args.output_dir / f"{safe_name}.txt").write_text(
+                        text, encoding="utf-8"
+                    )
                 if args.follow:
                     previous = offsets.get(name, 0)
                     if len(text) < previous:

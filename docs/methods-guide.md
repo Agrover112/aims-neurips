@@ -1,81 +1,144 @@
-# AIMS Evaluation Methods Guide
+# AIMS evaluation methods guide
 
-## 1. Goal and protocol
+## Scope and current evidence
 
-For subject (s), item (j), and binary outcome (y_{sj}), the system predicts
+This is the living description of the current filtered Neural Process work.
+It is not a description of the earlier MiniLM/BeaverTails AIRT pilots. Those
+remain useful historical controls, but their scores and feature contract must
+not be compared directly with the filtered benchmark-holdout runs.
 
-\[
- p_{sj}=\sigma\{a_j(\theta_s-b_j)\}.
-\]
+One task is one `(subject, benchmark)` response function. The outcome is binary.
+At deployment, a policy sees candidates one at a time, may accept at most 31
+labels, and predicts a disjoint evaluation set at budgets
+`0, 1, 3, 7, 15, 31`.
 
-Evaluation is budgeted. At budget (n\), the model sees an acquired context set (C_s(n)) and predicts outcomes for an untouched target set (T_s). Budgets are (0,1,3,7,15,31). The main metric is the weighted Brier area-under-the-learning-curve (ALC), with weights (0.1,0.2,0.2,0.2,0.2,0.1). We also record Brier by budget, ECE, AUC, mean probability, and uncertainty.
-
-## 2. Data preprocessing
-
-The corpus builder reads benchmark observations, item metadata, subject metadata, benchmark metadata, embeddings, and episode assignments. Rows are joined by stable IDs; outcomes are restricted to binary values. Missing outcomes are excluded from training observations and recorded in the manifest. Items are deduplicated and task/fold assignments are persisted.
-
-Each row is represented as
+The competition metric is macro subject-benchmark Brier ALC:
 
 \[
-x=[e^{item}_j,\;m_j,\;e^{subject}_s,\;e^{benchmark}_k],
+\operatorname{ALC}=0.1B_0+0.2B_1+0.2B_3+0.2B_7+0.2B_{15}+0.1B_{31},
 \]
 
-where MiniLM item, subject, and benchmark embeddings are 384-dimensional and (m_j) contains five numeric item features. The resulting pilot vector is 1157-dimensional. Feature slices are recorded in the manifest; subject identity is masked from item-parameter paths so item (a_j,b_j) cannot become subject-conditioned.
+where lower is better. Brier score, ECE, and ROC-AUC by budget are supporting
+diagnostics, not replacements for ALC.
 
-Training tasks are meta-training subjects/benchmark episodes. Held-out BeaverTails subjects are used for evaluation. Context and target items are disjoint in the corrected NP episodes. Reveal orders are reshuffled for acquisition-order stability experiments.
+## Data and split
 
-## 3. Classical and amortized baselines
+The current NP runs use frozen BGE-M3-long item embeddings. At test time the
+available item inputs are text strings only: `item_content`, `item_features`,
+`interactors`, and an opaque `benchmark_id`. There are no image, audio,
+attachment, benchmark-description, or grading-criterion inputs.
 
-**IRT/2PL.** Item discrimination (a_j>0), difficulty (b_j), and subject ability (	heta_s) are learned or fitted by the logistic likelihood.
+For the current benchmark-holdout experiments, filtering is performed before
+the split. The active configuration keeps items with at least 15 responders and
+subject-benchmark tasks with at least 80 remaining items. Whole benchmarks are
+then assigned to train, validation, or test. Thus every validation/test item is
+cold with respect to training benchmarks.
 
-**Amortized 2PL (AIRT).** Neural networks map item features to (a_j,b_j). At inference, (	heta_s) is fitted from acquired labels by penalized MAP. This is the Online-AIRT track.
+Missing responses remain missing. Repeated responses are aggregated before
+episodic sampling. The filtered response matrix, split assignment, and item
+embedding store are recorded in the run configuration.
 
-**Beta-binomial.** A conjugate control uses
+## ANP used in the current runs
+
+The active model is a latent Attentive Neural Process in
+`organized/training/anp_crossattn_blocks.py`. It uses a 64-dimensional hidden
+state, one context self-attention block, four cross-attention heads, and a
+32-dimensional global latent.
+
+For observed context pairs \((x_i,y_i)\), the model forms label-conditioned
+values
 
 \[
-\hat p_n=(2+\sum_{i\le n}y_i)/(4+n).
+v_i=h_v(x_i)+h_y(2y_i-1).
 \]
 
-It provides a stable cold-start prior.
-
-## 4. Neural Process family
-
-The context encoder maps each ((x_i,y_i)) to a representation and aggregates it permutation-invariantly. The latent posterior is
+Context self-attention contextualizes the values. A target item \(x_t\) then
+queries the observed context:
 
 \[
-q_\phi(z\mid C)=\mathcal N(\mu_\phi(C),\operatorname{diag}\sigma_\phi^2(C)).
+r_t=\operatorname{CrossAttention}\bigl(q(x_t), k(x_C), v_C\bigr).
 \]
 
-The decoder samples (z), predicts target probabilities, and averages Monte Carlo predictions. Training uses Bernoulli NLL plus a KL term between context-only and context-plus-target posteriors, with corrected disjoint context/target episodes.
+The latent path mean-pools the same contextualized values and parameterizes
+the context prior \(q(z\mid C)\). During training it also forms
+\(q(z\mid C\cup T)\). The decoder predicts a Bernoulli logit from
+\([x_t,r_t,z]\). The deterministic and latent paths therefore share the
+label-conditioned value encoder, but they have different aggregation roles:
+target-specific cross-attention for \(r_t\), mean pooling for \(z\).
 
-**CNP-AIRT.** Deterministic context aggregation; no global latent sampling.
+For the latent model, the loss is
 
-**NP-AIRT.** A stochastic global latent (z) controls the subject-specific ability path.
+\[
+\mathcal L = \operatorname{NLL}(y_T\mid x_T,C,z)
++ \frac{\operatorname{KL}[q(z\mid C\cup T)\|q(z\mid C)]}{|T|}.
+\]
 
-**ANP-AIRT.** Cross-attention produces a target-specific deterministic representation (r^*), which enters a residual decoder. The residual is mean-centered across targets so it can reorder items without changing the anchor level.
+Contexts and targets are disjoint in the active trainer. The target labels are
+used only to form the training posterior and loss. At inference, predictions
+use \(q(z\mid C)\) alone.
 
-**Stacked-MHSA-ANP.** Adds stacked self-attention blocks before target cross-attention.
+## Optimisation variants
 
-**Per-item latent correction.** A latent item network consumes ([x_j,z]) and adjusts (a_j,b_j), making the latent genuinely multi-dimensional rather than only a scalar ability.
+The ordinary baseline uses AdamW. The current SAM ablation keeps the model,
+data, and inference procedure fixed, but replaces the gradient used for the
+AdamW update with the gradient at a locally loss-increasing weight perturbation
+of radius \(\rho=0.05\). SAM roughly doubles training work per step and adds
+no inference cost.
 
-**Hybrid anchor model.** Keeps MAP ability as the level-setting anchor and adds the per-item latent correction as a shrinkable deviation.
+The prior-anchor ablation changes the decoder parameterization to
 
-## 5. Training and meta-training
+\[
+\operatorname{logit} p_t = \operatorname{logit}\hat p_{\mathrm{Beta}}(C)
++ f_\theta(x_t,r_t,z),
+\]
 
-Models are trained episodically over meta-training tasks. Each episode samples context and target items, with randomized context sizes. Optimizers use gradient clipping and deterministic seeds. Neural Process training logs NLL, KL, auxiliary ability loss, and latent diagnostics. Target labels are not available to the deployed posterior.
+with the residual output initialized to zero. It starts exactly at the
+Beta-Binomial predictor and learns deviations from it. This is distinct from
+SAM and must be compared in a factorial ablation.
 
-## 6. Inference and acquisition
+Context sizes can be sampled either with the competition ALC weights or
+uniformly over the scored budgets. These are different training distributions.
+Do not call a SAM result a clean SAM-only comparison when the sampler also
+changed.
 
-At each budget, only the acquired context labels are supplied. Predictions are generated for the untouched evaluation pool. Acquisition experiments compare fixed reveal orders and multiple reshuffled orders; no retraining is performed during rescoring.
+## Streaming acquisition
 
-## 7. Calibration
+The replay protocol in `docs/benchmark-holdout-online-replay.md` is the source
+of truth for offline online-testing claims. It uses a fixed, disjoint
+acquisition/evaluation split and fixed candidate orders. A policy observes only
+the current candidate, the labels it has already accepted, and remaining counts.
+It cannot score future candidates or read any evaluation labels.
 
-We record reliability/ECE and support post-hoc temperature scaling. Given logits (\ell), calibrated probabilities are (\sigma(\ell/T)). The AnchorCalibrator variant fits a simple temperature/shift using acquired context labels, separately by budget and subject-benchmark task. Calibration changes probability scale but not ranking/AUC.
+Random prefix and threshold policies are cheap controls. Rank-based policies
+are calibrated against train-only probe items and include a reserve rule so they
+cannot leave the budget unfilled. Expected Brier Reduction (EBR) estimates
 
-## 8. Diagnostics and ablations
+\[
+\sum_{y\in\{0,1\}}p(y\mid x,C)
+\frac{1}{|R|}\sum_{r\in R}
+\left[p(r\mid C\cup\{(x,y)\})-p(r\mid C)\right]^2,
+\]
 
-Diagnostics include latent mean/variance, label-flip sensitivity, per-item logit variance, Jacobian singular values/rank, AUC by budget, Brier curves, ECE curves, and benchmark/fold variance. The main ladder is: Online-AIRT, CNP-AIRT, NP-AIRT, ANP-AIRT, stacked ANP, per-item latent correction, hybrid anchor correction, and calibrated variants.
+using a train-only reference set \(R\). EBR is streaming-faithful, but it is a
+proxy for Brier improvement, not the true unobserved evaluation Brier. Its
+reference set must never be built from the task's evaluation items.
 
-## 9. Current implementation caveats
+## Selection rule
 
-The corrected main path uses manifest feature slices, masks subject blocks in item encoders, separates context and target items, and centers ANP residuals. Some auxiliary legacy Modal paths should still be migrated before being used for final claims. Results must be quoted only from the current v3 residual experiment and matching CNP artifact.
+Choose checkpoints using only
+`brier_score/unseen_target/validation_fixed_bank`. It is a fixed bank from
+unseen validation benchmarks, so its changes reflect the checkpoint rather
+than a newly sampled validation episode. Test benchmarks are read only after
+the configuration is frozen.
+
+Training loss is useful for detecting numerical failure. It is not the
+criterion for choosing between benchmark-holdout models because it is measured
+on different benchmarks.
+
+## What remains unproven
+
+The 10k uniform-SAM run has the best fixed-bank value among the recent three
+CPU runs, 0.205767 at step 5,450. This is a one-seed checkpoint-selection
+result, not a final benchmark claim. The matched ALC-weighted SAM run is in
+progress. Neither result establishes a CodaBench gain or a general advantage
+of SAM without a paired replay and additional seeds.

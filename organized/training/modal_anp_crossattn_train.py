@@ -45,7 +45,10 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
          cpu: int = 8, max_context: int = 64,
          wandb_secret: str = "wandb", benchmark_holdout: bool = False,
          benchmark_min_item_responders: int = 15,
-         benchmark_min_items_per_subject: int = 80) -> None:
+         benchmark_min_items_per_subject: int = 80,
+         prior_anchor: bool = False, sam_rho: float = 0.0,
+         prefiltered_responses: str = "", alc_weighted: bool = True,
+         dense_prefix_training: bool = False) -> None:
     """Run one ANP configuration. Use a distinct label for every rerun."""
     if not run_label:
         run_label = datetime.now(timezone.utc).strftime("anp-%Y%m%dT%H%M%SZ")
@@ -89,5 +92,10 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
         benchmark_holdout=benchmark_holdout,
         benchmark_min_item_responders=benchmark_min_item_responders,
         benchmark_min_items_per_subject=benchmark_min_items_per_subject,
+        prior_anchor=prior_anchor,
+        sam_rho=sam_rho,
+        prefiltered_responses=prefiltered_responses,
+        alc_weighted=alc_weighted,
+        dense_prefix_training=dense_prefix_training,
     )
     print(f"spawned Modal call {call.object_id}")

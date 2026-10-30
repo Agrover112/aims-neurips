@@ -63,8 +63,21 @@ MAX_EVAL_TARGETS = 512
 CURVE_SUBJECTS = 24    # subsample for the periodic per-axis curves
 MAX_EPISODE_TARGETS = 512  # targets include context; cap for cost only
                        # per budget is the same estimator as scoring a sample
+# Dense-prefix training uses every context prefix 0,...,31 from the same
+# streamed candidate order.  Two function realisations per optimiser step and
+# 128 disjoint targets per realisation keep its prediction count near the
+# ordinary 8 x 512- target batch while exposing coherent updates explicitly.
+DENSE_PREFIX_TASKS_PER_STEP = 2
+DENSE_PREFIX_MAX_TARGETS = 128
+DENSE_PREFIX_VALIDATION_TASKS = 4
 SEEDS = (20261018, 20261019, 20261020)
-# Budget ladder lives in organized/testing/online/, not here.
+
+# The *evaluation* budget ladder -- a ladder walked with an acquisition policy
+# -- still lives in organized/testing/online/, not here. These are the scored
+# budgets and their ALC weights, used only to shape the context sizes that
+# training and checkpoint selection draw. See _sample_budget.
+SCORED_BUDGETS = (0, 1, 3, 7, 15, 31)
+SCORED_BUDGET_WEIGHTS = (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)
 
 WANDB_ENTITY = "agrgnn-kth-royal-institute-of-technology"
 WANDB_PROJECT = "aims-predictive-evaluation"
@@ -161,24 +174,26 @@ class _TrainingCoverage:
         self.task_seen = 0
         self.target_draws_total = 0
 
-    def record(self, task_index, target_index):
-        """Record one target set. Target indices are unique within an episode."""
+    def record(self, task_index, target_index, repetitions=1):
+        """Record target predictions, including repeated dense-prefix targets."""
         import numpy as np
 
+        if repetitions < 1:
+            raise ValueError("target repetitions must be positive")
         response_counts = self.response_target_count[task_index]
         unseen_response = response_counts[target_index] == 0
         self.response_target_seen += int(unseen_response.sum())
-        response_counts[target_index] += 1
+        response_counts[target_index] += repetitions
 
         item_index = self.tasks[task_index]["items"][target_index]
         unseen_item = self.item_target_count[item_index] == 0
         self.item_target_seen += int(unseen_item.sum())
-        self.item_target_count[item_index] += 1
+        self.item_target_count[item_index] += repetitions
 
         if self.task_draw_count[task_index] == 0:
             self.task_seen += 1
         self.task_draw_count[task_index] += 1
-        self.target_draws_total += len(target_index)
+        self.target_draws_total += len(target_index) * repetitions
 
     def metrics(self):
         import numpy as np
@@ -260,8 +275,103 @@ class _TrainingCoverage:
         })
 
 
+def _sam_step(model, opt, episodes, rho, clip=5.0):
+    """One sharpness-aware update: ascend to the worst nearby point, then descend.
+
+    SAM minimises the loss in a neighbourhood rather than at a point, so it
+    prefers flat minima. That is the right prior for this task: every test
+    benchmark is unseen, and a sharp minimum fitted to the eleven training
+    benchmarks is exactly what fails to transfer.
+
+    Two details decide whether this is SAM or noise:
+
+    * **The same episodes are used in both passes.** A fresh batch on the
+      second pass would measure the loss at a perturbed point on *different*
+      data, which is a gradient estimate of nothing in particular.
+    * **The same latent sample is used in both passes.** ``loss`` draws
+      ``z ~ q(z|C,T)`` through the reparameterisation, so without replaying the
+      RNG the two passes differ by sampling noise as well as by the
+      perturbation, and at rho=0.05 the noise dominates. Saving and restoring
+      the generator state makes every ``randn_like`` redraw identically.
+
+    The perturbation is removed in a ``finally`` block, because leaving the
+    parameters perturbed after a failed second pass would silently corrupt the
+    run rather than stop it.
+    """
+    import torch
+
+    rng_state = torch.get_rng_state()
+    cuda_rng_state = (
+        torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    )
+
+    opt.zero_grad(set_to_none=True)
+    first = torch.stack([loss for loss, _ in episodes()]).mean()
+    first.backward()
+
+    # Ascend along the normalised gradient to the worst point within radius rho.
+    with torch.no_grad():
+        norm = torch.norm(torch.stack([
+            p.grad.norm() for p in model.parameters() if p.grad is not None
+        ]))
+    perturbed = []
+    try:
+        if torch.isfinite(norm) and float(norm) > 0.0:
+            scale = rho / (float(norm) + 1e-12)
+            with torch.no_grad():
+                for parameter in model.parameters():
+                    if parameter.grad is None:
+                        continue
+                    step = parameter.grad * scale
+                    parameter.add_(step)
+                    perturbed.append((parameter, step))
+
+        # Second pass: identical data, identical latent draw, perturbed weights.
+        torch.set_rng_state(rng_state)
+        if cuda_rng_state is not None:
+            torch.cuda.set_rng_state_all(cuda_rng_state)
+        opt.zero_grad(set_to_none=True)
+        second_batch = episodes()
+        second = torch.stack([loss for loss, _ in second_batch]).mean()
+        second.backward()
+    finally:
+        with torch.no_grad():
+            for parameter, step in perturbed:
+                parameter.sub_(step)
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+    opt.step()
+    return first, second_batch
+
+
+def _sample_budget(rng, max_context, n, *, alc_weighted=True):
+    """Draw a context size from the scored budget ladder rather than uniformly.
+
+    The ALC weights budgets 0,1,3,7,15,31 by .1/.2/.2/.2/.2/.1, so 70% of the
+    score comes from contexts of at most seven labels. Drawing k uniformly over
+    [0, max_context] spends most episodes on context sizes the scorer barely
+    looks at: at max_context=31 only 25% of episodes land in that 70% of the
+    weight, and budget 0 -- a tenth of the score on its own -- gets one episode
+    in 32. Sampling the ladder itself aligns the training and selection
+    distributions with the objective.
+
+    Budgets past ``max_context`` or the task's own size are dropped and the
+    remaining weights renormalised. Clamping them instead would pile several
+    budgets onto the same k and quietly overweight it.
+    """
+    import numpy as np
+
+    cap = min(max_context, n - 1)
+    eligible = [(b, w) for b, w in zip(SCORED_BUDGETS, SCORED_BUDGET_WEIGHTS) if b <= cap]
+    if not eligible:
+        return 0
+    budgets = np.asarray([b for b, _ in eligible])
+    weights = np.ones(len(eligible), dtype=float) if not alc_weighted else np.asarray([w for _, w in eligible], dtype=float)
+    return int(rng.choice(budgets, p=weights / weights.sum()))
+
+
 def _episode(task, rng, device, emb, max_context=MAX_CONTEXT,
-             coverage=None, task_index=None):
+             coverage=None, task_index=None, alc_weighted=True):
     """One task, random context size, targets INCLUDING the context (CNP §2.3).
 
     The paper: "N ~ uniform[0,...,n-1]. We condition on the subset O_N ... Thus,
@@ -282,7 +392,7 @@ def _episode(task, rng, device, emb, max_context=MAX_CONTEXT,
 
     items, labels = task["items"], task["labels"]
     n = len(items)
-    k = int(rng.integers(0, min(max_context, n - 1) + 1))
+    k = _sample_budget(rng, max_context, n, alc_weighted=alc_weighted)
     perm = rng.permutation(n)
     c = perm[:k]
     # Disjoint targets, following "Active Evaluation Acquisition" sec B.2:
@@ -301,10 +411,10 @@ def _episode(task, rng, device, emb, max_context=MAX_CONTEXT,
 
 
 def _episode_indices(task, rng, max_context=MAX_CONTEXT,
-                     max_targets=FIXED_VAL_MAX_TARGETS):
+                     max_targets=FIXED_VAL_MAX_TARGETS, alc_weighted=True):
     """Freeze one disjoint context/target carve without storing embeddings."""
     n = len(task["items"])
-    k = int(rng.integers(0, min(max_context, n - 1) + 1))
+    k = _sample_budget(rng, max_context, n, alc_weighted=alc_weighted)
     permutation = rng.permutation(n)
     target = permutation[k:k + max_targets]
     if len(target) == 0:
@@ -312,7 +422,51 @@ def _episode_indices(task, rng, max_context=MAX_CONTEXT,
     return permutation[:k], target
 
 
-def _fixed_validation_metrics(model, tasks, episode_bank, emb, device):
+def _dense_prefix_episodes(task, rng, device, emb, max_context=MAX_CONTEXT,
+                           max_targets=DENSE_PREFIX_MAX_TARGETS,
+                           coverage=None, task_index=None):
+    """Score one fixed target set from every prefix of a random label stream.
+
+    The stream is the candidate order.  ``prefix[k]`` contains exactly the
+    first ``k`` acquired labels, and every target is withheld from every
+    prefix.  Averaging the losses therefore directly trains the desired
+    sequence ``p(y_target | y_0:k)`` for k=0,...,max_context.
+    """
+    import torch
+
+    items, labels = task["items"], task["labels"]
+    n = len(items)
+    cap = min(max_context, n - 1)
+    permutation = rng.permutation(n)
+    stream, target = permutation[:cap], permutation[cap:cap + max_targets]
+    if len(target) == 0:
+        target = permutation[-1:]
+    if coverage is not None:
+        coverage.record(task_index, target, repetitions=cap + 1)
+
+    item_tensor = torch.as_tensor(items, dtype=torch.long, device=device)
+    label_tensor = torch.as_tensor(labels, dtype=torch.float32, device=device)
+    x_target, y_target = emb[item_tensor[target]], label_tensor[target]
+    return [
+        (emb[item_tensor[stream[:k]]], label_tensor[stream[:k]], x_target, y_target)
+        for k in range(cap + 1)
+    ]
+
+
+def _dense_prefix_indices(task, rng, max_context=MAX_CONTEXT,
+                          max_targets=FIXED_VAL_MAX_TARGETS):
+    """Freeze one stream and target bank for prefix-consistent validation."""
+    n = len(task["items"])
+    cap = min(max_context, n - 1)
+    permutation = rng.permutation(n)
+    target = permutation[cap:cap + max_targets]
+    if len(target) == 0:
+        target = permutation[-1:]
+    return permutation[:cap], target
+
+
+def _fixed_validation_metrics(model, tasks, episode_bank, emb, device,
+                              dense_prefix_training=False):
     """Deterministic held-out validation for checkpoint selection.
 
     The context/target indices are created once before optimisation.  For a
@@ -327,17 +481,20 @@ def _fixed_validation_metrics(model, tasks, episode_bank, emb, device):
         task = tasks[task_index]
         item_index = task["items"]
         labels = task["labels"]
-        x_c = emb[torch.as_tensor(item_index[context_index], dtype=torch.long, device=device)]
-        y_c = torch.as_tensor(labels[context_index], dtype=torch.float32, device=device)
         x_t = emb[torch.as_tensor(item_index[target_index], dtype=torch.long, device=device)]
         y_t = torch.as_tensor(labels[target_index], dtype=torch.float32, device=device)
-        target_logits = model.logits(x_c, y_c, x_t)
-        target_probability = torch.sigmoid(target_logits)
-        target_brier.append(float(((target_probability - y_t) ** 2).mean()))
-        target_nll.append(float(F.binary_cross_entropy_with_logits(target_logits, y_t)))
-        if len(context_index):
-            context_logits = model.logits(x_c, y_c, x_c)
-            context_nll.append(float(F.binary_cross_entropy_with_logits(context_logits, y_c)))
+        prefixes = range(len(context_index) + 1) if dense_prefix_training else (len(context_index),)
+        for k in prefixes:
+            prefix_index = context_index[:k]
+            x_c = emb[torch.as_tensor(item_index[prefix_index], dtype=torch.long, device=device)]
+            y_c = torch.as_tensor(labels[prefix_index], dtype=torch.float32, device=device)
+            target_logits = model.logits(x_c, y_c, x_t)
+            target_probability = torch.sigmoid(target_logits)
+            target_brier.append(float(((target_probability - y_t) ** 2).mean()))
+            target_nll.append(float(F.binary_cross_entropy_with_logits(target_logits, y_t)))
+            if len(prefix_index):
+                context_logits = model.logits(x_c, y_c, x_c)
+                context_nll.append(float(F.binary_cross_entropy_with_logits(context_logits, y_c)))
     return {
         "context_reconstruction_nll": float(sum(context_nll) / len(context_nll)),
         "unseen_target_nll": float(sum(target_nll) / len(target_nll)),
@@ -510,7 +667,11 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         resume: bool = True, max_context: int = MAX_CONTEXT,
         benchmark_holdout: bool = False,
         benchmark_min_item_responders: int = 15,
-        benchmark_min_items_per_subject: int = MIN_ITEMS_PER_TASK) -> dict:
+        benchmark_min_items_per_subject: int = MIN_ITEMS_PER_TASK,
+        prior_anchor: bool = False, sam_rho: float = 0.0,
+        prefiltered_responses: str = "", alc_weighted: bool = True,
+        dense_prefix_training: bool = False) -> dict:
+    import json
     import os
     import sys
     import time
@@ -545,12 +706,13 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     if not run_label:
         run_label = f"run-{int(time.time())}-{uuid.uuid4().hex[:8]}"
     run_label = "".join(c if c.isalnum() or c in "-_" else "-" for c in run_label)
+    dense_tag = "-denseprefix" if dense_prefix_training else ""
     if model_family == "cnp":
-        architecture_tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}"
+        architecture_tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}{dense_tag}"
     elif model_family == "anp_cross_attention":
         architecture_tag = (
             f"anp-crossattn{'-latent' if use_latent else ''}-w{width}"
-            f"-sa{n_blocks}-h{cross_attention_heads}-z{latent_dim}"
+            f"-sa{n_blocks}-h{cross_attention_heads}-z{latent_dim}{dense_tag}"
         )
     elif model_family == "set_anp":
         architecture_tag = (
@@ -594,7 +756,34 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
            "steps": steps, "lr": LR, "weight_decay": WEIGHT_DECAY,
            "run_label": run_label,
            "optimizer": "AdamW", "residual_proj": residual_proj,
-           "episodes_per_step": EPISODES_PER_STEP, "max_context": max_context,
+           "episodes_per_step": (
+               DENSE_PREFIX_TASKS_PER_STEP * (max_context + 1)
+               if dense_prefix_training else EPISODES_PER_STEP
+           ),
+           "function_realisations_per_step": (
+               DENSE_PREFIX_TASKS_PER_STEP if dense_prefix_training else EPISODES_PER_STEP
+           ),
+           "max_context": max_context,
+           "context_size_sampling": (
+               "all_stream_prefixes_0_to_max_context"
+               if dense_prefix_training else
+               "alc_scored_budget_ladder" if alc_weighted else "uniform_scored_budget_ladder"
+           ),
+           "dense_prefix_training": dense_prefix_training,
+           "dense_prefix_max_targets": (
+               DENSE_PREFIX_MAX_TARGETS if dense_prefix_training else None
+           ),
+           "alc_weighted": alc_weighted,
+           "prior_anchor": prior_anchor,
+           "sam_rho": sam_rho,
+           "prefiltered_responses": prefiltered_responses,
+           "optimizer_sharpness_aware": bool(sam_rho > 0.0),
+           "decoder_parameterisation": (
+               "beta_binomial_shrinkage_logit_plus_residual" if prior_anchor
+               else "direct_logit"
+           ),
+           "scored_budgets": list(SCORED_BUDGETS),
+           "scored_budget_weights": list(SCORED_BUDGET_WEIGHTS),
            "min_subjects": MIN_SUBJECTS, "val_frac": VAL_FRAC,
            "split_protocol": (
                "frozen_benchmark_train_validation_test" if benchmark_holdout
@@ -617,7 +806,11 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             "seed", "arm", "model_family", "encoder", "pooling", "use_latent",
             "width", "n_blocks", "cross_attention_heads", "latent_dim", "dropout",
             "n_inducing", "decoder_blocks", "item_dim", "label_dim", "optimizer",
-            "lr", "weight_decay", "episodes_per_step", "max_context", "min_subjects",
+            "lr", "weight_decay", "episodes_per_step", "function_realisations_per_step",
+            "max_context", "dense_prefix_training", "dense_prefix_max_targets",
+            "context_size_sampling", "scored_budgets", "scored_budget_weights",
+            "prior_anchor", "sam_rho", "alc_weighted",
+            "min_subjects",
             "val_frac", "split_protocol", "benchmark_min_item_responders",
             "benchmark_min_items_per_subject", "fixed_val_episodes", "fixed_val_max_targets",
         )
@@ -642,6 +835,13 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     if os.environ.get("WANDB_API_KEY"):
         try:
             import wandb
+
+            # Forge is the entity's host and is a public endpoint, not a
+            # credential, so it is set here rather than carried in every
+            # workspace's secret. Without it wandb defaults to api.wandb.ai
+            # and a Forge key is rejected with a 403 that reads like an auth
+            # failure. ``setdefault`` leaves an explicitly configured host alone.
+            os.environ.setdefault("WANDB_BASE_URL", "https://api.forge.coreweave.com")
 
             # Display names are not W&B identities: identical names otherwise
             # become separate dashboard runs.  The ID below is deterministic
@@ -696,7 +896,39 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     pos = {u: i for i, u in enumerate(emb_ids)}
     print(f"embedding store {arm}: {emb_all.shape}", flush=True)
 
-    if benchmark_holdout:
+    if benchmark_holdout and prefiltered_responses:
+        # A workspace that only holds the exported subset has no
+        # ``datasets/full/processed/``, so the filter cannot be re-run there.
+        # The manifest records the parameters the export was built with; they
+        # are asserted against this run's rather than assumed, because a
+        # silently mismatched filter would change the split under a shared
+        # checkpoint tag.
+        responses_path = Path(prefiltered_responses)
+        manifest_path = responses_path.parent / "manifest.json"
+        d = pd.read_parquet(responses_path)
+        benchmark_filter_audit = None
+        if manifest_path.exists():
+            exported = json.loads(manifest_path.read_text())
+            benchmark_filter_audit = exported.get("filter_audit")
+            expected = {
+                "split_seed": seed,
+                "min_item_responders": benchmark_min_item_responders,
+                "min_items_per_subject": benchmark_min_items_per_subject,
+            }
+            if exported.get("filter_parameters") != expected:
+                raise RuntimeError(
+                    "prefiltered responses were built with "
+                    f"{exported.get('filter_parameters')}, this run asks for {expected}"
+                )
+            if exported.get("arm") != arm:
+                raise RuntimeError(
+                    f"prefiltered export is for arm {exported.get('arm')!r}, not {arm!r}"
+                )
+        if "benchmark_split" not in d.columns:
+            raise RuntimeError("prefiltered responses lack a benchmark_split column")
+        print(f"prefiltered responses: {len(d):,} rows, "
+              f"{d.benchmark_id.nunique()} benchmarks from {responses_path}", flush=True)
+    elif benchmark_holdout:
         import benchmark_holdout_filters as benchmark_filters
 
         d, benchmark_filter_audit = benchmark_filters.load_benchmark_holdout_filtered(
@@ -717,6 +949,15 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         benchmark_filter_audit = None
         print(f"filtered (n>={MIN_SUBJECTS}): {len(d):,} rows, "
               f"{d.benchmark_id.nunique()} benchmarks", flush=True)
+
+    if prior_anchor and model_family != "anp_cross_attention":
+        # Silently dropping it would train an unanchored model while cfg and
+        # W&B both claim the anchor, which is the kind of mismatch that makes a
+        # whole sweep unreadable after the fact.
+        raise ValueError(
+            f"prior_anchor is only implemented for model_family="
+            f"'anp_cross_attention', got {model_family!r}"
+        )
 
     rows, curves, rng = [], [], np.random.default_rng(seed)
 
@@ -800,9 +1041,12 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     )
     for task_index in fixed_task_indices:
         task_index = int(task_index)
+        sampler = _dense_prefix_indices if dense_prefix_training else _episode_indices
         fixed_validation_bank.append(
-            (task_index, *_episode_indices(val_tasks[task_index], fixed_rng,
-                                           max_context=max_context))
+            (task_index, *sampler(
+                val_tasks[task_index], fixed_rng, max_context=max_context,
+                **({"alc_weighted": alc_weighted} if not dense_prefix_training else {}),
+            ))
         )
     print(f"fixed validation bank: {len(fixed_validation_bank)} held-out-subject episodes",
           flush=True)
@@ -818,6 +1062,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             emb.shape[1], width=width, self_attention_blocks=n_blocks,
             cross_attention_heads=cross_attention_heads, use_latent=use_latent,
             latent_dim=latent_dim, residual_proj=residual_proj, dropout=dropout,
+            prior_anchor=prior_anchor,
         ).to(device)
     elif model_family == "set_anp":
         model = set_anp_cb.SetAttentiveNeuralProcess(
@@ -936,30 +1181,57 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         # seen once per pass. With replacement and early stopping at ~step 400
         # only ~54% of the 4,071 train subjects would ever be visited.
         batch_indices = []
-        for _ in range(EPISODES_PER_STEP):
+        functions_per_step = (
+            DENSE_PREFIX_TASKS_PER_STEP if dense_prefix_training else EPISODES_PER_STEP
+        )
+        for _ in range(functions_per_step):
             if not epoch_order:
                 epoch_order.extend(rng.permutation(len(train_tasks)).tolist())
             batch_indices.append(epoch_order.pop())
-        batch_losses = [
-            model.loss(*_episode(train_tasks[task_index], rng, device, emb,
-                                 max_context=max_context,
-                                 coverage=coverage, task_index=task_index))
-            for task_index in batch_indices
-        ]
-        losses = [loss for loss, _ in batch_losses]
-        tr = torch.stack(losses).mean()
-        tr.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-        opt.step()
+        # Materialise the episode tensors once. SAM needs the *same* data in
+        # both passes, and coverage must be recorded once per step, not twice.
+        episode_tensors = []
+        for task_index in batch_indices:
+            if dense_prefix_training:
+                episode_tensors.extend(_dense_prefix_episodes(
+                    train_tasks[task_index], rng, device, emb,
+                    max_context=max_context, coverage=coverage, task_index=task_index,
+                ))
+            else:
+                episode_tensors.append(_episode(
+                    train_tasks[task_index], rng, device, emb,
+                    max_context=max_context, coverage=coverage, task_index=task_index,
+                    alc_weighted=alc_weighted,
+                ))
+        if sam_rho > 0.0:
+            tr, batch_losses = _sam_step(
+                model, opt,
+                lambda: [model.loss(*episode) for episode in episode_tensors],
+                sam_rho,
+            )
+        else:
+            batch_losses = [model.loss(*episode) for episode in episode_tensors]
+            tr = torch.stack([loss for loss, _ in batch_losses]).mean()
+            tr.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+            opt.step()
 
         if step % VAL_EVERY == 0 or step == steps - 1:
             model.eval()
             with torch.no_grad():
-                sampled_val_episodes = [
-                    _episode(val_tasks[int(rng.integers(len(val_tasks)))], rng, device, emb,
-                             max_context=max_context)
-                    for _ in range(VAL_EPISODES)
-                ]
+                sampled_val_episodes = []
+                if dense_prefix_training:
+                    for _ in range(DENSE_PREFIX_VALIDATION_TASKS):
+                        sampled_val_episodes.extend(_dense_prefix_episodes(
+                            val_tasks[int(rng.integers(len(val_tasks)))], rng, device, emb,
+                            max_context=max_context,
+                        ))
+                else:
+                    sampled_val_episodes = [
+                        _episode(val_tasks[int(rng.integers(len(val_tasks)))], rng, device, emb,
+                                 max_context=max_context, alc_weighted=alc_weighted)
+                        for _ in range(VAL_EPISODES)
+                    ]
                 sampled_val = [model.loss(*episode) for episode in sampled_val_episodes]
                 sampled_val_loss = torch.stack([loss for loss, _ in sampled_val]).mean()
                 latent_scalars, latent_distributions = ({}, {})
@@ -968,7 +1240,8 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                         model, sampled_val_episodes
                     )
                 fixed_val = _fixed_validation_metrics(
-                    model, val_tasks, fixed_validation_bank, emb, device
+                    model, val_tasks, fixed_validation_bank, emb, device,
+                    dense_prefix_training=dense_prefix_training,
                 )
             curves.append({"seed": seed, "step": step,
                            "training_objective": float(tr),

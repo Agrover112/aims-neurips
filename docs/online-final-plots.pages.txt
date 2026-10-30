@@ -1,0 +1,22 @@
+\includegraphics[page=N]{online-final-plots.pdf}
+
+1: test, Brier, random
+2: test, Brier, uncertainty
+3: test, Brier, conf. extremes
+4: test, Brier, Bernoulli var.
+5: test, Brier, exp. Brier red.
+6: test, Brier minus beta-binomial, random
+7: test, Brier minus beta-binomial, uncertainty
+8: test, Brier minus beta-binomial, conf. extremes
+9: test, Brier minus beta-binomial, Bernoulli var.
+10: test, Brier minus beta-binomial, exp. Brier red.
+11: validation, Brier, random
+12: validation, Brier, uncertainty
+13: validation, Brier, conf. extremes
+14: validation, Brier, Bernoulli var.
+15: validation, Brier, exp. Brier red.
+16: validation, Brier minus beta-binomial, random
+17: validation, Brier minus beta-binomial, uncertainty
+18: validation, Brier minus beta-binomial, conf. extremes
+19: validation, Brier minus beta-binomial, Bernoulli var.
+20: validation, Brier minus beta-binomial, exp. Brier red.

@@ -29,6 +29,59 @@ VARIANTS = {
         "latent_dim": 128,
         "max_context": 64,
     },
+    "benchmark-holdout-anp-w64-bhold-budgetladder": {
+        "checkpoint": (
+            "anp-crossattn-latent-w64-sa1-h4-z32-benchmark-heldout-es-fixed-"
+            "anp-sa1-w64-bgem3-bhold-budgetladder-n15-20261029-"
+            "bge_m3_long-seed20261018.pt"
+        ),
+        "run_label": "anp-sa1-w64-bgem3-bhold-budgetladder-n15-20261029",
+        "width": 64,
+        "latent_dim": 32,
+        "max_context": 31,
+        "benchmark_holdout": True,
+    },
+    "benchmark-holdout-anp-w64-sam005": {
+        "checkpoint": (
+            "anp-crossattn-latent-w64-sa1-h4-z32-benchmark-heldout-es-fixed-"
+            "anp-sa1-w64-bgem3-bhold-sam005-unweighted-n15-cpu-20261029-"
+            "bge_m3_long-seed20261018.pt"
+        ),
+        "run_label": "anp-sa1-w64-bgem3-bhold-sam005-unweighted-n15-cpu-20261029",
+        "width": 64,
+        "latent_dim": 32,
+        "max_context": 31,
+        "benchmark_holdout": True,
+        "training": {"sam_rho": 0.05, "selected_step": 5450,
+                     "context_size_sampling": "uniform_scored_budget_ladder"},
+    },
+    "benchmark-holdout-anp-w64-denseprefix": {
+        # Frozen copy of the dense-prefix job's best checkpoint; the live file
+        # is overwritten whenever that job improves.
+        "checkpoint": (
+            "anp-crossattn-latent-w64-sa1-h4-z32-denseprefix-unweighted-"
+            "best-step4550-bge_m3_long-seed20261018.pt"
+        ),
+        "run_label": "anp-sa1-w64-bgem3-bhold-denseprefix-unweighted-n15-l4-20261030",
+        "width": 64,
+        "latent_dim": 32,
+        "max_context": 31,
+        "benchmark_holdout": True,
+        "training": {"dense_prefix_training": True, "selected_step": 4550,
+                     "context_size_sampling": "all_stream_prefixes_0_to_max_context"},
+    },
+    "benchmark-holdout-anp-w64-filtered": {
+        "checkpoint": (
+            "anp-crossattn-latent-w64-sa1-h4-z32-benchmark-heldout-es-fixed-"
+            "anp-sa1-w64-bgem3-filtered-benchmarkholdout-n15-20261029-"
+            "bge_m3_long-seed20261018.pt"
+        ),
+        "run_label": "anp-sa1-w64-bgem3-filtered-benchmarkholdout-n15-20261029",
+        "width": 64,
+        "latent_dim": 32,
+        "max_context": 31,
+        "benchmark_holdout": True,
+    },
 }
 
 
@@ -58,6 +111,13 @@ def _metadata(variant: dict[str, object]) -> dict[str, object]:
             "seed": 20261018,
             "training_arm": "bge_m3_long",
             "checkpoint_selection": "fixed_validation_unseen_target_brier",
+            "benchmark_holdout": bool(variant.get("benchmark_holdout", False)),
+            "filtering": (
+                "per-benchmark iterative core: nonconstant items with >=15 responders; "
+                "subjects with >=80 retained items; masked missing responses"
+                if variant.get("benchmark_holdout", False) else None
+            ),
+            "training": variant.get("training"),
         },
     }
 
@@ -85,8 +145,20 @@ def _stage(staged: Path, variant: dict[str, object]) -> None:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--only", default="",
+                        help="comma-separated variant names; default builds all")
+    args = parser.parse_args()
+    wanted = set(filter(None, args.only.split(",")))
+    unknown = wanted - set(VARIANTS)
+    if unknown:
+        raise SystemExit(f"unknown variants: {sorted(unknown)}")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for name, variant in VARIANTS.items():
+        if wanted and name not in wanted:
+            continue
         checkpoint = SOURCE / "assets" / str(variant["checkpoint"])
         if not checkpoint.is_file():
             raise FileNotFoundError(f"Missing completed checkpoint: {checkpoint}")

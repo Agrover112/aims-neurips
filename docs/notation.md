@@ -9,7 +9,7 @@ equations, plots, logs, and reports must use this vocabulary.
 | Symbol | Code | Meaning |
 |---|---|---|
 | \(C\) | `C` | Acquired context set for one subject--benchmark task |
-| \(T\) | `T` | Target set used for prediction; during NP training, \(C\subseteq T\) |
+| \(T\) | `T` | Target set used for prediction; current filtered NP training uses \(C\cap T=\varnothing\) |
 | \(x_i\) | `x` | Information available for item \(i\) before acquiring its outcome |
 | \(y_{si}\) | `y` | Binary outcome for subject \(s\) on item \(i\) |
 | \(x_C,y_C\) | `x_C`, `y_C` | Context inputs and acquired outcomes |
@@ -17,9 +17,14 @@ equations, plots, logs, and reports must use this vocabulary.
 | \(N_C,N_T\) | `n_C`, `n_T` | Context and target set sizes |
 
 An evaluation task stores the full ordered acquisition pool as `x_C_pool` and
-`y_C_pool`. At budget \(B\), `x_C = x_C_pool[:B]` and
-`y_C = y_C_pool[:B]`. The untouched evaluation pool is `x_T`, with `y_T` used
-only to score predictions.
+`y_C_pool`. At budget \(B\), the context contains the **accepted** labels from
+the stream up to that point, not necessarily its first \(B\) candidates. Under
+random-prefix acquisition those are the same. The untouched evaluation pool is
+`x_T`, with `y_T` used only to score predictions.
+
+The original CNP reconstruction objective uses \(C\subseteq T\). We keep that
+notation only when describing that historical paper-faithful control; it is not
+the active filtered NP training rule.
 
 ## NP and ANP paths
 
@@ -90,3 +95,5 @@ decoder retains the IRT logit as its psychometric anchor.
 - Use `theta` only for subject ability.
 - Use `r` for the deterministic path and `s` for the latent encoder path.
 - Use `z` for the sampled global latent variable, not for ability itself.
+- Use `R` for a train-only reference set in an EBR acquisition calculation. It
+  is never the hidden evaluation set.
