@@ -552,7 +552,6 @@ or the superseded five-task replay as main evidence.
   not direct evidence for the benchmark-transfer claim.
 - Do **not** use [`online-replay-acquisition-validation.pdf`](docs/online-replay-acquisition-validation.pdf)
   as final evidence: it is the earlier, low-resolution five-task replay.
-- Do **not** include TabPFN or TabFM in this report.
 - Do **not** plot a policy as successful merely because it was best on
   validation; the SAM validation result reversed on test.
 
@@ -577,15 +576,6 @@ re-encoding the whole context set. With cached attention states, this could
 also reduce sequential inference cost, following the incremental mechanism of
 Mortimer et al. (2026). We did not complete or evaluate this variant, so it is
 a proposed direction rather than a result.
-
-A second direction is to develop streaming acquisition rules for tabular
-foundation models that use their in-context learning behaviour directly. A
-policy could score the current candidate by the expected change in a frozen
-tabular model's predictive distribution after each possible label, or by the
-expected reduction in uncertainty on a train-only reference bank. Such a policy
-must be trained and selected only on training benchmarks, then frozen before
-benchmark-held-out validation/test. This is future work: no tabular foundation
-model result belongs in the present report.
 
 ## Implementation walkthrough: dense-prefix training
 
@@ -742,7 +732,6 @@ link, not cited as substitutes for the scientific literature.
    evidence uses one documented training seed; state that limitation.
 5. Do not claim a neural or acquisition win from an incomplete run, an
    unpaired comparison, or a confidence interval that includes zero.
-6. Exclude tabular foundation-model arms from this paper.
 
 ## Evidence still required before a final-results report
 

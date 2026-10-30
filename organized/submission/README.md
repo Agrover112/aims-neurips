@@ -107,9 +107,6 @@ predictor implementation can package several checkpoints safely.
 
 ## Other submission folders in the repo
 
-- `organized/submission_tabfm/`, `organized/submission_tabpfn/`: tabular
-  foundation-model packages. TabPFN was dropped (timeouts, 84% fallback
-  predictions); TabFM was too slow to replay at full size.
 - Repo-root `submission*/` folders: earlier mean, shrinkage and CNP packages
   from before the benchmark holdout (last touched 2026-10-08 to 2026-10-24).
   `submission/aims_predictor/predictor.py` holds the shipped beta-binomial
