@@ -6,19 +6,40 @@ separate from training and analysis work.
 
 ## Start here
 
-There are two current benchmark-holdout ANP candidate packages. Both use the
-same architecture, item embeddings, and random streaming acquisition rule.
-They differ only in how the training loop sampled the number of observed
-labels.
+There are four benchmark-holdout ANP packages. All use the same architecture,
+item embeddings, and random streaming acquisition rule. They differ only in how
+training sampled the number of observed labels, or in the optimiser.
 
 | Candidate ZIP | What differs during training | Selected checkpoint | Status |
 | --- | --- | --- | --- |
-| `benchmark-holdout-anp-w64-filtered.zip` | ordinary episodic training | step 1,200; fixed-validation Brier 0.16749 | candidate |
-| `benchmark-holdout-anp-w64-bhold-budgetladder.zip` | samples the official budgets 0, 1, 3, 7, 15, 31 with their Brier-ALC weights | step 50; fixed-validation Brier 0.21051 | candidate |
+| `benchmark-holdout-anp-w64-filtered.zip` | ordinary episodic training | step 1,200; fixed-validation Brier 0.16749 | built, not uploaded |
+| `benchmark-holdout-anp-w64-bhold-budgetladder.zip` | official budgets 0/1/3/7/15/31 with Brier-ALC weights | step 50; fixed-validation Brier 0.21051 | built, not uploaded |
+| `benchmark-holdout-anp-w64-sam005.zip` | SAM, rho = 0.05 | step 5,450 | **uploaded, CodaBench 1022033** |
+| `benchmark-holdout-anp-w64-denseprefix.zip` | every context prefix 0-31 per episode | step 4,550 | **uploaded, CodaBench 1022030** |
 
-Neither row is a declared final submission. The checkpoint score selects a
-checkpoint *within its own run*. It does not replace a matched, held-out replay
-comparison between the two packages.
+CodaBench 1019401 was a probe (constant 0.8 at budget 0), not a candidate.
+Leaderboard scores for 1022033 and 1022030 had not been read back when this
+was written; the public leaderboard samples 9 subject-benchmark pairs, so its
+standard error is about 0.023 Brier.
+
+### Held-out replay result
+
+On the frozen replay panel `benchmark-holdout-online-v1-s20261018-n15-m80-cap100000`
+(test: 45 tasks on algotune, cmmlu, editbench, never trained on; 10 seeds),
+macro Brier-ALC under random acquisition:
+
+| model | test ALC |
+| --- | --- |
+| constant (training mean 0.512) | 0.2472 |
+| Jeffreys beta-binomial | 0.2494 |
+| ANP w64 SAM | 0.2663 |
+| ANP w64 filtered | 0.2725 |
+| ANP w64 dense-prefix | 0.2762 |
+
+Every ANP is significantly worse than the beta-binomial on unseen benchmarks;
+the gap is mostly at budgets 0 and 1. The other acquisition policies do not
+change this. Full tables: `organized/testing/online/README.md` and
+`docs/online-final-results.pdf`.
 
 ## What both candidates contain
 
@@ -36,9 +57,8 @@ comparison between the two packages.
 
 ## Build and check
 
-Build the four saved BGE-M3 ANP packages. The first two archives listed below
-are the benchmark-holdout candidates; the other two are older random-subject
-split ablations.
+Build the BGE-M3 ANP packages (all four benchmark-holdout candidates plus the
+older random-subject split ablations; `--only <name>` builds one):
 
 ```bash
 .venv/bin/python organized/submission/build_bge_anp_submissions.py
@@ -55,8 +75,7 @@ The checker verifies the ZIP layout, imports `model.py`, calls `predict()`, and
 checks the acquisition hook. It uses a local synthetic embedding for that smoke
 test; it does not measure the real BGE-M3 runtime or score quality.
 
-Both benchmark-holdout archives were built and passed this checker on this
-branch. They have not been uploaded by this preparation step.
+All four benchmark-holdout archives were built and passed this checker.
 
 ## How the ZIP chooses its model
 
@@ -85,6 +104,18 @@ predictor implementation can package several checkpoints safely.
   CNP width sweep. Keep it only for reproducibility.
 - `modal_router_check.py`, `modal_per_budget_brier.py`, and the latency scripts:
   local diagnostics. They do not upload a ZIP.
+
+## Other submission folders in the repo
+
+- `organized/submission_tabfm/`, `organized/submission_tabpfn/`: tabular
+  foundation-model packages. TabPFN was dropped (timeouts, 84% fallback
+  predictions); TabFM was too slow to replay at full size.
+- Repo-root `submission*/` folders: earlier mean, shrinkage and CNP packages
+  from before the benchmark holdout (last touched 2026-10-08 to 2026-10-24).
+  `submission/aims_predictor/predictor.py` holds the shipped beta-binomial
+  shrinkage constants that `anp_crossattn_blocks.py` copies.
+- CodaBench helpers: `scripts/codabench_logs.py`, `scripts/watch_codabench.py`,
+  `scripts/audit_codabench_id_overlap.py`.
 
 ## Before choosing or uploading a candidate
 
