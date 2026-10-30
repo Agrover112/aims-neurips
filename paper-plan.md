@@ -9,13 +9,32 @@ Alternatives:
 - **Online LLM Evaluation Under Benchmark Shift**
 - **Testing Psychometric and Neural Priors for Sequential LLM Benchmarking**
 
-## Central question and claim boundary
+## Central questions and claim boundary
 
-The paper asks a narrow question: how well can a predictor transfer to an
-unseen benchmark when labels arrive sequentially and future candidates are
-hidden? A task is a subject--benchmark pair. In the filtered corpus used here,
-each retained subject occurs in one benchmark, so benchmark holdout also makes
-subjects disjoint across train, validation, and test.
+The paper is organised around three questions. A task is a
+subject--benchmark pair. In the filtered corpus used here, each retained
+subject occurs in one benchmark, so benchmark holdout also makes subjects
+disjoint across train, validation, and test.
+
+### Q1. Held-out benchmarks: does meta-training transfer?
+
+Train on some benchmarks, then evaluate on benchmarks absent from training.
+This is the primary question: does the Neural Process learn a conditional
+prior that transfers to genuinely new benchmark response functions, rather
+than exploiting benchmark-specific response structure?
+
+### Q2. Extrapolation: how does it behave outside the training ability range?
+
+Stratify held-out tasks by subject response rate or inferred ability relative
+to the training distribution. This asks whether failures concentrate among
+unusually strong or weak subjects. It is a diagnostic, not a new split or a
+causal explanation.
+
+### Q3. Small-budget generalization: does context help quickly?
+
+Measure Brier at budgets 0, 1, 3, 7, 15, and 31. The key region is 1--7
+labels: does each additional acquired response improve predictions
+consistently, or does the model remain near a constant predictor?
 
 The contribution is a controlled benchmark-held-out study of a context-only
 Beta-Binomial baseline and neural-process predictors [Garnelo et al., 2018a,b]. IRT results may appear
@@ -36,6 +55,10 @@ text-derived item representations did not transfer reliably under benchmark
 shift. This does **not** establish that Beta-Binomial is uniquely better than
 every simple predictor. The exact results live in the
 [frozen replay table](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks).
+
+The report should answer these questions in that order. Any experiment that
+does not clarify transfer, ability-range extrapolation, or low-budget
+adaptation is supporting evidence only and belongs in the appendix.
 
 ## Terminology and framing
 
@@ -83,12 +106,12 @@ limit without losing the required story.
 
 | Main-text pages | Section | Required content |
 | --- | --- | --- |
-| 1 | **Problem and contribution** | The benchmark-held-out, one-candidate-at-a-time task; why benchmark-mixed masks and full-pool acquisition answer easier questions. |
-| 2 | **Data and protocol** | Binary response schema, cleaning/support filter, benchmark roles, allowed information, nested budgets, and Figure 1 plus one compact panel table. |
+| 1 | **Problem and contribution** | The three questions: held-out-benchmark transfer, ability-range extrapolation, and small-budget adaptation. Explain why benchmark-mixed masks and full-pool acquisition answer easier questions. |
+| 2 | **Data and protocol** | Binary response schema, cleaning/support filter, benchmark roles, ability-range stratification, allowed information, nested budgets, and Figure 1 plus one compact panel table. |
 | 3 | **Methods** | Context-only Beta-Binomial, shared-encoder latent ANP, and the dense-prefix training objective. State exactly what adapts at test time: context, not weights. |
-| 4 | **Experimental setup** | Frozen validation/test roles, random streaming policy, checkpoint rule, macro Brier ALC, paired aggregation, and the no-leakage controls. |
-| 5 | **Results** | One Brier-by-budget figure and one paired ALC table including the constant sanity check, Beta-Binomial, and three clean ANPs. A compact Beta-policy null result only if space permits. |
-| 6 | **Limitations and conclusion** | One neural seed, three held-out benchmarks, incomplete ANP-policy grid, panel-manifest reconciliation, release pointer, and the narrow transfer conclusion. |
+| 4 | **Experimental setup** | Frozen validation/test roles, random streaming policy, checkpoint rule, macro Brier ALC, paired aggregation, ability strata, and no-leakage controls. |
+| 5 | **Results** | Three subsections, one per question: transfer, ability extrapolation, then Brier curves at 1--7 labels. Include the constant sanity check and three clean ANPs. |
+| 6 | **Limitations and conclusion** | One neural seed, three held-out benchmarks, incomplete ANP-policy grid, panel-manifest reconciliation, release pointer, and narrow conclusions for each question. |
 
 Put non-benchmark-holdout results, full filter counts, hyperparameters,
 architecture diagrams, all development cells, all training/KL diagnostics,
@@ -494,6 +517,15 @@ panel (0.16665), but that observation was not replicated on the untouched test
 panel. The complete development table is in the
 [validation replay results](organized/testing/online/README.md#results---validation-unseen-benchmarks).
 
+**What did ability-range extrapolation establish?**
+For each task, compute its observed response rate using evaluation labels only
+after prediction is complete. Define training ability bands from the training
+tasks, then report test Brier separately for in-range, low-response-rate, and
+high-response-rate tasks. The band assignment is post-hoc analysis, never an
+input to the model or acquisition policy. If the final panel is too small for
+stable strata, report the task-level scatter and confidence intervals in the
+appendix and state that ability extrapolation remains unresolved.
+
 **What did the untouched test establish?**
 Fix random-prefix acquisition and compare only clean benchmark-held-out
 checkpoints on the 45-task, three-benchmark test panel. The constant
@@ -541,6 +573,7 @@ or the superseded five-task replay as main evidence.
 | **Figure 2 — Brier learning curves on untouched test** | Macro-task Brier at budgets 0, 1, 3, 7, 15, 31 for constant training mean, Beta-Binomial, filtered ANP, dense-prefix ANP, and SAM ANP, all with random-prefix acquisition. Lower is better. | [Test per-budget table](organized/testing/online/README.md#brier-by-number-of-labels-acquired) | Primary result. Five lines only; do not include contaminated ANPs. Shade paired bootstrap intervals if per-task files are exported, otherwise use the table for intervals. |
 | **Table 2 — final paired test comparison** | Macro Brier ALC, difference from Beta-Binomial, 95% paired CI, and verdict for constant, Beta-Binomial, and the three clean ANPs. | [Test ALC and paired differences](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks) | Primary result. It must show the constant/Beta tie and the three neural losses. |
 | **Table 3 — acquisition controls on untouched test** | Beta-Binomial random prefix, uncertainty, confidence extremes, Bernoulli variance, and EBR: ALC and paired difference versus random. | [Test policy rows and intervals](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks) | Include only if space permits; otherwise Appendix E. Do not place empty ANP-policy cells in the table. |
+| **Figure 3 — ability-range extrapolation** | Test Brier by post-hoc subject response-rate/ability stratum, with the training-range boundaries shown explicitly. | Final per-task replay outputs plus the training-task response-rate distribution | Required for Q2 if the 45-task panel supports stable intervals; otherwise appendix-only with a limitation statement. Never use test labels to select a model or policy. |
 
 ### Appendix
 
@@ -587,10 +620,38 @@ Relate this to Zhang et al. (2025): their learned benchmark predictors also
 fail under extrapolation (to stronger models), and the estimator that survives
 is the one anchored to observed labels (AIPW). The item-level analogue here is
 a predictor that starts from the context-only Beta-Binomial and lets the
-network move it only when that helps, which is what the prior-anchor variant
-and a gated or per-budget blend of ANP and Beta-Binomial implement. Only the
-prior-anchor checkpoint was trained; the gate and the blend have not been
-replayed, so this is a hypothesis to test, not a result.
+network move it only when that helps. We tested four such combinations
+post hoc on the saved random-acquisition replays (same panel, candidate
+orders and seeds; macro Brier-ALC difference to Beta-Binomial on the
+untouched test panel, 45 tasks, paired bootstrap 95% CI):
+
+| combination | w64 filtered | w64 SAM | w64 dense-prefix |
+| --- | --- | --- | --- |
+| ANP alone | +0.023 | +0.017 | +0.027 |
+| gate: Beta-Binomial below 2 labels, ANP after | +0.003 | +0.004 | +0.007 |
+| blend $w\,p_{\text{ANP}} + (1-w)\,p_{\text{BB}}$, $w$ fitted on validation | +0.006 | +0.008 | +0.007 |
+| per-budget blend, $w_k$ fitted on validation | +0.004 | +0.008 | +0.008 |
+| AIPW-style shift (below) | +0.050 | +0.053 | +0.056 |
+
+Every row is significantly worse than Beta-Binomial on test. Gating and
+blending remove most of the ANP's loss, which confirms that most of it sits at
+budgets 0 and 1, but no amount of ANP helps on unseen benchmarks.
+
+The AIPW-style item-level analogue was the worst, roughly twice as bad as the
+ANP alone, on validation too. It shifts every item prediction by the mean
+residual of the labels seen so far, $p_i + \frac{1}{k}\sum_{j \le k}(y_j -
+\hat p_j)$, where $\hat p_j$ is the prediction made before label $j$ was
+revealed. After one label that shift is about $\pm 0.5$, which is far too
+noisy. The same correction applied to Beta-Binomial itself was also worse
+(test ALC 0.2986 vs 0.2494; Brier at budget 1 rose from 0.28 to 0.44),
+because it undoes the shrinkage that makes Beta-Binomial work at small $k$.
+AIPW succeeds in Zhang et al. because they estimate one aggregate accuracy,
+where residual noise averages out over the benchmark; it does not carry over
+to calibrated per-item probabilities from a handful of labels.
+
+The ANP results above are offline recombinations of saved predictions, not
+new replays; they are exact for random acquisition, whose label order does
+not depend on the predictor.
 
 **Future work.** A causal-masked ANP could encode acquired responses in their
 arrival order, so each new label extends a prefix representation rather than
