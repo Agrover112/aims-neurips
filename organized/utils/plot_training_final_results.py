@@ -38,6 +38,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from model_names import NAME  # noqa: E402
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
 import plot_np_context_illustration as npctx  # noqa: E402
 
@@ -49,14 +50,14 @@ PANEL = "benchmark-holdout-online-v1-s20261018-n15-m80-cap100000"
 
 # (W&B id, short name, group, replay key on the 82/45-task panel or None)
 RUNS = [
-    ("np-470e0bbf02b0032be63c", "w64", "in-dist", "w64-contam"),
-    ("np-3f049245dbd45b5b563f", "w128", "in-dist", "w128"),
-    ("np-a3923b0595e9dd6718ce", "w64 uniform", "OOD", "w64-filtered"),
-    ("np-33e8824bdcf39224e35d", "w64 ALC ladder", "OOD", None),
-    ("np-8eb427f4a7ecfd897d04", "w64 SAM", "OOD", "w64-sam"),
-    ("np-d67e60f80a9c475947c2", "w64 prior-anchor", "OOD", None),
-    ("np-07013d1f3e4c31d20b7e", "w64 SAM, ALC ladder", "OOD", None),
-    ("np-048f1586cd2fbaa02d48", "w64 dense-prefix", "OOD", "w64-dense"),
+    ("np-470e0bbf02b0032be63c", NAME["w64-contam"], "in-dist", "w64-contam"),
+    ("np-3f049245dbd45b5b563f", NAME["w128"], "in-dist", "w128"),
+    ("np-a3923b0595e9dd6718ce", NAME["w64-filtered"], "OOD", "w64-filtered"),
+    ("np-33e8824bdcf39224e35d", NAME["w64-ladder"], "OOD", None),
+    ("np-8eb427f4a7ecfd897d04", NAME["w64-sam"], "OOD", "w64-sam"),
+    ("np-d67e60f80a9c475947c2", NAME["w64-anchor"], "OOD", None),
+    ("np-07013d1f3e4c31d20b7e", NAME["w64-sam-ladder"], "OOD", None),
+    ("np-048f1586cd2fbaa02d48", NAME["w64-dense"], "OOD", "w64-dense"),
 ]
 GROUPS = [("in-dist", "In-distribution: random-subject split (validation shares training benchmarks)"),
           ("OOD", "Out-of-distribution: benchmark holdout (validation benchmarks never trained on)")]
@@ -172,10 +173,10 @@ def header(fig, title: str, subtitle: str = "") -> None:
 
 
 def method(m: dict) -> str:
-    sampling = {"uniform_0_to_max_context": "uniform 0-31",
-                "alc_scored_budget_ladder": "ladder, ALC wts",
-                "uniform_scored_budget_ladder": "ladder, equal wts",
-                "all_stream_prefixes_0_to_max_context": "every prefix"}.get(m["sampling"], m["sampling"])
+    sampling = {"uniform_0_to_max_context": "uniform, 0-31 labels",
+                "alc_scored_budget_ladder": "budget ladder, ALC weights",
+                "uniform_scored_budget_ladder": "budget ladder, equal weights",
+                "all_stream_prefixes_0_to_max_context": "every prefix, 0-31"}.get(m["sampling"], m["sampling"])
     extras = [f"SAM {m['sam_rho']:g}" if m["sam_rho"] else "",
               "anchor" if m["prior_anchor"] else ""]
     return ", ".join([sampling] + [e for e in extras if e])
@@ -199,18 +200,22 @@ def replay_alc() -> dict:
 
 def overview_page(pdf, meta: dict):
     fig = plt.figure(figsize=(TEXTWIDTH, 4.6))
-    header(fig, "Training runs: bge_m3_long ANP (cross-attention, 1 SA block, 4 heads)",
+    header(fig, "Training runs: ANP with BGE-M3 item embeddings (cross-attention, 1 self-attention block, 4 heads)",
            "Same architecture throughout; the split is the variable. Replay: random "
            "acquisition, macro-task Brier ALC.")
     alc = replay_alc()
-    cols = ["run", "split", "size", "context sizes, method", "steps",
+    cols = ["run", "split", "width /\nlatent", "context sizes, method", "steps",
             "best step", "bank Brier", "replay val", "replay test"]
     rows = []
     for rid, name, group, key in RUNS:
         m = meta[rid]
         rows.append([
-            name, "random" if group == "in-dist" else "holdout",
-            f"w{m['width']} z{m['latent_dim']}", method(m), f"{m['steps']:,}",
+            # Long names and methods break onto a second line rather than
+            # spilling into the next column.
+            name.replace(" (", "\n(").replace(", budget", ",\nbudget"),
+            "random\nsubject" if group == "in-dist" else "benchmark\nholdout",
+            f"{m['width']} / {m['latent_dim']}", method(m).replace(", SAM", ",\nSAM").replace(", anchor", ",\nanchor"),
+            f"{m['steps']:,}",
             f"{m['best_step']:,}" if m["best_step"] is not None else "-",
             f"{m['best_brier']:.4f}" if m["best_brier"] is not None else "-",
             f"{alc.get('validation', {}).get(key, float('nan')):.4f}" if key else "not run",
@@ -218,7 +223,7 @@ def overview_page(pdf, meta: dict):
         ])
     ax = fig.add_axes([0.01, 0.30, 0.98, 0.56])
     ax.axis("off")
-    widths = [0.19, 0.08, 0.09, 0.22, 0.075, 0.08, 0.085, 0.09, 0.09]
+    widths = [0.20, 0.085, 0.075, 0.2, 0.075, 0.07, 0.085, 0.085, 0.085]
     table = ax.table(cellText=rows, colLabels=cols, colWidths=widths,
                      cellLoc="center", bbox=[0, 0, 1, 1])
     table.auto_set_font_size(False)
@@ -241,7 +246,7 @@ def overview_page(pdf, meta: dict):
         "replay val / test: random acquisition on the 82-task validation and 45-task test "
         "panels, the same protocol for every row. The random-split runs trained on "
         "ai2d_test and bird_sql (validation) and editbench (test).\n"
-        "dense-prefix kept training after its replay and CodaBench checkpoint was frozen "
+        "The dense-prefix run kept training after its replay and CodaBench checkpoint was frozen "
         "at step 4,550 (bank Brier 0.1700); its final best is the step shown. SAM ran to "
         "30,000 steps but its best checkpoint, step 5,450, did not change."
     )

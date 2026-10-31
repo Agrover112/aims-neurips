@@ -51,12 +51,12 @@ HOLDOUT = "denseprefix-unweighted-best-step4550"       # trained on neither
 # holdout split that neither model ever trained on.
 VARIANTS = {
     "in-dist": dict(benchmark="bird_sql", main=RANDOM_SPLIT, other=HOLDOUT,
-                    main_label="ANP w64 random split (trained on bird_sql)",
-                    other_label="ANP w64 dense-prefix (never saw bird_sql)",
+                    main_label="ANP, random-subject split (trained on bird_sql)",
+                    other_label="ANP, dense-prefix training (never saw bird_sql)",
                     tag="in distribution"),
     "ood": dict(benchmark="algotune", main=HOLDOUT, other=RANDOM_SPLIT,
-                main_label="ANP w64 dense-prefix (never saw algotune)",
-                other_label="ANP w64 random split (never saw algotune)",
+                main_label="ANP, dense-prefix training (never saw algotune)",
+                other_label="ANP, random-subject split (never saw algotune)",
                 tag="out of distribution"),
 }
 BUDGETS = [0, 1, 3, 7, 15, 31]
@@ -280,7 +280,7 @@ def matrix_page(pdf, c: dict):
     x = np.arange(len(BUDGETS))
     for key, label, colour, ls in (("main", c["main_label"], MUTED["indigo"], "-"),
                                    ("other", c["other_label"], MUTED["teal"], "-."),
-                                   ("beta", "Jeffreys beta-binomial", INK, "--")):
+                                   ("beta", "Beta-binomial", INK, "--")):
         v = c[f"brier_{key}"]
         ax.errorbar(x, v.mean(0), yerr=v.std(0), color=colour, ls=ls, marker="o", ms=2.6,
                     lw=1.0, capsize=1.5, elinewidth=0.6, label=label)

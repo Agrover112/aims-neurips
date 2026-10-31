@@ -36,6 +36,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from model_names import NAME  # noqa: E402
 from plotstyle import CYCLE, INK, MUTED, SUBTLE, TEXTWIDTH, style  # noqa: E402
 
 CACHE = ROOT / "organized" / "testing" / "online" / "results"
@@ -43,8 +44,8 @@ TABLES = ("combinations", "budgets", "decomposition", "ability")
 BUDGETS = [0, 1, 3, 7, 15, 31]
 WEIGHTS = dict(zip(BUDGETS, (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)))
 SEEDS = {"validation": "s3", "test": "s10"}
-HOLDOUT = {"w64-filtered": "ANP filtered", "w64-sam": "ANP SAM", "w64-dense": "ANP dense-prefix"}
-RANDOM = {"w64-contam": "ANP w64, random split", "w128": "ANP w128, random split"}
+HOLDOUT = {k: NAME[k] for k in ("w64-filtered", "w64-sam", "w64-dense")}
+RANDOM = {k: NAME[k] for k in ("w64-contam", "w128")}
 SEEN = "editbench"  # the one test benchmark the random-split models trained on
 KEY = ["task_id", "order_seed", "requested_budget", "item_uid"]
 COLOR = {**{k: CYCLE[i] for i, k in enumerate(HOLDOUT)}, **{k: CYCLE[i + 3] for i, k in enumerate(RANDOM)}}
@@ -144,9 +145,9 @@ def build(runs: Path, panel_items: Path, responses: Path) -> dict:
             gap = _task_budget(g, "anp") - base
             for b in BUDGETS:
                 budgets.append((m, subset, b, *_ci(gap[b].to_numpy(), rng)))
-            for col, name in (("anp", "full ANP"), ("level", "ANP level only"), ("order", "beta level + ANP ordering")):
+            for col, name in (("anp", NAME["full"]), ("level", NAME["level"]), ("order", NAME["order"])):
                 d = _task_budget(g, col) - base
-                for phase, cols, wts in (("budgets 0-1", [0, 1], [.1, .2]), ("budgets 3-31", [3, 7, 15, 31], [1, 1, 1, 1])):
+                for phase, cols, wts in (("0-1 labels", [0, 1], [.1, .2]), ("3-31 labels", [3, 7, 15, 31], [1, 1, 1, 1])):
                     v = sum(w * d[c] for c, w in zip(cols, wts)) / sum(wts)
                     decomp.append((m, subset, phase, name, *_ci(v.to_numpy(), rng)))
 
@@ -233,7 +234,7 @@ def budgets_page(pdf, t: dict):
     x = np.arange(len(BUDGETS))
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.7), sharey=True)
     fig.subplots_adjust(left=0.09, right=0.985, top=0.78, bottom=0.27, wspace=0.08)
-    header(fig, "Where the ANP loses: Brier minus beta at each budget (test)",
+    header(fig, "Where the ANP loses: Brier minus beta-binomial at each budget (test)",
            "Left: benchmark-holdout ANPs on the three unseen test benchmarks. Right: random-split ANPs on\n"
            "editbench, which they trained on (solid), and on algotune + cmmlu, which they did not (dashed).")
     for ax, models in zip(axes, (HOLDOUT, RANDOM)):
@@ -252,35 +253,35 @@ def budgets_page(pdf, t: dict):
         ax.tick_params(labelsize=6)
         ax.legend(fontsize=5.4, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2)
         style(ax, grid_axis="both")
-    axes[0].set_ylabel("Brier minus beta", fontsize=6.5)
+    axes[0].set_ylabel("Brier minus beta-binomial", fontsize=6.5)
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 
 
 def decomposition_page(pdf, t: dict):
     d = t["decomposition"]
-    variants = ["full ANP", "ANP level only", "beta level + ANP ordering"]
+    variants = [NAME["full"], NAME["level"], NAME["order"]]
     cases = [("w64-contam", "seen"), ("w64-contam", "unseen"), ("w128", "seen"), ("w128", "unseen"),
              ("w64-filtered", "unseen"), ("w64-sam", "unseen"), ("w64-dense", "unseen")]
     labels = [f"{(RANDOM | HOLDOUT)[m]}, {'editbench (seen)' if s == 'seen' else 'unseen'}" for m, s in cases]
-    vcol = {"full ANP": INK, "ANP level only": MUTED["teal"], "beta level + ANP ordering": MUTED["rose"]}
+    vcol = {NAME["full"]: INK, NAME["level"]: MUTED["teal"], NAME["order"]: MUTED["rose"]}
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.4), sharey=True)
-    fig.subplots_adjust(left=0.36, right=0.985, top=0.8, bottom=0.17, wspace=0.08)
+    fig.subplots_adjust(left=0.45, right=0.985, top=0.8, bottom=0.17, wspace=0.08)
     header(fig, "Which part fails on a new benchmark: level or item ordering? (test)",
            "Level: the mean of the ANP's predictions for the task. Ordering: each item's offset from that mean.\n"
-           "Brier minus beta; negative = better than beta. Bars: 95% task bootstrap.")
-    for ax, phase in zip(axes, ("budgets 0-1", "budgets 3-31")):
+           "Brier minus beta-binomial; negative = better. Bars: 95% task bootstrap.")
+    for ax, phase in zip(axes, ("0-1 labels", "3-31 labels")):
         for i, (m, s) in enumerate(cases):
             for j, v in enumerate(variants):
                 r = d[(d.model == m) & (d.subset == s) & (d.phase == phase) & (d.variant == v)]
                 _dot(ax, i + (j - 1) * 0.24, r.iloc[0], vcol[v])
         ax.axvline(0, color=INK, lw=0.6, ls=(0, (4, 2)))
         ax.set_title(phase, fontsize=7, pad=3)
-        ax.set_xlabel("Brier minus beta", fontsize=6.5)
+        ax.set_xlabel("Brier minus beta-binomial", fontsize=6.5)
         ax.tick_params(labelsize=6)
         style(ax, grid_axis="x")
     axes[0].set_yticks(range(len(cases)))
-    axes[0].set_yticklabels(labels, fontsize=6)
+    axes[0].set_yticklabels(labels, fontsize=5.6)
     axes[0].invert_yaxis()
     handles = [plt.Line2D([], [], color=vcol[v], marker="o", ls="none", ms=3.2) for v in variants]
     fig.legend(handles, variants, loc="lower center", ncol=3, fontsize=6, frameon=False, bbox_to_anchor=(0.6, 0.0))
@@ -310,7 +311,7 @@ def ability_page(pdf, t: dict):
         ax.set_xlabel("subject ability (acquisition-pool accuracy)", fontsize=6.5)
         ax.tick_params(labelsize=6)
         style(ax, grid_axis="both")
-    axes[0].set_ylabel("ANP ALC minus beta", fontsize=6.5)
+    axes[0].set_ylabel("ANP ALC minus beta-binomial", fontsize=6.5)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=6, frameon=False, bbox_to_anchor=(0.5, 0.0),
                markerscale=1.8)
@@ -319,8 +320,9 @@ def ability_page(pdf, t: dict):
 
 
 def pages(pdf, t: dict) -> list:
-    return [("posthoc-1-combinations", combinations_page(pdf, t)),
-            ("posthoc-2-budgets", budgets_page(pdf, t)),
+    # The beta-binomial combinations now have their own ablation page in
+    # plot_online_main.py, so they are not drawn twice.
+    return [("posthoc-2-budgets", budgets_page(pdf, t)),
             ("posthoc-3-decomposition", decomposition_page(pdf, t)),
             ("posthoc-4-ability", ability_page(pdf, t))]
 

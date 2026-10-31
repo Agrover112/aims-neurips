@@ -39,6 +39,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from model_names import NAME  # noqa: E402
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
 
 CACHE = ROOT / "organized" / "training" / "results" / "item-difficulty-b0.parquet"
@@ -50,20 +51,20 @@ TRAIN_GREY, SPLIT_BLUE = "#9A9A9A", "#4477AA"
 
 # (substring of the checkpoint file, display name)
 MODELS = [
-    ("filtered-benchmarkholdout", "ANP w64 uniform"),
-    ("bhold-budgetladder", "ANP w64 ALC ladder"),
-    ("bhold-sam005-unweighted", "ANP w64 SAM"),
-    ("bhold-anchor-unweighted", "ANP w64 prior-anchor"),
-    ("sam005-alcweighted", "ANP w64 SAM, ALC ladder"),
-    ("denseprefix-unweighted-best-step4550", "ANP w64 dense-prefix"),
+    ("filtered-benchmarkholdout", NAME["w64-filtered"]),
+    ("bhold-budgetladder", NAME["w64-ladder"]),
+    ("bhold-sam005-unweighted", NAME["w64-sam"]),
+    ("bhold-anchor-unweighted", NAME["w64-anchor"]),
+    ("sam005-alcweighted", NAME["w64-sam-ladder"]),
+    ("denseprefix-unweighted-best-step4550", NAME["w64-dense"]),
 ]
 # Same architecture family trained on the random-subject split: their
 # validation subjects come from benchmarks they also trained on. Both trained
 # on exactly these seven benchmarks (read from their evaluation outputs), so an
 # item here is "seen" if its benchmark is in the set, whatever its panel split.
 RANDOM_MODELS = [
-    ("anp-sa1-w64-bgem3-20261028", "ANP w64, random split"),
-    ("anp128-bgem3-l40s-100k", "ANP w128, random split"),
+    ("anp-sa1-w64-bgem3-20261028", NAME["w64-contam"]),
+    ("anp128-bgem3-l40s-100k", NAME["w128"]),
 ]
 SEEN_BY_RANDOM = {"afrieval", "ai2d_test", "alignment_faking", "bird_sql",
                   "bridging_gap", "editbench", "hallusionbench"}

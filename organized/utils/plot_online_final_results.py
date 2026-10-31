@@ -43,6 +43,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from model_names import NAME, POLICY  # noqa: E402
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
 import plot_online_posthoc as posthoc  # noqa: E402
 import plot_online_main as mainpages  # noqa: E402
@@ -56,22 +57,22 @@ WEIGHTS = dict(zip(BUDGETS, (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)))
 # random-subject-split pair, which trained on some evaluation benchmarks
 # (dashed).
 MODELS = [
-    ("const-mean", "Constant (train mean)", ":"),
-    ("emp-mean", "Empirical mean", ":"),
-    ("beta", "Beta-binomial", "-"),
-    ("w64-filtered", "ANP w64", "-"),
-    ("w64-dense", "ANP w64 dense-prefix", "-"),
-    ("w64-sam", "ANP w64 SAM", "-"),
-    ("w64-contam", "ANP w64, random split*", "--"),
-    ("w128", "ANP w128, random split*", "--"),
+    ("const-mean", NAME["const-mean"], ":"),
+    ("emp-mean", NAME["emp-mean"], ":"),
+    ("beta", NAME["beta"], "-"),
+    ("w64-filtered", NAME["w64-filtered"], "-"),
+    ("w64-dense", NAME["w64-dense"], "-"),
+    ("w64-sam", NAME["w64-sam"], "-"),
+    ("w64-contam", NAME["w64-contam"] + "*", "--"),
+    ("w128", NAME["w128"] + "*", "--"),
 ]
 RANDOM_SPLIT = {"w64-contam", "w128"}
 POLICIES = [
-    ("random_prefix", "random"),
-    ("uncertainty", "uncertainty"),
-    ("confidence_extremes", "conf. extremes"),
-    ("bernoulli_variance", "Bernoulli var."),
-    ("expected_brier_reduction", "exp. Brier red."),
+    ("random_prefix", POLICY["random_prefix"]),
+    ("uncertainty", POLICY["uncertainty"]),
+    ("confidence_extremes", POLICY["confidence_extremes"]),
+    ("bernoulli_variance", POLICY["bernoulli_variance"]),
+    ("expected_brier_reduction", POLICY["expected_brier_reduction"]),
 ]
 ROLE_TEXT = {
     "test": ("Test",
@@ -261,7 +262,7 @@ def single_plot(role: str, mats: dict, policy: str, difference: bool):
     ax.set_xticks(x, [str(b) for b in BUDGETS])
     ax.set_ylim(*y_limits(mats, difference))
     ax.set_xlabel("labels acquired")
-    ax.set_ylabel("Brier − beta" if difference else "Brier score")
+    ax.set_ylabel("Brier − beta-binomial" if difference else "Brier score")
     style(ax)
     ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=6.2, frameon=False)
     return fig
@@ -294,7 +295,7 @@ def curve_page(pdf, role: str, mats: dict, difference: bool):
     for ax in axes[1]:
         ax.set_xlabel("labels acquired")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Brier − beta" if difference else "Brier")
+        ax.set_ylabel("Brier − beta-binomial" if difference else "Brier")
     legend_ax = axes.flat[-1]
     legend_ax.axis("off")
     handles, labels = axes.flat[0].get_legend_handles_labels()
