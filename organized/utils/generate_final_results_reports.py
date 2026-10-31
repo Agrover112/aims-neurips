@@ -129,94 +129,133 @@ def protocol_report(output: Path) -> None:
         save_page(pdf, fig)
 
 
+def _exact_save(pdf: PdfPages, fig: plt.Figure) -> None:
+    """Save at the figure's own size: a "tight" box grows around overflowing
+    text and silently widens the page past TEXTWIDTH."""
+    pdf.savefig(fig, bbox_inches=Bbox.from_bounds(0, 0, *fig.get_size_inches()))
+    plt.close(fig)
+
+
+def _caption(fig: plt.Figure, text: str, width: int = 116) -> None:
+    import textwrap
+
+    fig.text(0.018, 0.012, textwrap.fill(text, width), fontsize=6.1, va="bottom", linespacing=1.35)
+
+
+def _booktabs(ax, columns: list[str], rows: list[list[str]], xs: list[float], right: set[int],
+              widths: list[float], fontsize: float = 6.4) -> None:
+    """Rules-only table filling ``ax``: top, mid and bottom rules, no grid."""
+    ax.axis("off")
+    step = 1.0 / (len(rows) + 1.4)
+    y = 1.0
+
+    def put(cells, weight="normal"):
+        for c, (x, text) in enumerate(zip(xs, cells)):
+            ax.text(x + (widths[c] if c in right else 0), y - step / 2, text, transform=ax.transAxes,
+                    ha="right" if c in right else "left", va="center", fontsize=fontsize, fontweight=weight)
+
+    def rule(lw):
+        ax.plot([0, 1], [y, y], color=INK, lw=lw, transform=ax.transAxes, clip_on=False)
+
+    rule(1.0)
+    put(columns, "bold")
+    y -= step
+    rule(0.5)
+    for cells in rows:
+        put(cells)
+        y -= step
+    rule(1.0)
+
+
 def data_split_page(pdf: PdfPages) -> None:
     holdout = pd.read_csv(DOCS / "benchmark-holdout-split-distribution-summary.csv")
     random = pd.read_csv(DOCS / "non-benchmark-holdout-split-distribution-summary.csv")
-    fig, axes = plt.subplots(2, 2, figsize=(TEXTWIDTH, 4.45))
-    header(fig, "Data split diagnostics: random subject split is not benchmark transfer",
-           "Each value is descriptive. The two columns use different frozen embedding arms, so "
-           "centroid cosine is interpreted within each split, not compared as an encoder ranking.")
+    fig = plt.figure(figsize=(TEXTWIDTH, 5.0))
+    header(fig, "A random-subject split is not a test of benchmark transfer", "")
     roles = ["train", "validation", "test"]
     x = np.arange(len(roles))
-    configs = [(holdout, "benchmark holdout", MUTED["rose"]),
-               (random, "random subject split", MUTED["teal"])]
+    configs = [(holdout, "Benchmark holdout", MUTED["rose"]), (random, "Random-subject split", MUTED["teal"])]
+    axes = [fig.add_axes((0.105 + i * 0.31, 0.60, 0.235, 0.29)) for i in range(3)]
     for frame, label, colour in configs:
-        axes[0, 0].plot(x, frame.set_index("split").loc[roles, "mean_label"], "o-",
-                        color=colour, label=label)
-        axes[0, 1].plot(x, frame.set_index("split").loc[roles, "item_pass_rate_std"], "o-",
-                        color=colour, label=label)
+        f = frame.set_index("split").loc[roles]
         cosine_col = next(col for col in frame.columns if col.endswith("centroid_cosine_to_train"))
-        axes[1, 0].plot(x, frame.set_index("split").loc[roles, cosine_col], "o-",
-                        color=colour, label=label)
-    for ax, title, ylabel in [
-        (axes[0, 0], "(a) Mean binary response", "mean correct response"),
-        (axes[0, 1], "(b) Item pass-rate variation", "SD across items"),
-        (axes[1, 0], "(c) Text-embedding shift", "centroid cosine to train"),
-    ]:
-        ax.set_title(title, loc="left", weight="bold")
-        ax.set_xticks(x, ["train", "validation", "test"])
-        ax.set_ylabel(ylabel)
+        for ax, col in zip(axes, ["mean_label", "item_pass_rate_std", cosine_col]):
+            ax.plot(x, f[col], "o-", color=colour, label=label, ms=3, lw=1.0)
+    for ax, title, ylabel in zip(axes, ["(a) Mean correct response", "(b) Item pass-rate spread",
+                                        "(c) Shift in item text"],
+                                 ["mean response", "SD across items", "cosine to train"]):
+        ax.set_title(title, loc="left", weight="bold", fontsize=6.8)
+        ax.set_xticks(x, ["train", "val.", "test"])
+        ax.set_ylabel(ylabel, fontsize=6.2)
+        ax.tick_params(labelsize=5.8)
         style(ax)
-    axes[0, 0].legend(loc="best", fontsize=6.3)
-    ax = axes[1, 1]
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="center", ncol=2, fontsize=6.2, frameon=False, bbox_to_anchor=(0.5, 0.505))
+    fig.text(0.02, 0.455, "(d) Retained responses after filtering", fontsize=6.8, weight="bold")
     rows = []
-    for name, frame in [("benchmark holdout", holdout), ("random subject", random)]:
+    for name, frame in [("Benchmark holdout", holdout), ("Random-subject split", random)]:
         for role in roles:
-            row = frame.set_index("split").loc[role]
-            rows.append([name if role == "train" else "", role,
-                         f"{int(row['responses']):,}", f"{int(row['tasks']):,}",
-                         f"{int(row['items']):,}"])
-    table(ax, rows, ["split", "role", "responses", "tasks", "items"],
-          widths=[.29, .19, .19, .15, .15], fontsize=5.8)
-    ax.set_title("(d) Retained filtered support", loc="left", weight="bold", pad=5)
-    fig.text(.02, .02,
-             "Sources: docs/benchmark-holdout-split-distribution-summary.csv and "
-             "docs/non-benchmark-holdout-split-distribution-summary.csv. "
-             "The random-subject split shares benchmark identity with train; it is a split diagnostic, not a transfer baseline.",
-             fontsize=5.9, color=SUBTLE)
-    fig.tight_layout(rect=(0, .07, 1, .90), pad=.55)
-    save_page(pdf, fig)
+            r = frame.set_index("split").loc[role]
+            rows.append([name if role == "train" else "", role, f"{int(r['responses']):,}",
+                         f"{int(r['tasks']):,}", f"{int(r['items']):,}"])
+    ax = fig.add_axes((0.02, 0.165, 0.96, 0.27))
+    _booktabs(ax, ["Split", "Role", "Responses", "Tasks", "Items"], rows,
+              xs=[0.0, 0.30, 0.45, 0.66, 0.82], right={2, 3, 4}, widths=[0.3, 0.15, 0.17, 0.12, 0.14])
+    _caption(fig, "Figure. The same filtered responses split two ways. The benchmark holdout keeps whole "
+             "benchmarks out of training, so validation and test items are new text (c) with a different mean "
+             "response (a). The random-subject split holds out subjects but keeps every benchmark in training, so "
+             "its held-out items match training exactly (cosine 1.0): it measures new subjects, not new "
+             "benchmarks, and is not a transfer baseline. The two splits use different frozen embedding models, "
+             "so compare cosines within a split only. Sources: docs/benchmark-holdout-split-distribution-summary."
+             "csv and docs/non-benchmark-holdout-split-distribution-summary.csv.")
+    _exact_save(pdf, fig)
 
 
 def data_difficulty_page(pdf: PdfPages) -> None:
+    from model_names import NAME
+
     held = pd.read_csv(DOCS / "np-online-passrate-figure11-summary.csv")
     nonheld = pd.read_csv(DOCS / "non-benchmark-anp128-qwen-item-passrate-summary.csv")
-    fig, axes = plt.subplots(1, 3, figsize=(TEXTWIDTH, 2.8))
-    header(fig, "Item-difficulty transfer diagnostic",
-           "A model can adapt to labels yet still fail to predict which new items are hard. "
-           "This is a descriptive 297-item held-out diagnostic, not a causal decomposition.")
-    names = ["non-holdout\nW128 BGE", "holdout\nladder", "holdout\nfiltered"]
-    overall = held["pass_rate_correlation"].to_numpy()
-    within = held["within_benchmark_correlation"].to_numpy()
-    xx = np.arange(len(names)); width = .36
-    axes[0].bar(xx - width / 2, overall, width, color=MUTED["indigo"], label="overall")
-    axes[0].bar(xx + width / 2, within, width, color=MUTED["teal"], label="within benchmark")
-    axes[0].set_xticks(xx, names); axes[0].set_ylabel("correlation")
-    axes[0].set_title("(a) Held-out item pass-rate correlation", loc="left", weight="bold")
-    axes[0].legend(loc="upper left", fontsize=5.8); style(axes[0])
-    predicted = held["prediction_sd"].to_numpy()
-    observed = held["observed_pass_rate_sd"].to_numpy()
-    axes[1].bar(xx - width / 2, predicted, width, color=MUTED["rose"], label="prediction SD")
-    axes[1].bar(xx + width / 2, observed, width, color=MUTED["grey"], label="observed SD")
-    axes[1].set_xticks(xx, names); axes[1].set_ylabel("standard deviation")
-    axes[1].set_title("(b) Predicted variation is compressed", loc="left", weight="bold")
-    axes[1].legend(loc="upper left", fontsize=5.8); style(axes[1])
-    ax = axes[2]
+    fig = plt.figure(figsize=(TEXTWIDTH, 4.6))
+    header(fig, "The ANPs barely predict which new items are hard", "")
+    names = ["ANP,\nrandom-subject\nsplit (width 128)", "ANP,\nbudget-ladder\ntraining", "ANP"]
+    xx = np.arange(len(names))
+    width = .36
+    a0 = fig.add_axes((0.09, 0.60, 0.38, 0.28))
+    a1 = fig.add_axes((0.59, 0.60, 0.38, 0.28))
+    a0.bar(xx - width / 2, held["pass_rate_correlation"], width, color=MUTED["indigo"], label="all items")
+    a0.bar(xx + width / 2, held["within_benchmark_correlation"], width, color=MUTED["teal"],
+           label="within benchmark")
+    a0.set_ylabel("correlation", fontsize=6.2)
+    a0.set_title("(a) Predicted vs observed item pass rate", loc="left", weight="bold", fontsize=6.8)
+    a1.bar(xx - width / 2, held["prediction_sd"], width, color=MUTED["rose"], label="predicted")
+    a1.bar(xx + width / 2, held["observed_pass_rate_sd"], width, color=MUTED["grey"], label="observed")
+    a1.set_ylabel("SD across items", fontsize=6.2)
+    a1.set_title("(b) Predictions are compressed", loc="left", weight="bold", fontsize=6.8)
+    for ax in (a0, a1):
+        ax.set_xticks(xx, names)
+        ax.tick_params(labelsize=5.6)
+        ax.legend(loc="upper center", fontsize=5.6, frameon=False, ncol=2)
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.25)
+        style(ax)
+    fig.text(0.02, 0.38, "(c) Two protocols, test split", fontsize=6.8, weight="bold")
     row = nonheld.set_index("split").loc["test"]
-    rows = [
-        ["non-holdout Qwen test", f"{row.correlation:.3f}", f"{row.within_benchmark_correlation:.3f}", f"{row.prediction_sd:.3f}", f"{row.observed_pass_rate_sd:.3f}"],
-        ["holdout W64 filtered", f"{held.iloc[2].pass_rate_correlation:.3f}", f"{held.iloc[2].within_benchmark_correlation:.3f}", f"{held.iloc[2].prediction_sd:.3f}", f"{held.iloc[2].observed_pass_rate_sd:.3f}"],
-    ]
-    table(ax, rows, ["setting", "corr.", "within", "pred SD", "obs SD"],
-          widths=[.37, .14, .16, .16, .16], fontsize=5.7)
-    ax.set_title("(c) Contrast in two different protocols", loc="left", weight="bold", pad=5)
-    fig.text(.02, .015,
-             "Sources: docs/np-online-passrate-figure11-summary.csv and "
-             "docs/non-benchmark-anp128-qwen-item-passrate-summary.csv. The contrast is useful "
-             "evidence for a transfer bottleneck, but differs in split, encoder, and evaluation set; do not treat it as an architecture ablation.",
-             fontsize=5.8, color=SUBTLE)
-    fig.tight_layout(rect=(0, .08, 1, .84), pad=.5)
-    save_page(pdf, fig)
+    f = held.iloc[2]
+    rows = [["ANP, random-subject split (width 128, Qwen3-8B embeddings)", f"{row.correlation:.3f}",
+             f"{row.within_benchmark_correlation:.3f}", f"{row.prediction_sd:.3f}", f"{row.observed_pass_rate_sd:.3f}"],
+            [NAME["w64-filtered"] + " (benchmark holdout, BGE-M3 embeddings)", f"{f.pass_rate_correlation:.3f}",
+             f"{f.within_benchmark_correlation:.3f}", f"{f.prediction_sd:.3f}", f"{f.observed_pass_rate_sd:.3f}"]]
+    ax = fig.add_axes((0.02, 0.215, 0.96, 0.15))
+    _booktabs(ax, ["Model", "Corr.", "Within", "Pred. SD", "Obs. SD"], rows,
+              xs=[0.0, 0.58, 0.68, 0.78, 0.89], right={1, 2, 3, 4}, widths=[0.58, 0.08, 0.08, 0.09, 0.09])
+    _caption(fig, "Figure. Item-difficulty transfer on 297 held-out items, at zero labels. (a) Correlation between "
+             "each item's predicted and observed pass rate, over all items and within each benchmark. (b) The "
+             "spread of the predictions is a fraction of the observed spread: the models predict nearly the same "
+             "probability for every item. (c) The same contrast for a random-subject-split model scored on its own "
+             "test split. The two rows differ in split, encoder and evaluation set, so this is evidence of a "
+             "transfer bottleneck, not an architecture ablation. Sources: docs/np-online-passrate-figure11-"
+             "summary.csv and docs/non-benchmark-anp128-qwen-item-passrate-summary.csv.")
+    _exact_save(pdf, fig)
 
 
 def benchmark_difficulty_page(pdf: PdfPages) -> None:
