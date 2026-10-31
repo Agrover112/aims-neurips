@@ -820,6 +820,40 @@ link, not cited as substitutes for the scientific literature.
 5. Do not claim a neural or acquisition win from an incomplete run, an
    unpaired comparison, or a confidence interval that includes zero.
 
+## Split representativeness: TODO (raised 2026-10-31)
+
+The fixed benchmark-holdout split (11 train, 3 validation, 3 test benchmarks)
+gives only three held-out benchmarks per role, so which benchmarks land in
+test decides much of the result. Benchmark difficulty differs a lot:
+
+| role | benchmarks (mean subject accuracy) |
+| --- | --- |
+| validation | bird_sql 0.15, financebench 0.50, ai2d_test 0.69 |
+| test | editbench 0.54, cmmlu 0.68, algotune 0.69 |
+| train | appworld 0.28 ... agi_elo 0.70; alignment_faking holds 4,278 of the 6,013 training subjects (71%) at mean 0.41 |
+
+Test subjects average 0.61 against 0.47 in training. Much of that gap is
+benchmark difficulty and alignment_faking's weight, not subjects being
+stronger. Two changes before the final report:
+
+- **Weighting:** weight the training loss, and any fitted prior, so each
+  benchmark counts equally instead of each subject. Then alignment_faking's
+  4,278 subjects count as one benchmark, not 71% of the data.
+- **Leave-one-benchmark-out:** train on all benchmarks except one, test on the
+  one left out, and rotate through all 17. That gives 17 held-out results
+  instead of 3. Only the hierarchical beta-binomial check (14 folds) has used
+  this so far.
+
+The online curves and the multi-pair draws both still use the one fixed split
+(60 validation and 150 test draws from the same 3 + 3 benchmarks). Multiple
+draws do not replace leave-one-benchmark-out; they answer different questions:
+
+- Multiple draws reshuffle which subjects are tested together, within the same
+  three test benchmarks.
+- Leave-one-benchmark-out changes which benchmarks are held out.
+
+They combine: run the draws inside each leave-one-benchmark-out fold.
+
 ## Evidence still required before a final-results report
 
 - The panel manifest and exact-overlap/support audit archived with the paper
