@@ -302,6 +302,9 @@ class _ANPCheckpointPredictor:
             latent_dim=int(config["latent_dim"]),
             residual_proj=bool(config["residual_proj"]),
             dropout=float(config["dropout"]),
+            # Without this an anchored checkpoint loads (it adds no weights)
+            # but predicts without its beta-binomial offset.
+            prior_anchor=bool(config.get("prior_anchor", False)),
         ).to(self.device)
         self.model.load_state_dict(checkpoint["state_dict"], strict=True)
         self.model.eval()

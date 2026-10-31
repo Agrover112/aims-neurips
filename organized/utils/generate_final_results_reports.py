@@ -171,7 +171,7 @@ def data_split_page(pdf: PdfPages) -> None:
     fig.text(.02, .02,
              "Sources: docs/benchmark-holdout-split-distribution-summary.csv and "
              "docs/non-benchmark-holdout-split-distribution-summary.csv. "
-             "The random split shares benchmark identity with train; it is a split diagnostic, not a transfer baseline.",
+             "The random-subject split shares benchmark identity with train; it is a split diagnostic, not a transfer baseline.",
              fontsize=5.9, color=SUBTLE)
     fig.tight_layout(rect=(0, .07, 1, .90), pad=.55)
     save_page(pdf, fig)

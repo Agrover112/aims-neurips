@@ -87,6 +87,10 @@ CKPT_W64_SAM = (
     "anp-crossattn-latent-w64-sa1-h4-z32-benchmark-heldout-es-fixed-"
     "anp-sa1-w64-bgem3-bhold-sam005-unweighted-n15-cpu-20261029-bge_m3_long-seed20261018.pt"
 )
+CKPT_W64_ANCHOR = (
+    "anp-crossattn-latent-w64-sa1-h4-z32-benchmark-heldout-es-fixed-"
+    "anp-sa1-w64-bgem3-bhold-anchor-unweighted-n15-cpu-20261029-bge_m3_long-seed20261018.pt"
+)
 CKPT_W128 = (
     "anp-crossattn-latent-w128-sa1-h4-z128-es-fixed-"
     "anp128-bgem3-l40s-100k-s20261018-bge_m3_long-seed20261018.pt"
@@ -119,6 +123,8 @@ MODELS = [
     {"key": "w64-sam", "label": "ANP w64 SAM rho=0.05",
      "runner": ANP_RUNNER, "mode": "anp", "checkpoint": CKPT_W64_SAM,
      "note": "validation bank differs from w64-filtered; compare only on this panel"},
+    {"key": "w64-anchor", "label": "ANP + prior anchor",
+     "runner": ANP_RUNNER, "mode": "anp", "checkpoint": CKPT_W64_ANCHOR},
 ]
 
 # Relative cost, used only to order the queue.
