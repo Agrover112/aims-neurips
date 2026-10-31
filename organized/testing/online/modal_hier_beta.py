@@ -220,7 +220,69 @@ def run(arm_names: str = "", tag: str = "summary") -> dict:
     return {"results": results, "chosen": chosen}
 
 
+@app.function(image=image, cpu=8, memory=32_768, volumes={"/data": volume}, timeout=4 * 60 * 60)
+def lobo(tag: str = "lobo", tasks_per_benchmark: int = 200, orders: int = 3) -> dict:
+    """Leave-one-benchmark-out over the 14 non-test benchmarks.
+
+    For each benchmark B, fit every arm on the tasks of the other 13 and score
+    B's tasks: each task's items are shuffled, the first 31 are the context
+    stream and the rest are scored, so the protocol matches the replay. Test
+    benchmarks are never read. L2 strengths are the ones validation chose.
+    """
+    import numpy as np
+    import pandas as pd
+
+    r = pd.read_parquet(RESPONSES, columns=["subject_uid", "benchmark_id", "benchmark_split", "item_uid", "label"])
+    r = r[r["benchmark_split"] != "test"]
+    subjects = _subject_table()
+    tasks = (r.groupby(["subject_uid", "benchmark_id"], as_index=False)["label"]
+             .agg(hits="sum", n="size").merge(subjects, on="subject_uid", how="left"))
+    arms = {"hier, no metadata": ((), 0.0), "hier + provider": (("provider",), 0.1),
+            "hier + name + provider": (("name", "provider"), 10.0)}
+    rng = np.random.default_rng(20261018)
+    rows = []
+    for bench in sorted(tasks["benchmark_id"].unique()):
+        fit_tasks = tasks[tasks["benchmark_id"] != bench].reset_index(drop=True)
+        held = tasks[tasks["benchmark_id"] == bench]
+        held = held.sample(min(len(held), tasks_per_benchmark), random_state=0)
+        fitted = {arm: _fit(fit_tasks, feats, l2) for arm, (feats, l2) in arms.items()}
+        labels = r[r["benchmark_id"] == bench].groupby("subject_uid")["label"].apply(np.asarray)
+        for _, t in held.iterrows():
+            y_all = labels[t["subject_uid"]]
+            if len(y_all) < 40:
+                continue
+            mus = {arm: float(f[0](held.loc[[t.name]])[0]) for arm, f in fitted.items()}
+            for o in range(orders):
+                y = rng.permutation(y_all)
+                ctx, ev = y[:31], y[31:]
+                for k in BUDGETS:
+                    h = ctx[:k].sum()
+                    row = {"benchmark": bench, "task": t["subject_uid"], "order": o, "budget": k,
+                           "jeffreys": float((((h + 0.5) / (k + 1) - ev) ** 2).mean())}
+                    for arm, (_, kappa, _) in fitted.items():
+                        row[arm] = float((((kappa * mus[arm] + h) / (kappa + k) - ev) ** 2).mean())
+                    rows.append(row)
+        print(f"{bench}: {len(held)} tasks scored", flush=True)
+    f = pd.DataFrame(rows)
+    tb = f.groupby(["benchmark", "task", "budget"]).mean(numeric_only=True).drop(columns="order")
+    alc = sum(w * tb.xs(b, level="budget") for b, w in WEIGHTS.items())
+    # Benchmark is the unit: average within each, then across benchmarks.
+    per_bench = alc.groupby(level="benchmark").mean()
+    out = {"per_benchmark": per_bench.round(5).to_dict(orient="index"), "summary": {}}
+    for arm in arms:
+        d = (per_bench[arm] - per_bench["jeffreys"]).to_numpy()
+        boots = [rng.choice(d, len(d)).mean() for _ in range(4000)]
+        wins = int((d < 0).sum())
+        out["summary"][arm] = {"mean_diff": float(d.mean()), "ci": [float(np.percentile(boots, 2.5)),
+                               float(np.percentile(boots, 97.5))], "benchmarks_better": f"{wins}/{len(d)}"}
+        print(arm, out["summary"][arm], flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / f"{tag}.json").write_text(json.dumps(out, indent=2))
+    volume.commit()
+    return out
+
+
 @app.local_entrypoint()
-def main(arms: str = "", tag: str = "summary") -> None:
-    call = run.spawn(arm_names=arms, tag=tag)
+def main(arms: str = "", tag: str = "summary", mode: str = "replay") -> None:
+    call = lobo.spawn(tag=tag) if mode == "lobo" else run.spawn(arm_names=arms, tag=tag)
     print(f"spawned Modal call {call.object_id}")
