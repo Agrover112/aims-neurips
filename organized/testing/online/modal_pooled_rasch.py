@@ -54,7 +54,7 @@ def _logit(p):
     return float(np.log(p / (1 - p)))
 
 
-def _fit(evidence, m0: float, tau_b: float, tau_s: float, tau_i: float):
+def _fit(evidence, m0: float, tau_b: float, tau_s: float, tau_i: float, theta0=None):
     """MAP of (mu_b, theta_s, b_h) from evidence rows (bench, subject, hash, y)."""
     import numpy as np
     from scipy.optimize import minimize
@@ -71,6 +71,7 @@ def _fit(evidence, m0: float, tau_b: float, tau_s: float, tau_i: float):
     y = np.array([e[3] for e in evidence], dtype=float)
     nb, ns, nh = len(benches), len(subjects), len(hashes)
     use_items = tau_i > 0
+    th0 = np.array([(theta0 or {}).get(s, 0.0) for s in subjects])
 
     def unpack(v):
         return v[:nb], v[nb:nb + ns], (v[nb + ns:] if use_items else np.zeros(nh))
@@ -82,15 +83,15 @@ def _fit(evidence, m0: float, tau_b: float, tau_s: float, tau_i: float):
         nll = np.sum(np.logaddexp(0, z) - y * z)
         r = p - y
         g_mu = np.bincount(B, r, nb) + (mu - m0) / tau_b ** 2
-        g_th = np.bincount(S, r, ns) + th / tau_s ** 2
-        prior = 0.5 * np.sum((mu - m0) ** 2) / tau_b ** 2 + 0.5 * np.sum(th ** 2) / tau_s ** 2
+        g_th = np.bincount(S, r, ns) + (th - th0) / tau_s ** 2
+        prior = 0.5 * np.sum((mu - m0) ** 2) / tau_b ** 2 + 0.5 * np.sum((th - th0) ** 2) / tau_s ** 2
         if use_items:
             g_bh = -np.bincount(H, r, nh) + bh / tau_i ** 2
             prior += 0.5 * np.sum(bh ** 2) / tau_i ** 2
             return nll + prior, np.concatenate([g_mu, g_th, g_bh])
         return nll + prior, np.concatenate([g_mu, g_th])
 
-    x0 = np.concatenate([np.full(nb, m0), np.zeros(ns), np.zeros(nh if use_items else 0)])
+    x0 = np.concatenate([np.full(nb, m0), th0, np.zeros(nh if use_items else 0)])
     v = minimize(f, x0, jac=True, method="L-BFGS-B").x
     mu, th, bh = unpack(v)
     return ({b: mu[j] for b, j in bi.items()}, {s: th[j] for s, j in si.items()},
@@ -150,16 +151,19 @@ def _score(draws, streams, evaluation, meta, settings: dict):
                 own = [lab for _, lab in streams[(t, seed)][:k]]
                 p = (sum(own) + 0.5) / (k + 1)
                 per["jeffreys"][t].append(float(((p - y) ** 2).mean()))
-            for name, (m0, tb, ts, ti) in settings.items():
+            for name, setting in settings.items():
+                m0, tb, ts, ti = setting[:4]
+                theta0 = setting[4] if len(setting) > 4 else {}
                 if evidence:
-                    mu, th, bh = _fit(evidence, m0, tb, ts, ti)
+                    mu, th, bh = _fit(evidence, m0, tb, ts, ti, theta0)
                 for t, seed in pairs:
                     hashes, y = evaluation[t]
                     b, s = meta.loc[t, "benchmark_id"], meta.loc[t, "subject_uid"]
                     if evidence:
-                        z = mu.get(b, m0) + th.get(s, 0.0) - np.array([bh.get(h, 0.0) for h in hashes])
+                        z = (mu.get(b, m0) + th.get(s, theta0.get(s, 0.0))
+                             - np.array([bh.get(h, 0.0) for h in hashes]))
                     else:
-                        z = np.full(len(hashes), m0)
+                        z = np.full(len(hashes), m0 + theta0.get(s, 0.0))
                     p = 1 / (1 + np.exp(-z))
                     per[name][t].append(float(((p - y) ** 2).mean()))
         for t, _ in pairs:
@@ -236,7 +240,74 @@ def run(n_val_draws: int = 60, n_test_draws: int = 150) -> dict:
     return out
 
 
+def _provider_theta0(m0: float, kappa: float = 20.0) -> dict:
+    """Provider's typical ability on training benchmarks, as a logit offset
+    from m0, shrunk toward 0 by ``kappa`` tasks' worth of prior weight. Keyed
+    by subject_uid for every subject with a provider."""
+    import numpy as np
+    import pandas as pd
+
+    subjects = pd.read_parquet("/data/datasets/full/subjects.parquet").drop_duplicates("subject_uid")
+    prov = (subjects["provider"].astype("string").str.lower()
+            .str.replace(r"[^a-z0-9]+", " ", regex=True).str.strip())
+    subjects = pd.DataFrame({"subject_uid": subjects["subject_uid"], "provider": prov.replace("", pd.NA)})
+    r = pd.read_parquet(RESPONSES, columns=["subject_uid", "benchmark_id", "benchmark_split", "label"])
+    tasks = (r[r["benchmark_split"] == "train"].groupby(["subject_uid", "benchmark_id"], as_index=False)["label"]
+             .mean().merge(subjects, on="subject_uid").dropna(subset=["provider"]))
+    tasks["z"] = np.log(tasks["label"].clip(0.02, 0.98) / (1 - tasks["label"].clip(0.02, 0.98))) - m0
+    g = tasks.groupby("provider")["z"].agg(["sum", "size"])
+    offset = (g["sum"] / (g["size"] + kappa)).to_dict()
+    return {u: float(offset.get(p, 0.0)) for u, p in zip(subjects["subject_uid"], subjects["provider"])
+            if isinstance(p, str)}
+
+
+@app.function(image=image, cpu=8, memory=16_384, volumes={"/data": volume}, timeout=4 * 60 * 60)
+def combined(n_val_draws: int = 60, n_test_draws: int = 150) -> dict:
+    """Pooled Rasch with each subject's ability prior centred on its provider."""
+    import numpy as np
+    import pandas as pd
+
+    w = np.array([WEIGHTS[b] for b in BUDGETS])
+    r = pd.read_parquet(RESPONSES, columns=["benchmark_split", "label"])
+    m0 = _logit(float(r.loc[r["benchmark_split"] == "train", "label"].mean()))
+    theta0 = _provider_theta0(m0)
+    print(f"provider offsets for {len(theta0)} subjects", flush=True)
+    rng = np.random.default_rng(20261018)
+    data = {role: _load(role) for role in SEEDS}
+    base = (m0, 2.0, 1.0, 1.0)  # the pooled Rasch setting validation chose
+    settings = {"pooled Rasch": base}
+    for alpha in (0.5, 1.0):
+        settings[f"combined, provider prior x{alpha}"] = base + ({k: alpha * v for k, v in theta0.items()},)
+    streams, evaluation, meta, seeds = data["validation"]
+    cover = meta["subject_uid"].isin(theta0).mean()
+    _, val = _score(_draws(meta, seeds, n_val_draws, rng), streams, evaluation, meta, settings)
+    val_alc = {k: float((v @ w).mean()) for k, v in val.items()}
+    print("validation", json.dumps(val_alc), f"(provider coverage {cover:.0%})", flush=True)
+    best = min((k for k in settings if k.startswith("combined")), key=val_alc.get)
+    chosen = {"pooled Rasch": settings["pooled Rasch"], best: settings[best]}
+    streams, evaluation, meta, seeds = data["test"]
+    cover = meta["subject_uid"].isin(theta0).mean()
+    keys, test = _score(_draws(meta, seeds, n_test_draws, rng), streams, evaluation, meta, chosen)
+    out = {"validation_alc": val_alc, "chosen": best, "test_provider_coverage": float(cover), "test": {}}
+    for name in chosen:
+        diff = pd.Series((test[name] - test["jeffreys"]) @ w, index=keys).groupby(level=0).mean().to_numpy()
+        boots = [rng.choice(diff, len(diff)).mean() for _ in range(4000)]
+        out["test"][name] = {"alc": float((test[name] @ w).mean()), "jeffreys_alc": float((test["jeffreys"] @ w).mean()),
+                             "diff": float(diff.mean()), "ci": [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))],
+                             "per_budget_diff": {str(b): round(float(x), 4) for b, x in zip(BUDGETS, (test[name] - test["jeffreys"]).mean(0))}}
+        print(name, json.dumps(out["test"][name]), flush=True)
+    d = pd.Series((test[best] - test["pooled Rasch"]) @ w, index=keys).groupby(level=0).mean().to_numpy()
+    boots = [rng.choice(d, len(d)).mean() for _ in range(4000)]
+    out["combined_minus_pooled"] = {"diff": float(d.mean()), "ci": [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))]}
+    print("combined minus pooled", json.dumps(out["combined_minus_pooled"]), flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "combined.json").write_text(json.dumps(out, indent=2))
+    volume.commit()
+    return out
+
+
 @app.local_entrypoint()
-def main(n_val_draws: int = 60, n_test_draws: int = 150) -> None:
-    call = run.spawn(n_val_draws=n_val_draws, n_test_draws=n_test_draws)
+def main(n_val_draws: int = 60, n_test_draws: int = 150, mode: str = "pooled") -> None:
+    fn = combined if mode == "combined" else run
+    call = fn.spawn(n_val_draws=n_val_draws, n_test_draws=n_test_draws)
     print(f"spawned Modal call {call.object_id}")
