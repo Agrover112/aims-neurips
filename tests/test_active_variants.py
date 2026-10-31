@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VARIANTS = ROOT / "submission_variants"
+VARIANTS = ROOT / "organized" / "submission" / "legacy" / "submission_variants"
 
 SUBJECT = {
     "normalized_name": "subject",

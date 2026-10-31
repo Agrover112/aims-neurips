@@ -19,14 +19,14 @@ def main() -> None:
     parser.add_argument(
         "--source",
         type=Path,
-        default=ROOT / "submission",
+        default=ROOT / "organized" / "submission" / "legacy" / "submission",
         help="submission source directory (default: submission)",
     )
     args = parser.parse_args()
     source = args.source.resolve()
     required = source / "model.py"
     if not required.is_file():
-        raise SystemExit("submission/model.py is missing")
+        raise SystemExit("organized/submission/legacy/submission/model.py is missing")
     with tempfile.TemporaryDirectory(prefix="aims-package-") as temporary:
         staged = Path(temporary) / "submission"
         shutil.copytree(source, staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

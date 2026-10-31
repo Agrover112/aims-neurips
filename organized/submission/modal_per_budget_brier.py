@@ -60,7 +60,7 @@ MAX_TARGETS = 256
 MIN_TARGETS = 8
 N_TASKS = 256          # validation subjects to score; 64 is too noisy to rank on
 
-# Copied from submission/aims_predictor/predictor.py, not re-derived.
+# Copied from organized/submission/legacy/submission/aims_predictor/predictor.py, not re-derived.
 PRIOR_MEAN = 0.5
 PRIOR_STRENGTH = 4.0
 SUBJECT_STRENGTH = 8.0

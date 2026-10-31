@@ -6,8 +6,8 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "submission_tabfm"
-NP = ROOT / "submission" / "aims_predictor"
+SOURCE = ROOT / "organized" / "submission" / "legacy" / "submission_tabfm"
+NP = ROOT / "organized" / "submission" / "legacy" / "submission" / "aims_predictor"
 PCA = Path("/tmp/tabpfn-assets/pca.npz")
 OUT = ROOT / "dist" / "tabfm-v1.0.1-bge-m3-pca500-random.zip"
 

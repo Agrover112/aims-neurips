@@ -27,7 +27,7 @@ The current predictor is intentionally modest. It estimates a subject-benchmark 
 ## Repository map
 
 ```text
-submission/              self-contained competition submission
+organized/submission/    competition submissions (current ANP builds; older ones in legacy/)
 organized/               filtering-era experiments: training/, testing/, utils/
 organized/utils/         plot scripts + plotstyle.py (see its README before plotting)
 src/aims_starter/        offline metrics and experiment utilities
@@ -232,7 +232,7 @@ custom out-of-distribution probe.
 ```bash
 python scripts/build_submission.py
 python reference/starting_kit/tools/check_submission_zip.py dist/submission.zip
-python reference/starting_kit/tools/run_smoke_test.py submission/
+python reference/starting_kit/tools/run_smoke_test.py organized/submission/legacy/submission/
 
 # Neural submission: selected checkpoint plus the fitted calibrator.
 modal volume get aims-neurips-data \
@@ -1163,7 +1163,7 @@ Build and check:
   --mode masked \
   --calibration /tmp/opencode/allbench2/calibration-20261018-masked.json \
   --model online_airt_2pl \
-  --template submission_online \
+  --template organized/submission/legacy/submission_online \
   --checkpoint-name online_airt_2pl.pt \
   --output dist/submission-online-airt.zip
 python reference/starting_kit/tools/check_submission_zip.py dist/submission-online-airt.zip

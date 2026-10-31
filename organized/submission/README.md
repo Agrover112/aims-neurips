@@ -105,20 +105,28 @@ predictor implementation can package several checkpoints safely.
 - `modal_router_check.py`, `modal_per_budget_brier.py`, and the latency scripts:
   local diagnostics. They do not upload a ZIP.
 
-## Other submission folders in the repo
+## Layout
 
-- Repo-root `submission*/` folders: earlier mean, shrinkage and CNP packages
-  from before the benchmark holdout (last touched 2026-10-08 to 2026-10-24).
-  `submission/aims_predictor/predictor.py` holds the shipped beta-binomial
-  shrinkage constants that `anp_crossattn_blocks.py` copies.
-- CodaBench helpers: `scripts/codabench_logs.py`, `scripts/watch_codabench.py`,
-  `scripts/audit_codabench_id_overlap.py`.
+Everything submission-related lives in this folder.
 
-## Before choosing or uploading a candidate
+```text
+organized/submission/
+  README.md                         this file
+  build_bge_anp_submissions.py      builds the four benchmark-holdout ZIPs (+ older ablations)
+  aims_predictor/, model.py,        shared ANP predictor, entry point and acquisition rule
+    labeling.py, models.txt, ...
+  assets/                           checkpoints and metadata.json used by the builders
+  modal_*.py                        diagnostics (router, per-budget Brier, latency); upload nothing
+  legacy/                           earlier submission templates, kept for reproducibility
+    submission/                     original beta-binomial shrinkage predictor (shipped constants)
+    submission_mean|budget_shrinkage|neural|online|variants/
+    submission_tabfm|tabpfn/        tabular foundation-model packages (not used)
+```
 
-1. Compare the two ANPs on the same frozen replay panel, candidate orders, and
-   acquisition policy.
-2. Check per-budget Brier, not only one checkpoint-selection Brier.
-3. Build the selected archive again and run the ZIP checker.
-4. Record the archive filename, checkpoint filename, Git commit, and replay
-   result next to the upload record.
+`legacy/submission/aims_predictor/predictor.py` holds the shipped beta-binomial
+shrinkage constants that `anp_crossattn_blocks.py` copies. The repo's tests
+(`tests/`) and `scripts/build_submission.py` / `scripts/build_neural_submission.py`
+point at `legacy/`. ZIPs are written to `dist/`, which is gitignored.
+
+CodaBench helpers stay in `scripts/` (`codabench_logs.py`, `watch_codabench.py`,
+`audit_codabench_id_overlap.py`).

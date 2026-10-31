@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "submission_neural"
+TEMPLATE = ROOT / "organized" / "submission" / "legacy" / "submission_neural"
 MODULES = ("faithful_np.py", "metrics.py", "calibration.py")
 
 

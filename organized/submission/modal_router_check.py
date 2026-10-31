@@ -54,7 +54,7 @@ MAX_TARGETS = 256
 MIN_TARGETS = 8
 GRID_STEP = 20          # simplex grid resolution, 1/20 = 0.05 increments
 
-# Copied from submission/aims_predictor/predictor.py, not re-derived.
+# Copied from organized/submission/legacy/submission/aims_predictor/predictor.py, not re-derived.
 PRIOR_MEAN = 0.5
 PRIOR_STRENGTH = 4.0
 SUBJECT_STRENGTH = 8.0
