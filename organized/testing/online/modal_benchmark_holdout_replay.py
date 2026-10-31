@@ -288,6 +288,10 @@ class _ANPCheckpointPredictor:
         item_ids = pd.read_parquet(store / "items.parquet")["item_uid"].astype(str).to_numpy()
         self.position = {item_id: i for i, item_id in enumerate(item_ids)}
         self.embeddings = np.load(store / "item_embeddings.npy", mmap_mode="r")
+        if config.get("item_independent"):
+            # Trained on all-zero item vectors; feeding real ones would put it
+            # off its training distribution.
+            self.embeddings = np.zeros(self.embeddings.shape, dtype=np.float32)
         self.device = torch.device("cpu")
         self.model = AttentiveNeuralProcess(
             self.embeddings.shape[1],

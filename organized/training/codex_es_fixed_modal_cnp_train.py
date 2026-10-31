@@ -670,7 +670,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         benchmark_min_items_per_subject: int = MIN_ITEMS_PER_TASK,
         prior_anchor: bool = False, sam_rho: float = 0.0,
         prefiltered_responses: str = "", alc_weighted: bool = True,
-        dense_prefix_training: bool = False) -> dict:
+        dense_prefix_training: bool = False, item_independent: bool = False) -> dict:
     import json
     import os
     import sys
@@ -707,6 +707,9 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
         run_label = f"run-{int(time.time())}-{uuid.uuid4().hex[:8]}"
     run_label = "".join(c if c.isalnum() or c in "-_" else "-" for c in run_label)
     dense_tag = "-denseprefix" if dense_prefix_training else ""
+    # An item-independent control: every item gets the same all-zero vector,
+    # so the model can use the context labels but cannot tell items apart.
+    dense_tag += "-noitem" if item_independent else ""
     if model_family == "cnp":
         architecture_tag = f"{encoder}-{pooling}{'-latent' if use_latent else ''}-w{width}{dense_tag}"
     elif model_family == "anp_cross_attention":
@@ -770,6 +773,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
                "alc_scored_budget_ladder" if alc_weighted else "uniform_scored_budget_ladder"
            ),
            "dense_prefix_training": dense_prefix_training,
+           "item_independent": item_independent,
            "dense_prefix_max_targets": (
                DENSE_PREFIX_MAX_TARGETS if dense_prefix_training else None
            ),
@@ -808,6 +812,7 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
             "n_inducing", "decoder_blocks", "item_dim", "label_dim", "optimizer",
             "lr", "weight_decay", "episodes_per_step", "function_realisations_per_step",
             "max_context", "dense_prefix_training", "dense_prefix_max_targets",
+            "item_independent",
             "context_size_sampling", "scored_budgets", "scored_budget_weights",
             "prior_anchor", "sam_rho", "alc_weighted",
             "min_subjects",
@@ -895,6 +900,11 @@ def run(seed: int = SEEDS[0], arm: str = ARM, encoder: str = "linear",
     emb_all = np.load(store / "item_embeddings.npy", mmap_mode="r")
     pos = {u: i for i, u in enumerate(emb_ids)}
     print(f"embedding store {arm}: {emb_all.shape}", flush=True)
+    if item_independent:
+        # Same shape and ids as the real store, so the split, the filter and
+        # the episode sampler are untouched; only the item content is removed.
+        emb_all = np.zeros(emb_all.shape, dtype=np.float32)
+        print("item_independent: every item embedding replaced by zeros", flush=True)
 
     if benchmark_holdout and prefiltered_responses:
         # A workspace that only holds the exported subset has no

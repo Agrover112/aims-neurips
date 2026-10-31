@@ -44,6 +44,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
+import plot_online_posthoc as posthoc  # noqa: E402
 
 PANEL = "benchmark-holdout-online-v1-s20261018-n15-m80-cap100000"
 SCORES = ROOT / "organized" / "testing" / "online" / "results"
@@ -335,6 +336,11 @@ def main() -> int:
                     kind = "Brier minus beta-binomial" if difference else "Brier"
                     page_map.append(f"{len(page_map) + 1}: {role}, {kind}, {plabel}")
                     plot_pages.append((f"plot-{len(page_map):02d}", fig))
+        # Post-hoc recombinations of the saved replays; built by
+        # plot_online_posthoc.py --build, skipped until its cache exists.
+        tables = posthoc.load()
+        if tables is not None:
+            pages += posthoc.pages(pdf, tables)
     if args.png_dir:
         args.png_dir.mkdir(parents=True, exist_ok=True)
         for name, fig in pages + plot_pages:

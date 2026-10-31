@@ -48,7 +48,7 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
          benchmark_min_items_per_subject: int = 80,
          prior_anchor: bool = False, sam_rho: float = 0.0,
          prefiltered_responses: str = "", alc_weighted: bool = True,
-         dense_prefix_training: bool = False) -> None:
+         dense_prefix_training: bool = False, item_independent: bool = False) -> None:
     """Run one ANP configuration. Use a distinct label for every rerun."""
     if not run_label:
         run_label = datetime.now(timezone.utc).strftime("anp-%Y%m%dT%H%M%SZ")
@@ -97,5 +97,6 @@ def main(seed: int = 20261018, arm: str = "qwen3_8b", width: int = 64,
         prefiltered_responses=prefiltered_responses,
         alc_weighted=alc_weighted,
         dense_prefix_training=dense_prefix_training,
+        item_independent=item_independent,
     )
     print(f"spawned Modal call {call.object_id}")
