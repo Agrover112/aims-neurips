@@ -40,6 +40,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model_names import NAME  # noqa: E402
+import plot_ability_final as ability  # noqa: E402
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
 
 CACHE = ROOT / "organized" / "training" / "results" / "item-difficulty-b0.parquet"
@@ -337,6 +338,12 @@ def main() -> int:
         for i, (_, name) in enumerate(RANDOM_MODELS, start=5 + len(MODELS)):
             pages.append((f"{i:02d}-{name.replace(' ', '_').replace(',', '')}",
                           model_page(pdf, table, name, random_split=True)))
+        # Subject ability: the other half of the IRT picture. Built by
+        # plot_ability_final.py --build; skipped until its cache exists.
+        abilities = ability.load()
+        if abilities is not None:
+            pages += [(f"{len(pages) + 1 + j:02d}-{name}", fig)
+                      for j, (name, fig) in enumerate(ability.pages(pdf, abilities))]
     if args.png_dir:
         args.png_dir.mkdir(parents=True, exist_ok=True)
         for name, fig in pages:
