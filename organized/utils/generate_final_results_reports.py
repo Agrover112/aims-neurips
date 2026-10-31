@@ -31,6 +31,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.transforms import Bbox  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
@@ -218,10 +219,91 @@ def data_difficulty_page(pdf: PdfPages) -> None:
     save_page(pdf, fig)
 
 
+def benchmark_difficulty_page(pdf: PdfPages) -> None:
+    """Booktabs-style table: how hard each benchmark is, by split role.
+
+    Rules only (top, mid, bottom, and a light rule between roles), no grid,
+    as a typeset paper table would be. Numbers come from
+    docs/benchmark-subject-difficulty-summary.csv.
+    """
+    import textwrap
+
+    d = pd.read_csv(DOCS / "benchmark-subject-difficulty-summary.csv")
+    roles = [("train", "Train"), ("validation", "Validation"), ("test", "Test")]
+    bench = d[d.level == "benchmark"]
+    subj = d[d.level == "subjects"].set_index("benchmark_split")
+    cols = ["Role", "Benchmark", "Items", "Subjects", "Mean", "SD", "10%", "90%"]
+    xs = [0.02, 0.15, 0.47, 0.57, 0.68, 0.76, 0.84, 0.92]   # left edge of each column
+    right = {2, 3, 4, 5, 6, 7}                                # right-aligned numeric columns
+    width = [0.13, 0.30, 0.08, 0.09, 0.07, 0.07, 0.07, 0.07]
+
+    lines = []   # (kind, cells) with kind in {"row", "rule", "lightrule"}
+    for i, (role, label) in enumerate(roles):
+        g = bench[bench.benchmark_split == role].sort_values("mean")
+        for j, r in enumerate(g.itertuples()):
+            lines.append(("row", [label if j == 0 else "", r.benchmark_id,
+                                  f"{int(r.items):,}", f"{int(r.subjects):,}", f"{r.mean:.2f}",
+                                  f"{r.sd:.2f}", f"{r.p10:.2f}", f"{r.p90:.2f}"]))
+        lines.append(("lightrule", None) if i < len(roles) - 1 else ("midrule", None))
+    lines.append(("head2", ["", "All subjects in the role", "", "Subjects", "Mean", "SD", "10%", "90%"]))
+    lines.append(("midrule", None))
+    for role, label in roles:
+        r = subj.loc[role]
+        lines.append(("row", [label, "mean accuracy per subject", "", f"{int(r.subjects):,}", f"{r['mean']:.2f}",
+                              f"{r['sd']:.2f}", f"{r.p10:.2f}", f"{r.p90:.2f}"]))
+    lines.append(("bottomrule", None))
+
+    row_h = 0.205    # inches per text row
+    height = 0.75 + row_h * (sum(k in ("row", "head2") for k, _ in lines) + 1) + 1.35
+    fig = plt.figure(figsize=(TEXTWIDTH, height))
+    ax = fig.add_axes((0.02, 1.35 / height, 0.96, 1 - 2.1 / height))
+    ax.axis("off")
+    n_rows = sum(k in ("row", "head2") for k, _ in lines) + 1
+    y = 1.0
+    step = 1.0 / (n_rows + 0.6)
+
+    def put_row(cells, weight="normal"):
+        for c, (x, text) in enumerate(zip(xs, cells)):
+            ax.text(x + (width[c] if c in right else 0), y - step / 2, text, ha="right" if c in right else "left",
+                    va="center", fontsize=6.6, fontweight=weight, transform=ax.transAxes)
+
+    def rule(lw):
+        ax.plot([0, 1], [y, y], color=INK, lw=lw, transform=ax.transAxes, clip_on=False)
+
+    rule(1.0)                                   # \toprule
+    put_row(cols, weight="bold"); y -= step
+    rule(0.5)                                   # \midrule
+    for kind, cells in lines:
+        if kind == "row":
+            put_row(cells); y -= step
+        elif kind == "head2":
+            y -= step * 0.3
+            put_row(cells, weight="bold"); y -= step
+        elif kind == "lightrule":
+            ax.plot([0, 1], [y, y], color=SUBTLE, lw=0.3, transform=ax.transAxes)
+        else:
+            rule(1.0 if kind == "bottomrule" else 0.5)
+
+    fig.text(0.018, 1 - 0.12 / height, "The held-out benchmarks differ in difficulty more than the subjects do",
+             fontsize=9, fontweight="bold", va="top")
+    body = ("Table. Difficulty of every benchmark in the benchmark-holdout split, as subject accuracy on it: each "
+            "subject's accuracy on the benchmark, then the mean, standard deviation and 10th/90th percentiles over "
+            "subjects (lower means harder). The lower block pools each role's subjects. Validation holds the "
+            "hardest benchmark (bird_sql, 0.15) and test holds three mid-to-easy ones (0.54-0.69), so test "
+            "subjects look stronger than training subjects (0.61 against 0.47). Much of that gap is the training "
+            "side: alignment_faking contributes 4,278 of the 6,013 training subjects (71%), many near zero, which "
+            "pulls the per-subject training average down. With three benchmarks per held-out role, which "
+            "benchmarks are held out moves these averages substantially.")
+    fig.text(0.018, 0.012, textwrap.fill(body, 116), fontsize=6.1, va="bottom", linespacing=1.35)
+    pdf.savefig(fig, bbox_inches=Bbox.from_bounds(0, 0, *fig.get_size_inches()))
+    plt.close(fig)
+
+
 def data_analysis_report(output: Path) -> None:
     with PdfPages(output) as pdf:
         data_split_page(pdf)
         data_difficulty_page(pdf)
+        benchmark_difficulty_page(pdf)
     audit = DOCS / "data-structure-inductive-bias.pdf"
     if audit.exists():
         append_pdf(output, [audit])
