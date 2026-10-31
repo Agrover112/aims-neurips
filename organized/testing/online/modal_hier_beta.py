@@ -152,7 +152,7 @@ def _replay(role: str, mu_by_task: dict, kappa: float):
 
 
 @app.function(image=image, cpu=4, memory=16_384, volumes={"/data": volume}, timeout=2 * 60 * 60)
-def run() -> dict:
+def run(arm_names: str = "", tag: str = "summary") -> dict:
     import numpy as np
     import pandas as pd
 
@@ -178,7 +178,13 @@ def run() -> dict:
         "hier, no metadata": (),
         "hier + provider + date": ("provider", "date"),
         "hier + name + provider + date": ("name", "provider", "date"),
+        # Release date dropped: test models are newer than any training model,
+        # so a linear date term extrapolates.
+        "hier + provider": ("provider",),
+        "hier + name + provider": ("name", "provider"),
     }
+    if arm_names:
+        arms = {k: arms[k] for k in arm_names.split(";")}
     jeffreys = {role: _replay(role, {t: 0.5 for t in by_task.index}, 1.0) for role in SEEDS}
     results, chosen = [], {}
     for arm, feats in arms.items():
@@ -209,12 +215,12 @@ def run() -> dict:
             print(json.dumps(row), flush=True)
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "summary.json").write_text(json.dumps({"results": results, "chosen": chosen}, indent=2))
+    (OUT / f"{tag}.json").write_text(json.dumps({"results": results, "chosen": chosen}, indent=2))
     volume.commit()
     return {"results": results, "chosen": chosen}
 
 
 @app.local_entrypoint()
-def main() -> None:
-    call = run.spawn()
+def main(arms: str = "", tag: str = "summary") -> None:
+    call = run.spawn(arm_names=arms, tag=tag)
     print(f"spawned Modal call {call.object_id}")
