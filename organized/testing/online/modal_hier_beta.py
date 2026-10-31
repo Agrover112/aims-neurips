@@ -186,7 +186,7 @@ def run(arm_names: str = "", tag: str = "summary") -> dict:
     if arm_names:
         arms = {k: arms[k] for k in arm_names.split(";")}
     jeffreys = {role: _replay(role, {t: 0.5 for t in by_task.index}, 1.0) for role in SEEDS}
-    results, chosen = [], {}
+    results, chosen, task_rows = [], {}, []
     for arm, feats in arms.items():
         # L2 chosen on validation ALC only; test is scored once with that choice.
         best = None
@@ -201,6 +201,10 @@ def run(arm_names: str = "", tag: str = "summary") -> dict:
         chosen[arm] = {"l2": l2, "kappa": kappa}
         for role in SEEDS:
             tb = _replay(role, mu, kappa)
+            # Per task x budget, for the report's curves and per-budget CIs.
+            long = tb.stack().rename("brier").reset_index()
+            long[["role", "arm"]] = role, arm
+            task_rows.append(long)
             diff = (alc(tb) - alc(jeffreys[role])).to_numpy()
             per_budget = (tb - jeffreys[role]).mean().round(4).to_dict()
             row = {"arm": arm, "role": role, "l2": l2, "kappa": kappa,
@@ -216,6 +220,11 @@ def run(arm_names: str = "", tag: str = "summary") -> dict:
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{tag}.json").write_text(json.dumps({"results": results, "chosen": chosen}, indent=2))
+    for role in SEEDS:
+        long = jeffreys[role].stack().rename("brier").reset_index()
+        long[["role", "arm"]] = role, "jeffreys"
+        task_rows.append(long)
+    pd.concat(task_rows).to_parquet(OUT / f"{tag}-task-budget.parquet", index=False)
     volume.commit()
     return {"results": results, "chosen": chosen}
 

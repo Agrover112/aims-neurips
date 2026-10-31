@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
 import plot_online_posthoc as posthoc  # noqa: E402
+import plot_online_main as mainpages  # noqa: E402
 
 PANEL = "benchmark-holdout-online-v1-s20261018-n15-m80-cap100000"
 SCORES = ROOT / "organized" / "testing" / "online" / "results"
@@ -317,6 +318,11 @@ def main() -> int:
     pages = []
     plot_pages, page_map = [], []
     with PdfPages(args.out) as pdf, PdfPages(args.plots_out) as plots:
+        # Main-model curves and the ablation table lead the report; built by
+        # plot_online_main.py --build, skipped until its cache exists.
+        main_table = mainpages.load()
+        if main_table is not None:
+            pages += mainpages.pages(pdf, main_table)
         for role in ("test", "validation"):
             frame = load(role)
             if frame is None:

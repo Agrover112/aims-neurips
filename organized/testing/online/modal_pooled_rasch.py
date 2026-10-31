@@ -306,8 +306,47 @@ def combined(n_val_draws: int = 60, n_test_draws: int = 150) -> dict:
     return out
 
 
+@app.function(image=image, cpu=8, memory=16_384, volumes={"/data": volume}, timeout=4 * 60 * 60)
+def curves(n_val_draws: int = 150, n_test_draws: int = 150) -> dict:
+    """Per (draw, task, budget) Brier for the report's multi-pair curves.
+
+    Saves the draws themselves, so models that ignore other pairs can be
+    placed on exactly the same draws from their saved single-pair scores.
+    Settings are the ones validation already chose; nothing is re-tuned.
+    """
+    import numpy as np
+    import pandas as pd
+
+    r = pd.read_parquet(RESPONSES, columns=["benchmark_split", "label"])
+    m0 = _logit(float(r.loc[r["benchmark_split"] == "train", "label"].mean()))
+    theta0 = _provider_theta0(m0)
+    base = (m0, 2.0, 1.0, 1.0)
+    settings = {"constant": (m0, 1e-6, 1e-6, 0.0),
+                "pooled-rasch": base,
+                "pooled-rasch-no-item": (m0, 2.0, 1.0, 0.0),
+                "combined-provider": base + (theta0,)}
+    rng = np.random.default_rng(20261018)
+    rows = []
+    for role, n in (("validation", n_val_draws), ("test", n_test_draws)):
+        streams, evaluation, meta, seeds = _load(role)
+        draws = _draws(meta, seeds, n, rng)
+        flat = [(d, t, seed) for d, pairs in enumerate(draws) for t, seed in pairs]
+        keys, scores = _score(draws, streams, evaluation, meta, settings)
+        assert keys == [t for _, t, _ in flat]
+        for (d, t, seed), j in zip(flat, range(len(flat))):
+            for name, v in scores.items():
+                for b, x in zip(BUDGETS, v[j]):
+                    rows.append((role, d, t, seed, name, b, float(x)))
+        print(f"{role}: {len(draws)} draws, {len(flat)} pair-draws", flush=True)
+    f = pd.DataFrame(rows, columns=["role", "draw", "task_id", "order_seed", "model", "budget", "brier"])
+    OUT.mkdir(parents=True, exist_ok=True)
+    f.to_parquet(OUT / "curves.parquet", index=False)
+    volume.commit()
+    return {"rows": len(f)}
+
+
 @app.local_entrypoint()
 def main(n_val_draws: int = 60, n_test_draws: int = 150, mode: str = "pooled") -> None:
-    fn = combined if mode == "combined" else run
+    fn = {"combined": combined, "curves": curves}.get(mode, run)
     call = fn.spawn(n_val_draws=n_val_draws, n_test_draws=n_test_draws)
     print(f"spawned Modal call {call.object_id}")
