@@ -483,6 +483,27 @@ The Beta-Binomial row is the posterior mean of a Binomial likelihood under the
 Jeffreys \(\operatorname{Beta}(1/2,1/2)\) prior [Jeffreys, 1946]. It is a
 conjugate sequential predictor, not an item-difficulty model.
 
+Derivation, for the methods section. A subject's answers on one benchmark are
+treated as exchangeable Bernoulli draws with accuracy \(p\), and
+\(p \sim \operatorname{Beta}(\alpha,\beta)\). After \(n\) revealed labels with
+\(h\) correct, the posterior is \(\operatorname{Beta}(\alpha+h,\,\beta+n-h)\).
+The predictive probability that the next item is answered correctly is the
+posterior mean; the Beta and Gamma functions of the beta-binomial likelihood
+cancel, leaving
+
+\[
+P(y_{\text{next}}=1 \mid h, n) = \frac{\alpha + h}{\alpha + \beta + n}
+\;\overset{\alpha=\beta=1/2}{=}\; \frac{h + 0.5}{n + 1}.
+\]
+
+Here \(h\) counts correct answers among the labels revealed for the current
+subject-benchmark pair, \(n\) is the number revealed (0 to 31), and the 0.5 and
+1 are the prior's half correct answer out of one pseudo-label. The prediction
+is the same for every item of the task, is 0.5 with no labels, and approaches
+the raw hit rate as \(n\) grows. Exchangeability is tested in the draft's
+Appendix C.7: answers on text-similar items are correlated, so it does not
+hold exactly.
+
 ### 5. Online testing: streaming acquisition policies
 
 Every policy scores only the *current* candidate and reserves enough later

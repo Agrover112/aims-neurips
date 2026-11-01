@@ -119,11 +119,32 @@ not matter).
 
 ## 3. Methods
 
-**Beta-binomial.** The predicted probability for every item is the posterior
-mean under a Jeffreys prior Beta(0.5, 0.5) [Jeffreys, 1946]:
-`p = (hits + 0.5) / (labels + 1)`, where *hits* counts correct answers among
-the revealed labels of the current pair. It ignores item content and other
-pairs, and predicts 0.5 with no labels.
+**Beta-binomial.** Treat subject *s*'s answers on benchmark *b* as
+exchangeable Bernoulli draws with one unknown accuracy `p`. Put a Beta prior on
+it, `p ~ Beta(alpha, beta)`. After `n_s` revealed labels of which `h_s` are
+correct, conjugacy gives the posterior `Beta(alpha + h_s, beta + n_s - h_s)`.
+The probability that the next, unrevealed item is answered correctly is the
+posterior mean; the Beta and Gamma functions of the full beta-binomial
+likelihood cancel and leave a ratio:
+
+    p_si = P(y_si = 1 | h_s, n_s) = (alpha + h_s) / (alpha + beta + n_s)
+
+With the Jeffreys prior `alpha = beta = 0.5` [Jeffreys, 1946], the standard
+reference prior for a Bernoulli rate,
+
+    p_si = (h_s + 0.5) / (n_s + 1)
+
+| Symbol | Meaning |
+| --- | --- |
+| `p_si` | predicted probability that subject *s* answers item *i* correctly; the same for every item of the task |
+| `h_s` | number of correct answers among the labels revealed for this subject-benchmark pair |
+| `n_s` | number of labels revealed so far (0 to 31) |
+| `0.5` | `alpha`: the prior acts as half a correct answer |
+| `1` | `alpha + beta`: the prior is worth one pseudo-label in total |
+
+It ignores item content and other pairs, predicts 0.5 with no labels, and
+moves to the subject's hit rate as labels accumulate. Appendix C.7 tests its
+exchangeability assumption.
 
 **Attentive Neural Process.** Each item is a 1024-d BGE-M3 embedding of its
 text. A context set of (item, label) pairs is encoded by a shared value
