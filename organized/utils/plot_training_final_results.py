@@ -39,7 +39,7 @@ from matplotlib.transforms import Bbox  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model_names import NAME  # noqa: E402
-from plotstyle import CYCLE, INK, SUBTLE, TEXTWIDTH, style  # noqa: E402
+from plotstyle import CYCLE, INK, MUTED, SUBTLE, TEXTWIDTH, style  # noqa: E402
 import plot_np_context_illustration as npctx  # noqa: E402
 
 ENTITY_PROJECT = "agrgnn-kth-royal-institute-of-technology/aims-predictive-evaluation"
@@ -264,6 +264,53 @@ def ema(values: np.ndarray, span: int = 20) -> np.ndarray:
     return pd.Series(values).ewm(span=span, adjust=False).mean().to_numpy()
 
 
+def split_contrast_page(pdf, frame: pd.DataFrame, meta: dict):
+    """One axes: the same model trained on the two splits, train vs validation NLL.
+
+    Both runs are the width-64 ANP with uniform context sizes for 100k steps;
+    only the split differs. Their validation sets differ by construction:
+    held-out subjects on the training benchmarks (in distribution) against
+    unseen benchmarks (benchmark holdout). That difference is the point.
+    """
+    import textwrap
+
+    runs = [("np-470e0bbf02b0032be63c", "In distribution (random-subject split)", MUTED["indigo"]),
+            ("np-a3923b0595e9dd6718ce", "Out of distribution (benchmark holdout)", MUTED["rose"])]
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH, 3.9))
+    fig.subplots_adjust(left=0.1, right=0.985, top=0.9, bottom=0.42)
+    fig.text(0.018, 0.985, "Validation loss keeps falling in distribution, but rises on unseen benchmarks",
+             fontsize=8.6, fontweight="bold", va="top")
+    for rid, label, colour in runs:
+        for metric, ls, part in (("nll_tr", "-", "training"), ("nll_va", (0, (4, 2)), "validation")):
+            g = frame[(frame.run == rid) & (frame.metric == metric)].sort_values("step")
+            ax.plot(g.step, ema(g.value.to_numpy(), span=40), color=colour, ls=ls, lw=1.2,
+                    label=f"{label}, {part}")
+        best = meta[rid]["best_step"]
+        g = frame[(frame.run == rid) & (frame.metric == "nll_va")].sort_values("step")
+        if best is not None and len(g):
+            y = float(np.interp(best, g.step, ema(g.value.to_numpy(), span=40)))
+            ax.plot([best], [y], marker="*", ms=10, color=colour, markeredgecolor=INK, markeredgewidth=0.6,
+                    ls="none", zorder=5)
+    ax.set_xscale("log")
+    ax.set_xlabel("optimiser step (log scale)", fontsize=6.8)
+    ax.set_ylabel("target NLL (lower is better)", fontsize=6.8)
+    ax.tick_params(labelsize=6)
+    style(ax, grid_axis="both")
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="center", ncol=2, fontsize=6.1, frameon=False, bbox_to_anchor=(0.5, 0.285))
+    body = ("Figure. Training (solid) and validation (dashed) negative log-likelihood of the same ANP (width 64, "
+            "uniform 0-31 context sizes, 100,000 steps) trained on two splits; curves are exponentially smoothed "
+            "and stars mark each run's selected checkpoint. In distribution, validation holds out subjects but "
+            "keeps every benchmark in training, and its loss falls with the training loss throughout. Under the "
+            "benchmark holdout, validation uses benchmarks never trained on: its loss bottoms out near 0.48 "
+            "around 3,000 steps and climbs to about 0.59 while the training loss keeps falling, the "
+            "signature of fitting the training benchmarks rather than learning what transfers. The two "
+            "validation sets differ by design, so compare each curve's shape, not their levels.")
+    fig.text(0.018, 0.012, textwrap.fill(body, 116), fontsize=6.1, va="bottom", linespacing=1.35)
+    pdf.savefig(fig, bbox_inches=exact_page(fig))
+    return fig
+
+
 def metric_page(pdf, frame: pd.DataFrame, meta: dict, title: str, panels: list):
     ncols = len(panels)
     fig, axes = plt.subplots(2, ncols, figsize=(TEXTWIDTH, 4.9), sharex=True, squeeze=False)
@@ -334,6 +381,7 @@ def main() -> int:
     pages = []
     with PdfPages(args.out) as pdf:
         pages.append(("00-overview", overview_page(pdf, meta)))
+        pages.append(("00b-split-contrast", split_contrast_page(pdf, frame, meta)))
         for i, (title, panels) in enumerate(PAGES, start=1):
             pages.append((f"{i:02d}-{panels[0][0]}", metric_page(pdf, frame, meta, title, panels)))
         # In-distribution illustration of the trained ANP learning from context;

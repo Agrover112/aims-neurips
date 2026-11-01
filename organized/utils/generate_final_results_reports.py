@@ -211,6 +211,112 @@ def data_split_page(pdf: PdfPages) -> None:
     _exact_save(pdf, fig)
 
 
+def data_split_schematic_page(pdf: PdfPages) -> None:
+    """Schematic: how each split cuts the subject x item response matrix.
+
+    Drawn to the data's real structure rather than its scale: items grouped
+    into benchmarks of unequal size, and each subject answering one benchmark
+    (occasionally two), so the observed cells form blocks.
+    """
+    from matplotlib.colors import ListedColormap
+    from matplotlib.patches import Patch, Rectangle
+
+    rng = np.random.default_rng(3)
+    widths = [14, 9, 17, 7, 12, 8, 10, 6, 9]                     # items per benchmark
+    roles = ["train"] * 5 + ["validation"] * 2 + ["test"] * 2    # benchmark-holdout role
+    subjects_per = [9, 6, 11, 5, 8, 5, 6, 4, 6]
+    edges = np.cumsum([0] + widths)
+    rows = []
+    for b, n in enumerate(subjects_per):
+        for _ in range(n):
+            row = np.zeros(edges[-1], dtype=bool)
+            row[edges[b]:edges[b + 1]] = rng.random(widths[b]) < 0.8
+            if rng.random() < 0.15:                                # a few subjects answer a second benchmark
+                o = int(rng.integers(len(widths)))
+                row[edges[o]:edges[o + 1]] |= rng.random(widths[o]) < 0.5
+            rows.append((b, row))
+    observed = np.array([r for _, r in rows])
+    home = np.array([b for b, _ in rows])
+    code = {"train": 1, "validation": 2, "test": 3}
+
+    holdout = np.zeros(observed.shape, dtype=int)
+    for b, role in enumerate(roles):
+        holdout[:, edges[b]:edges[b + 1]] = code[role]
+    random_split = np.zeros(observed.shape, dtype=int)
+    row_role = rng.choice([1, 2, 3], size=len(rows), p=[0.7, 0.15, 0.15])
+    for b in range(len(widths)):                                   # every benchmark gets some of each role
+        idx = np.flatnonzero(home == b)
+        row_role[idx[:max(1, len(idx) // 7)]] = 2
+        row_role[idx[-max(1, len(idx) // 7):]] = 3
+    random_split[:] = row_role[:, None]
+    holdout[~observed] = 0
+    random_split[~observed] = 0
+
+    cmap = ListedColormap(["#FFFFFF", "#BFC4DD", MUTED["teal"], MUTED["rose"]])
+    fig = plt.figure(figsize=(TEXTWIDTH, 5.6))
+    fig.text(0.018, 0.985, "The two splits cut the response matrix in different directions", fontsize=9,
+             fontweight="bold", va="top")
+    panels = [(random_split, "(a) Random-subject split: hold out subjects"),
+              (holdout, "(b) Benchmark holdout: hold out benchmarks")]
+    for i, (grid, title) in enumerate(panels):
+        ax = fig.add_axes((0.06 + i * 0.48, 0.45, 0.42, 0.45))
+        ax.imshow(grid, cmap=cmap, vmin=0, vmax=3, aspect="auto", interpolation="nearest")
+        for e in edges[1:-1]:
+            ax.axvline(e - 0.5, color=INK, lw=0.4, alpha=0.5)
+        ax.set_xticks((edges[:-1] + edges[1:]) / 2 - 0.5, [f"B{j + 1}" for j in range(len(widths))], fontsize=5.6)
+        ax.set_yticks([])
+        ax.set_title(title, loc="left", fontsize=6.8, fontweight="bold", pad=4)
+        ax.set_xlabel("items, grouped by benchmark", fontsize=6.2)
+        if i == 0:
+            ax.set_ylabel("subjects", fontsize=6.2)
+        if i == 1:   # one outline per held-out role, labelled above the matrix
+            for role in ("validation", "test"):
+                bs = [b for b, r in enumerate(roles) if r == role]
+                x0, x1 = edges[bs[0]] - 0.5, edges[bs[-1] + 1] - 0.5
+                ax.add_patch(Rectangle((x0, -0.5), x1 - x0, observed.shape[0], fill=False, ec=INK, lw=1.1))
+                ax.text((x0 + x1) / 2, 1.5, role, ha="center", va="top", fontsize=5.6,
+                        bbox=dict(fc="white", ec="none", pad=0.6))
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
+
+    # (c) inside one held-out task: acquisition vs evaluation pool.
+    ax = fig.add_axes((0.06, 0.285, 0.9, 0.06))
+    n = 40
+    pool = np.array([1] * 20 + [0] * 20)
+    rng.shuffle(pool)
+    acquired = np.zeros(n, dtype=bool)
+    acquired[np.flatnonzero(pool == 1)[:7]] = True
+    colours = np.where(pool == 1, np.where(acquired, 3, 1), 2)
+    ax.imshow(colours[None, :], cmap=ListedColormap(["#FFFFFF", "#E6E6E6", "#9A9A9A", MUTED["indigo"]]),
+              vmin=0, vmax=3, aspect="auto", interpolation="nearest")
+    for k in range(1, n):            # cell borders, so each item reads as one cell
+        ax.axvline(k - 0.5, color="white", lw=0.8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title("(c) Inside one held-out task (one subject on one benchmark): the online protocol",
+                 loc="left", fontsize=6.8, fontweight="bold", pad=4)
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.5)
+
+    handles = [Patch(fc="#BFC4DD", ec=INK, lw=0.3, label="training"),
+               Patch(fc=MUTED["teal"], ec=INK, lw=0.3, label="validation"),
+               Patch(fc=MUTED["rose"], ec=INK, lw=0.3, label="test"),
+               Patch(fc="#FFFFFF", ec=INK, lw=0.3, label="not observed"),
+               Patch(fc="#E6E6E6", ec=INK, lw=0.3, label="(c) acquisition pool"),
+               Patch(fc=MUTED["indigo"], ec=INK, lw=0.3, label="(c) label bought"),
+               Patch(fc="#9A9A9A", ec=INK, lw=0.3, label="(c) evaluation pool, scored")]
+    fig.legend(handles=handles, loc="center", ncol=4, fontsize=5.9, frameon=False, bbox_to_anchor=(0.5, 0.225))
+    _caption(fig, "Figure. Schematic of the subject x item response matrix (shape, not scale): items are grouped "
+             "into benchmarks of unequal size, and each subject answers mostly one benchmark, so the observed cells "
+             "form blocks. (a) The random-subject split holds out subjects inside every benchmark, so every "
+             "benchmark is seen in training. (b) The benchmark holdout holds out whole benchmarks (outlined): "
+             "validation and test items come from benchmarks never seen in training; ours uses 11 training, 3 "
+             "validation and 3 test benchmarks. (c) Within each held-out task the items are split once, 50/50, "
+             "into an acquisition pool, from which up to 31 labels are bought one at a time in stream order, and a "
+             "fixed evaluation pool that is never revealed and is scored at every budget.")
+    _exact_save(pdf, fig)
+
+
 def data_difficulty_page(pdf: PdfPages) -> None:
     from model_names import NAME
 
@@ -341,6 +447,7 @@ def benchmark_difficulty_page(pdf: PdfPages) -> None:
 def data_analysis_report(output: Path) -> None:
     with PdfPages(output) as pdf:
         data_split_page(pdf)
+        data_split_schematic_page(pdf)
         data_difficulty_page(pdf)
         benchmark_difficulty_page(pdf)
     audit = DOCS / "data-structure-inductive-bias.pdf"
