@@ -114,7 +114,9 @@ def _cross(kind: str, param, targets: list[str], hs: list[str]) -> np.ndarray:
 
 def fit_predict(evidence, targets_by_task, cfg) -> dict:
     """MAP fit on evidence rows (bench, subject, hash, y); predictions per task."""
-    kind, param, rho, tau = cfg
+    kind, param, rho, tau = cfg[:4]
+    # Optional fifth and sixth entries override the benchmark-rate and ability widths.
+    tau_b, tau_s = (cfg[4], cfg[5]) if len(cfg) > 4 else (TAU_B, TAU_S)
     benches = sorted({e[0] for e in evidence})
     subjects = sorted({e[1] for e in evidence})
     items = sorted({(e[0], e[2]) for e in evidence})
@@ -129,8 +131,8 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
         X[r, ii[(b, h)]] = -1.0
     y = np.array([e[3] for e in evidence], float)
     prec = np.zeros((n, n))
-    prec[np.arange(nb), np.arange(nb)] = TAU_B ** -2
-    prec[np.arange(nb, nb + ns), np.arange(nb, nb + ns)] = TAU_S ** -2
+    prec[np.arange(nb), np.arange(nb)] = tau_b ** -2
+    prec[np.arange(nb, nb + ns), np.arange(nb, nb + ns)] = tau_s ** -2
     inv_blocks = {}
     for b in benches:   # block-diagonal item prior: similarity only within a benchmark
         hs = [h for (bb, h) in items if bb == b]

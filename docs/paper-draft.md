@@ -543,6 +543,25 @@ to -0.0006 against random acquisition for the beta-binomial and every Rasch
 model, none significant. Acquisition order does not matter here either.
 Script for C.8 and C.9: `organized/testing/online/kernel_rasch_replay.py`.
 
+**C.10 Draws shaped like the competition's.** The competition scores about
+nine pairs over about seven benchmarks, so most benchmarks have one subject
+and nothing to pool with on that benchmark. Re-tuning the prior widths on 120
+validation draws with exactly one subject per benchmark keeps a wide
+benchmark-rate prior (tau_b = 2; narrower priors lose up to 0.026); kernel
+Rasch keeps its earlier settings and pooled Rasch prefers a narrower ability
+prior (tau_s = 0.5). On test (150 such draws; Brier-ALC minus the
+beta-binomial): pooled Rasch -0.0011 with the old priors and -0.0032 re-tuned,
+kernel Rasch -0.0024, all significant; on the earlier draws re-tuned pooled
+Rasch reaches -0.0051. On validation in this shape, kernel Rasch (0.1735)
+ties the beta-binomial (0.1738) and pooled Rasch (0.1742) does not beat it.
+
+On the leaderboard, pooled Rasch (1024003) scored 0.2022 against 0.1486 for
+the beta-binomial (1005155), with Brier 0.298 against 0.181 after one label.
+Each submission is scored on its own nine pairs (these two share one pair), so
+the comparison is unpaired and noisy; the replay does not reproduce the
+one-label gap. **[TODO: kernel Rasch 1026246 score; a paired comparison would
+need the same pairs.]** Script: `organized/testing/online/codabench_shape_replay.py`.
+
 ## D. Diagnostics
 
 **D.1 Where the ANP loses.** `docs/online-final-results.pdf`, p. 14: per-budget
@@ -587,7 +606,7 @@ test; `docs/online-final-results.pdf`, p. 16).
 | ANP training | `organized/training/codex_es_fixed_modal_cnp_train.py`, `modal_anp_crossattn_train.py`, `local_anp_train.py` |
 | Figures | `organized/utils/plot_*_final*.py`, `plot_online_main.py`, `plot_online_posthoc.py`, `plot_ability_final.py`; display names in `model_names.py` |
 | Pooled Rasch submission | `organized/submission/pooled_rasch/` |
-| CodaBench submissions | 1019401 (probe), 1022033 (ANP + SAM), 1022030 (ANP, dense-prefix), 1024003 (pooled Rasch) [TODO: scores] |
+| CodaBench submissions (leaderboard Brier-ALC, each on its own 9 pairs) | 1005155 beta-binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, dense-prefix 0.1918; 1024003 pooled Rasch 0.2022; 1026246 kernel Rasch [TODO] |
 
 ## F. Open items
 
