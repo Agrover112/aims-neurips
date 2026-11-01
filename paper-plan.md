@@ -2,12 +2,26 @@
 
 ## Working title
 
-**Do Learned Priors Transfer? Online LLM Evaluation Across Unseen Benchmarks**
+**What Transfers Is Ability, Not Difficulty: Online Rasch Beats Neural Processes for Unseen LLM Benchmark Evaluation**
 
-Alternatives:
+Chosen 2026-11-02 after three reviewer personas (measurement science, Bayesian
+statistics, deep learning) weighed in. It frames the paper as neural-process
+and Bayesian deep-learning methods against statistics and measurement-theory
+methods on one problem. The claims are scoped: "Neural Processes" (not all
+amortized meta-learners, since one ANP family was tested) and "Rasch" (not
+"classical psychometrics", since the beta-binomial is not IRT and kernel Rasch
+is a Gaussian-process extension).
 
-- **Online LLM Evaluation Under Benchmark Shift**
-- **Testing Psychometric and Neural Priors for Sequential LLM Benchmarking**
+Poster hook: the network learned each model's ability, which transfers, and
+each benchmark's item difficulty, which doesn't; refitting Rasch online fixes
+it with no training. Likely Q&A attacks: only three held-out benchmarks, and
+independence of items within a subject.
+
+Alternatives considered:
+
+- **Neural Processes Don't Transfer Across Benchmarks in LLM Predictive Evaluation, but Classical Psychometrics Does**
+- **Pooling Evidence Across Models Beats Learned Priors for Online LLM Evaluation on Unseen Benchmarks**
+- **Do Learned Priors Transfer? Online LLM Evaluation Across Unseen Benchmarks** (earlier working title)
 
 ## Central questions and claim boundary
 

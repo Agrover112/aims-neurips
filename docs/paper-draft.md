@@ -1,4 +1,6 @@
-# Simple Estimators Beat Meta-Learners for Online LLM Evaluation on Unseen Benchmarks
+# What Transfers Is Ability, Not Difficulty: Online Rasch Beats Neural Processes for Unseen LLM Benchmark Evaluation
+
+*Poster hook: the network learned each model's ability, which transfers, and each benchmark's item difficulty, which doesn't; refitting Rasch online fixes it with no training.*
 
 *Draft, 2026-11-01. Numbers come from the runs in this repository; every figure
 reference names the PDF and page it lives on. Items marked **[TODO]** are not
