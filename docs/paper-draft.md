@@ -515,11 +515,18 @@ validation draws (kernel: T = 0.2, rho = 0.8, tau = 1.4, at the edge of the
 grid **[TODO: widen]**; clustered: k = 16, rho = 0.5) and scored on the same
 150 test draws as Section 4.2.
 
-| Model (multi-pair, test) | Test ALC | Minus beta-binomial | Minus pooled Rasch |
-| --- | --- | --- | --- |
-| Pooled Rasch | 0.2461 | -0.0035 [-0.0046, -0.0026] | - |
-| Clustered Rasch | 0.2462 | -0.0034 [-0.0045, -0.0024] | +0.0001 [-0.0002, +0.0004] |
-| **Kernel Rasch** | **0.2448** | **-0.0049 [-0.0060, -0.0038]** | **-0.0013 [-0.0017, -0.0010]** |
+| Model (multi-pair) | Val ALC | Val minus beta-binomial | Test ALC | Test minus beta-binomial | Test minus pooled Rasch |
+| --- | --- | --- | --- | --- | --- |
+| Beta-binomial | 0.1685 | - | 0.2497 | - | - |
+| Pooled Rasch | 0.1674 | -0.0012 [-0.0034, +0.0009] | 0.2461 | -0.0035 [-0.0046, -0.0026] | - |
+| Clustered Rasch | 0.1669 | -0.0017 [-0.0041, +0.0007] | 0.2462 | -0.0034 [-0.0045, -0.0024] | +0.0001 [-0.0002, +0.0004] |
+| **Kernel Rasch** | **0.1667** | -0.0019 [-0.0043, +0.0006] | **0.2448** | **-0.0049 [-0.0060, -0.0038]** | **-0.0013 [-0.0017, -0.0010]** |
+
+Validation is in-sample for the clustered and kernel settings, which were
+chosen on it. On validation every Rasch variant is ahead of the beta-binomial
+but none significantly (78 tasks, 60 draws); clustered and kernel Rasch beat
+pooled Rasch there by -0.0005 [-0.0008, -0.0002] and -0.0007 [-0.0012,
+-0.0002].
 
 Kernel Rasch improves on pooled Rasch at every budget, most after one label
 (-0.008 against the beta-binomial). The within-task agreement it exploits
