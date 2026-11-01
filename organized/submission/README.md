@@ -41,6 +41,29 @@ the gap is mostly at budgets 0 and 1. The other acquisition policies do not
 change this. Full tables: `organized/testing/online/README.md` and
 `docs/online-final-results.pdf`.
 
+## Pooled Rasch (`pooled_rasch/`, CodaBench 1024003)
+
+Predicts `p(s, i) = sigmoid(mu_b + theta_s - b_h)` from every revealed label in
+the draw, not only the current subject-benchmark pair.
+
+- **Data:** almost none. Only the base rate (training mean) and 3 prior widths
+  (picked on validation) come from offline data. Everything else is fit at test
+  time on `labeled`, the revealed labels from all pairs in the current draw.
+- **Algorithm:** MAP estimation, i.e. logistic regression with Gaussian priors
+  (L2). The submission solves it with Newton's method; the replay uses L-BFGS.
+- **Online:** it refits from scratch at every checkpoint (0/1/3/7/15/31) on all
+  labels so far. There's no carried state, and it's milliseconds to a few
+  seconds per fit.
+
+| parameter | meaning | prior |
+| --- | --- | --- |
+| `mu_b` (benchmark rate) | how easy benchmark b is overall, in logits | N(M0, 2²); M0 = logit(0.512), the training-benchmark mean response |
+| `theta_s` (subject ability) | how strong subject s is, relative to the benchmark rate | N(0, 1²) |
+| `b_h` (item difficulty) | how hard item h is, relative to its benchmark; items matched by content | N(0, 1²); 0 for an item nobody has labelled |
+
+The widths (2, 1, 1) set how far labels can pull each estimate away from its
+prior centre. With no labels at all it predicts sigmoid(M0) = 0.512.
+
 ## What both candidates contain
 
 - **Model:** latent Attentive Neural Process, width 64, latent dimension 32,
