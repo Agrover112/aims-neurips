@@ -483,6 +483,38 @@ similar labelled item from the same subject. The structure is more likely to
 pay off through other subjects' labels on similar items, a kernel or GP version
 of pooled Rasch **[TODO]**. Script: `organized/testing/online/noniid_beta_replay.py`.
 
+**C.8 Sharing difficulty across similar items: kernel Rasch.** Pooled Rasch
+gives each item an independent difficulty prior, so a label informs only that
+exact item. Kernel Rasch correlates difficulties within a benchmark,
+`b ~ N(0, K)`, `K = tau^2 [(1 - rho) I + rho S]`, with
+`S_ij = exp((cos(x_i, x_j) - 1) / T)` on BGE-M3 embeddings; an unlabelled item
+gets the kriging estimate `b_i = K_iL K_LL^-1 b_L`. Clustered Rasch uses
+`S_ij = 1[same k-means cluster]` instead. Settings were chosen on the 60
+validation draws (kernel: T = 0.2, rho = 0.8, tau = 1.4, at the edge of the
+grid **[TODO: widen]**; clustered: k = 16, rho = 0.5) and scored on the same
+150 test draws as Section 4.2.
+
+| Model (multi-pair, test) | Test ALC | Minus beta-binomial | Minus pooled Rasch |
+| --- | --- | --- | --- |
+| Pooled Rasch | 0.2461 | -0.0035 [-0.0046, -0.0026] | - |
+| Clustered Rasch | 0.2462 | -0.0034 [-0.0045, -0.0024] | +0.0001 [-0.0002, +0.0004] |
+| **Kernel Rasch** | **0.2448** | **-0.0049 [-0.0060, -0.0038]** | **-0.0013 [-0.0017, -0.0010]** |
+
+Kernel Rasch improves on pooled Rasch at every budget, most after one label
+(-0.008 against the beta-binomial). The within-task agreement it exploits
+rises smoothly with item similarity (residual correlation 0.05 below cosine
+0.80, 0.42 above 0.97 on test). On editbench 54% of items have a near-copy
+(cosine > 0.97), so much of that benchmark's effect is near-duplicate items;
+on the other benchmarks near-copies are 0-4% and agreement at cosines
+0.80-0.95 is still 0.08-0.31. **[TODO: promote kernel Rasch to the main
+results if it holds under leave-one-benchmark-out.]**
+
+**C.9 Diverse acquisition.** Buying labels so each pair's item clusters stay
+evenly covered (streaming, with the reserve rule) changes test ALC by -0.0002
+to -0.0006 against random acquisition for the beta-binomial and every Rasch
+model, none significant. Acquisition order does not matter here either.
+Script for C.8 and C.9: `organized/testing/online/kernel_rasch_replay.py`.
+
 ## D. Diagnostics
 
 **D.1 Where the ANP loses.** `docs/online-final-results.pdf`, p. 14: per-budget
