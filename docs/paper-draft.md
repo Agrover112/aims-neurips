@@ -2,6 +2,8 @@
 
 *Poster hook: the network learned each model's ability, which transfers, and each benchmark's item difficulty, which doesn't; refitting Rasch online fixes it with no training.*
 
+**Keywords:** LLM evaluation, predictive evaluation, test-time adaptation, benchmark shift.
+
 *Draft, 2026-11-01. Numbers come from the runs in this repository; every figure
 reference names the PDF and page it lives on. Items marked **[TODO]** are not
 done yet.*
