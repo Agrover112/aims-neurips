@@ -468,6 +468,21 @@ the ANP can only learn a level. At its step-400 checkpoint it scores 0.1786 on
 validation and 0.2714 on test against the beta-binomial's 0.1717 and 0.2494,
 again almost entirely at zero and one label.
 
+**C.7 Are answers IID within a task?** The beta-binomial assumes a subject's
+answers on one benchmark are IID given one rate. They are not: after removing
+each task's mean, a subject's answers on two text-similar items (BGE-M3
+nearest neighbours, mean cosine 0.84) correlate +0.24 [0.18, 0.30] on test and
++0.19 [0.17, 0.22] on validation, against about 0 for random item pairs
+(editbench +0.48). A group-weighted beta-binomial that lets labels on similar
+items count more, `p_i = (kappa g + sum_j w_ij y_j) / (kappa + sum_j w_ij)`
+with similarity weights `w_ij` (kappa = 1, temperature 0.1, chosen on
+validation), gains little: -0.0006 [-0.0009, -0.0003] on validation and
+-0.0002 [-0.0005, +0.0001] on test. It helps at 15-31 labels (-0.0035 at 31 on
+test) and slightly hurts at 1-3: with a handful of labels a target rarely has a
+similar labelled item from the same subject. The structure is more likely to
+pay off through other subjects' labels on similar items, a kernel or GP version
+of pooled Rasch **[TODO]**. Script: `organized/testing/online/noniid_beta_replay.py`.
+
 ## D. Diagnostics
 
 **D.1 Where the ANP loses.** `docs/online-final-results.pdf`, p. 14: per-budget
