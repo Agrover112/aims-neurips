@@ -60,6 +60,52 @@ The report should answer these questions in that order. Any experiment that
 does not clarify transfer, ability-range extrapolation, or low-budget
 adaptation is supporting evidence only and belongs in the appendix.
 
+## Candidate final submission: pooled and kernel Rasch (not finalised)
+
+*Note added 2026-11-01. These may become the final submission and a main-text
+result; nothing below is decided yet.*
+
+The competition passes the predictor every label bought so far across all
+sampled subject-benchmark pairs, not only the current pair's. Two predictors
+use this, with no offline training beyond a base rate and prior widths chosen
+on validation:
+
+- **Pooled Rasch:** at every checkpoint, fit
+  `logit p(s, i) = mu_b + theta_s - b_i` by MAP to every revealed label, with
+  Gaussian priors on the benchmark rate, subject ability and item difficulty.
+  Items are matched across subjects by content; an item nobody has labelled
+  gets `b_i = 0`.
+- **Kernel Rasch:** the same, with item difficulties correlated by item-text
+  similarity within a benchmark, `b ~ N(0, K)`, `K = tau^2 [(1 - rho) I + rho S]`,
+  `S_ij = exp((cos(x_i, x_j) - 1) / T)` on BGE-M3 embeddings, so a label on a
+  similar item moves an unlabelled one.
+
+Replay evidence so far (multi-pair draws of the benchmark-holdout panel; test
+Brier-ALC minus the beta-binomial, 95% task bootstrap):
+
+| Model | 1-2 subjects per benchmark | 1 subject per benchmark (competition-like) | Validation |
+| --- | --- | --- | --- |
+| Pooled Rasch | -0.0035 [-0.0046, -0.0026] | -0.0011 (old priors), -0.0032 (re-tuned) | not better than the beta-binomial |
+| Kernel Rasch | -0.0049 [-0.0060, -0.0038] | -0.0024 [-0.0027, -0.0021] | ties the beta-binomial |
+
+Leaderboard: pooled Rasch (CodaBench 1024003) scored 0.2022 Brier-ALC against
+0.1486 for the shipped beta-binomial (1005155), with a large gap after one
+label (0.298 against 0.181). Each submission is scored on its own nine pairs,
+so this comparison is unpaired, and the replay does not reproduce the gap.
+Kernel Rasch is submitted as 1026246 (score pending).
+
+Before either becomes the final submission or a main-text claim:
+
+- run leave-one-benchmark-out with the multi-pair draws inside each fold;
+- widen the kernel grid (validation picked settings at its edge);
+- read the score of 1026246, and treat cross-submission leaderboard gaps as
+  unpaired;
+- check that kernel Rasch's gain is not mainly editbench's near-duplicate items
+  (54% of its items have a near-copy).
+
+Details and scripts: `docs/paper-draft.md` (Sections 3-4, Appendix C.7-C.10);
+`organized/submission/pooled_rasch/`, `organized/submission/kernel_rasch/`.
+
 ## Terminology and framing
 
 Use **benchmark-held-out out-of-distribution generalization** for the main
