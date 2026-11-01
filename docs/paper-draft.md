@@ -155,7 +155,12 @@ representation, and a mean-pooled latent path gives a global *z* (width 64,
 *z*] to a logit. Training maximises the ELBO over episodes sampled from
 training tasks. Figure B1 shows the architecture next to Kim et al.'s ANP
 (`docs/np-architecture-final.pdf`, pp. 1-3). Variants differ in training
-recipe only (Appendix B.2).
+recipe only (Appendix B.2). The most relevant is *dense-prefix training*
+(Appendix B.5, Algorithm 1): standard NP training scores each episode at one
+randomly drawn context size, whereas online evaluation reveals labels one at a
+time and scores every prefix of the same label stream. Dense-prefix training
+matches that: one random stream per task, the same held-out targets scored
+after every prefix 0, 1, ..., 31, and the losses averaged before one update.
 
 **Pooled (shared-evidence) Rasch.** At every checkpoint we fit
 
@@ -412,7 +417,7 @@ p. 1.
 | ANP + SAM | sharpness-aware minimisation [Foret et al., 2021], rho = 0.05 | 30,000 | 5,450 |
 | ANP + prior anchor | output is the beta-binomial logit plus a learned residual | 10,000 | 100 |
 | ANP + SAM, budget-ladder training | both | 30,000 | 4,350 |
-| ANP, dense-prefix training | every context prefix 0-31 per episode | 10,000 | 4,550 (replayed; the run's best later moved to 7,800) |
+| ANP, dense-prefix training | every prefix 0-31 of one label stream, same targets (B.5, Algorithm 1) | 10,000 | 4,550 (replayed; the run's best later moved to 7,800) |
 | ANP without item embeddings | all item embeddings set to zero | 15,000 [TODO: finishing] | 400 so far |
 | ANP, random-subject split (width 64 / 128) | random-subject split, trains on 7 benchmarks incl. editbench | 100,000 | 79,700 / 97,800 |
 
@@ -427,6 +432,67 @@ random-split ANP trained on, its predicted curve follows the subject's
 difficulty pattern and beats the beta-binomial after one label (0.131 against
 0.151); on algotune, never trained on, the curve stays flat and loses at every
 budget (0.213 against 0.206 at 31 labels).
+
+**B.5 Dense-prefix training.** *Motivation.* Standard episodic NP training
+[Garnelo et al., 2018b] draws one context size per episode, so each sampled
+label sequence contributes a loss at a single size, and context sets of
+different sizes in a batch come from unrelated subsets. Online evaluation is
+different: labels arrive one at a time on a single stream, the context at
+budget k is exactly the first k labels of that stream, and every budget is
+scored against the same held-out items. The predictive sequence
+`p(y_T | y_{1:0}), p(y_T | y_{1:1}), ..., p(y_T | y_{1:31})` should therefore
+be learned from nested contexts. Dense-prefix training scores all of them.
+
+*Objective.* For a task (one subject on one benchmark) with items `I`, draw a
+random permutation `pi` of `I`. The stream is `s = (pi_1, ..., pi_K)` with
+`K = min(31, |I| - 1)`, and the targets are the next up to 128 items,
+`T = (pi_{K+1}, ..., pi_{K+128})`, disjoint from the stream. Writing
+`C_k = {(x_{s_j}, y_{s_j}) : j <= k}` for the k-th prefix,
+
+    L(phi) = E_task E_pi [ 1/(K+1) * sum_{k=0..K} l_phi(C_k, T) ],
+
+where `l_phi(C, T)` is the model's usual per-episode loss: target NLL for a
+deterministic model, and for the latent ANP the negative ELBO, target NLL
+under `z ~ q(z | C u T)` plus `KL(q(z | C u T) || q(z | C))` divided by `|T|`.
+
+```
+Algorithm 1  Dense-prefix training of a neural process
+Input:  training tasks D, each a set of (item embedding, binary label) pairs;
+        max context K_max = 31; max targets M = 128; tasks per step B = 2;
+        steps S; learning rate eta
+for step = 1 .. S:
+    E <- []                                        # episodes in this step
+    for b = 1 .. B:
+        draw task t from D                         # shuffled, without replacement per epoch
+        pi <- random permutation of t's items
+        K  <- min(K_max, |t| - 1)
+        stream  <- pi[1 .. K]                      # labels arrive in this order
+        targets <- pi[K+1 .. K+M]                  # never in any prefix
+        for k = 0 .. K:                            # every prefix of the same stream
+            C_k <- stream[1 .. k] with labels
+            append (C_k, targets) to E
+    loss <- mean over (C, T) in E of l_phi(C, T)   # B * (K+1) episodes, 64 at K = 31
+    phi  <- AdamW step on grad loss (gradient clipped to norm 5)
+    every 50 steps: score a frozen validation bank the same way, all prefixes
+                    of fixed streams, and keep the best checkpoint by target Brier
+```
+
+*Cost and settings.* Each step processes B(K + 1) = 64 episodes from two
+tasks, against 8 single-size episodes from 8 tasks in the standard recipe, so
+a step sees fewer distinct tasks but every context size of each. Validation
+uses the same construction on a bank of streams frozen before training, so
+checkpoint selection is consistent with the training objective. The run used
+10,000 steps; its best validation checkpoint moved from step 4,550 (the one
+replayed and submitted) to 7,800 by the end.
+
+*Effect.* Against uniform-size training, dense-prefix training improves the
+one-label Brier on test (-0.004, significant under random and uncertainty
+acquisition) but ties on Brier-ALC (single-pair test 0.2762 against 0.2725),
+and it remains significantly worse than the beta-binomial (+0.0267). Matching
+the training objective to the evaluation protocol does not fix what fails
+under benchmark shift. Code: `_dense_prefix_episodes` in
+`organized/training/codex_es_fixed_modal_cnp_train.py`; a step-by-step
+walkthrough is in `paper-plan.md`.
 
 ## C. Ablations
 
