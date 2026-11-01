@@ -293,6 +293,18 @@ Lord, 1980] separates subject ability from item difficulty; Truong et al.
 pooled Rasch is classical IRT refit online; our results suggest the amortised
 part is what fails to transfer across benchmarks.
 
+**Item features and Gaussian processes in IRT.** Two lines relax the Rasch
+model in different directions. *Explanatory IRT* predicts item difficulty
+from item features, classically as a linear function in the linear logistic
+test model [Fischer, 1973; De Boeck and Wilson, 2004]. *GPIRT* [Duck-Mayr et
+al., 2020] instead places Gaussian-process priors on each item's response
+function of ability, relaxing the logistic shape while keeping items
+independent. Our kernel Rasch belongs to the first line: a Gaussian-process
+prior over item difficulty as a function of the item's text embedding, so
+items with similar text share difficulty, refit online at every checkpoint.
+It keeps the logistic response function, so it is not GPIRT; the two could
+be combined.
+
 **Benchmark prediction from few data.** Zhang et al. (2025) compare 11 methods
 on 19 benchmarks for predicting aggregate accuracy and find that learned
 predictors fail on unfamiliar models, while an AIPW estimator anchored to the
@@ -344,6 +356,9 @@ than meta-learned priors.
 
 - **[Brier, 1950]** G. W. Brier. Verification of forecasts expressed in terms of probability. *Monthly Weather Review* 78(1), 1950.
 - **[Finn et al., 2017]** C. Finn, P. Abbeel, S. Levine. Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks. *ICML*, 2017.
+- **[De Boeck and Wilson, 2004]** P. De Boeck, M. Wilson (eds.). *Explanatory Item Response Models: A Generalized Linear and Nonlinear Approach*. Springer, 2004.
+- **[Duck-Mayr et al., 2020]** J. Duck-Mayr, R. Garnett, J. M. Montgomery. GPIRT: A Gaussian Process Model for Item Response Theory. *UAI*, PMLR 124, 2020.
+- **[Fischer, 1973]** G. H. Fischer. The linear logistic test model as an instrument in educational research. *Acta Psychologica* 37(6), 1973.
 - **[Foret et al., 2021]** P. Foret, A. Kleiner, H. Mobahi, B. Neyshabur. Sharpness-Aware Minimization for Efficiently Improving Generalization. *ICLR*, 2021.
 - **[Garnelo et al., 2018a]** M. Garnelo, D. Rosenbaum, C. Maddison, T. Ramalho, D. Saxton, M. Shanahan, Y. W. Teh, D. Rezende, S. M. A. Eslami. Conditional Neural Processes. *ICML*, 2018.
 - **[Garnelo et al., 2018b]** M. Garnelo, J. Schwarz, D. Rosenbaum, F. Viola, D. J. Rezende, S. M. A. Eslami, Y. W. Teh. Neural Processes. *ICML Workshop on Theoretical Foundations and Applications of Deep Generative Models*, 2018.
