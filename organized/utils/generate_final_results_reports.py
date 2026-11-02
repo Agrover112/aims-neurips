@@ -309,8 +309,8 @@ def data_split_schematic_page(pdf: PdfPages) -> None:
     _caption(fig, "Figure. Schematic of the subject x item response matrix (shape, not scale): items are grouped "
              "into benchmarks of unequal size, and each subject answers mostly one benchmark, so the observed cells "
              "form blocks. (a) The random-subject split holds out subjects inside every benchmark, so every "
-             "benchmark is seen in training. (b) The benchmark holdout holds out whole benchmarks (outlined): "
-             "validation and test items come from benchmarks never seen in training; ours uses 11 training, 3 "
+             "benchmark is ID. (b) The benchmark holdout holds out whole benchmarks (outlined): "
+             "validation and test items come from OOD benchmarks; ours uses 11 training, 3 "
              "validation and 3 test benchmarks. (c) Within each held-out task the items are split once, 50/50, "
              "into an acquisition pool, from which up to 31 labels are bought one at a time in stream order, and a "
              "fixed evaluation pool that is never revealed and is scored at every budget.")

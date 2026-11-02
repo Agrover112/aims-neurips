@@ -51,13 +51,13 @@ HOLDOUT = "denseprefix-unweighted-best-step4550"       # trained on neither
 # holdout split that neither model ever trained on.
 VARIANTS = {
     "in-dist": dict(benchmark="bird_sql", main=RANDOM_SPLIT, other=HOLDOUT,
-                    main_label="ANP, random-subject split (trained on bird_sql)",
-                    other_label="ANP, prefix training (never saw bird_sql)",
-                    tag="ID: the model trained on this benchmark"),
+                    main_label="ANP, random-subject split (bird_sql: ID)",
+                    other_label="ANP, prefix training (bird_sql: OOD)",
+                    tag="ID: the benchmark was in training"),
     "ood": dict(benchmark="algotune", main=HOLDOUT, other=RANDOM_SPLIT,
-                main_label="ANP, prefix training (never saw algotune)",
-                other_label="ANP, random-subject split (never saw algotune)",
-                tag="OOD: the model never saw this benchmark"),
+                main_label="ANP, prefix training (algotune: OOD)",
+                other_label="ANP, random-subject split (algotune: OOD)",
+                tag="OOD: the benchmark was not in training"),
 }
 BUDGETS = [0, 1, 3, 7, 15, 31]
 SHOWN = [0, 1, 7, 31]

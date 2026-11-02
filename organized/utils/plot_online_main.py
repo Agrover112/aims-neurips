@@ -283,7 +283,8 @@ def ablation_table_page(pdf, t: pd.DataFrame):
             d = (_alc(m) - _alc(base["test"]).reindex(m.index)).dropna().to_numpy()
             mean, lo, hi = _boot(d, rng)
             star = "*" if lo > 0 or hi < 0 else ""
-            rows.append([f"  {label}", protocol, cells[0], cells[1], f"{mean:+.4f} [{lo:+.4f}, {hi:+.4f}]{star}"])
+            tag = " (ID + OOD)" if key in ("w64-contam", "w128") else ""
+            rows.append([f"  {label}{tag}", protocol, cells[0], cells[1], f"{mean:+.4f} [{lo:+.4f}, {hi:+.4f}]{star}"])
     rows.append(["Not simulated online", "", "", "", ""])
     bold.add(len(rows) - 1)
     for label, why in NOT_REPLAYED:
@@ -291,11 +292,11 @@ def ablation_table_page(pdf, t: pd.DataFrame):
 
     height = 1.55 + 0.15 * len(rows)
     fig = plt.figure(figsize=(TEXTWIDTH, height))
-    header(fig, "Only pooling other subjects' labels beats the Beta-Binomial on unseen benchmarks")
+    header(fig, "Only pooling other subjects' labels beats the Beta-Binomial OOD")
     ax = fig.add_axes((0.015, 1.0 / height, 0.97, 1 - 1.38 / height))
     ax.axis("off")
-    table = ax.table(cellText=rows, colLabels=["model", "protocol", "val ALC", "test ALC", "test minus Beta-Binomial [95% CI]"],
-                     colWidths=[0.36, 0.11, 0.1, 0.1, 0.33], bbox=[0, 0, 1, 1], cellLoc="center")
+    table = ax.table(cellText=rows, colLabels=["model", "protocol", "val ALC", "test ALC", "test difference [95% CI]"],
+                     colWidths=[0.45, 0.10, 0.09, 0.09, 0.27], bbox=[0, 0, 1, 1], cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(5.6)
     for (r, c), cell in table.get_celld().items():
@@ -313,7 +314,7 @@ def ablation_table_page(pdf, t: pd.DataFrame):
             "the Beta-Binomial (Jeffreys prior) under the same protocol, with a 95% bootstrap interval over tasks; * marks intervals "
             "that exclude 0. Single-pair Beta-Binomial: 0.1717 / 0.2494 (val / test); multi-pair: 0.1685 / 0.2497. "
             "Validation selected the ensemble weights, the metadata L2 and the pooled-Rasch priors. The "
-            "random-split ANPs trained on editbench. Rows under 'Not simulated online' were trained but have no "
+            "random-subject-split ANPs trained on editbench, so their results mix ID (editbench) and OOD (algotune, cmmlu) tasks; every other row is OOD. Rows under 'Not simulated online' were trained but have no "
             "online-simulation result.")
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig

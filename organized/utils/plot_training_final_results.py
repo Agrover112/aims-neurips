@@ -241,7 +241,7 @@ def overview_page(pdf, meta: dict):
     notes = (
         "bank Brier: best value on the run's own fixed validation bank, the metric that "
         "picked its checkpoint. That bank's context sizes follow the run's sampling "
-        "scheme, and in-distribution banks hold benchmarks the run trained on, so bank "
+        "scheme, and ID banks hold benchmarks the run trained on, so bank "
         "Brier compares only runs with the same bank.\n"
         "Online sim. val / test: random acquisition on the 82-task validation and 45-task test "
         "panels, the same protocol for every row. The random-split runs trained on "
