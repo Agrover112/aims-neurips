@@ -12,27 +12,7 @@ done yet.*
 
 ## Abstract
 
-Evaluating a language model on a new benchmark is expensive, so a natural goal
-is to predict its answers from a handful of labelled items. Neural processes
-and other meta-learners promise exactly this: trained on many
-(subject, benchmark) tasks, they should infer a new subject's behaviour from a
-few labels. We test this promise in the AIMS online-evaluation setting, where
-a predictor sees labels one at a time and is scored by Brier score at budgets
-of 0 to 31 labels, on benchmarks held out from training. Across eight
-Attentive Neural Process (ANP) variants, none beats a two-line beta-binomial
-estimator on unseen benchmarks; the best is worse by 0.017 Brier-ALC. The
-deficit sits almost entirely at zero and one label. Diagnostics show why: the
-ANP's estimate of a subject's overall level transfers, but its learned item
-ordering is benchmark-specific and actively hurts on new benchmarks, while
-text embeddings predict item difficulty within a benchmark but not across
-benchmarks. Mixing the ANP with the beta-binomial limits the damage but never
-turns it into a gain, and conditioning a beta-binomial prior on subject
-metadata breaks under the shift to newer models. The only method that beats
-the beta-binomial is a Rasch model refit at test time on every subject's
-revealed labels, which needs no training at all: it improves Brier-ALC by
-0.0035 (95% CI 0.0026 to 0.0045) on simulated competition draws. In this
-regime, sharing evidence across subjects at test time matters more than
-anything a meta-learner learns offline.
+Evaluating language models across benchmarks is expensive, so a natural goal is to predict how a model will answer each item of a new benchmark after seeing only a few labelled answers. Neural processes offer one approach: trained on many past (model, benchmark) tasks, they infer a new task from a handful of labels. But evaluation rarely stays in distribution. New benchmarks and new models keep arriving, so a predictor trained on past tasks is asked about unseen benchmarks and models. We ask what such a predictor actually transfers. We build an online protocol in which labels are bought one at a time and predictions are scored by Brier ALC, on unseen benchmarks and models. Attentive Neural Processes trained this way fail to beat a Beta-Binomial estimator on the unseen benchmarks. Because item difficulty is specific to each benchmark, we instead estimate it from the new benchmark itself, at test time. In simulations of the online protocol on three unseen benchmarks, a Rasch (one-parameter logistic item response theory) model refit on the labels revealed for all models, with no offline training, improves on the Beta-Binomial baseline (−0.0035 Brier ALC, 95% CI [−0.0046, −0.0026]), and a Gaussian-process prior that ties the difficulty of similar items together improves it further (−0.0049). A model's ability carries over to an unseen benchmark, but item difficulty does not, so it is better estimated online than learned from past benchmarks.
 
 ---
 
@@ -65,9 +45,10 @@ a strict benchmark holdout. Our contributions:
 1. **A benchmark-held-out streaming replay** of the AIMS online protocol, with
    frozen candidate orders, disjoint acquisition and evaluation pools, and a
    multi-pair variant that mirrors the competition's draws (Section 2).
-2. **A negative result for meta-learning.** Eight ANP variants, plus
-   combinations with the beta-binomial, never beat a beta-binomial on unseen
-   benchmarks (Section 4, Appendix C).
+2. **A negative result for neural processes.** Three clean ANP variants (the
+   others were trained but not replayed on test, or trained on a test
+   benchmark), plus combinations with the beta-binomial, never beat a
+   beta-binomial on unseen benchmarks (Section 4, Appendix C).
 3. **A diagnosis.** The ANP's level estimate transfers and its item ordering
    does not; text embeddings carry within-benchmark but not cross-benchmark
    difficulty; subject metadata breaks under model shift (Section 5,
