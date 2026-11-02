@@ -106,7 +106,7 @@ Leaderboard: pooled Rasch (CodaBench 1024003) scored 0.2022 Brier ALC against
 0.1486 for the shipped Beta-Binomial (1005155), with a large gap after one
 label (0.298 against 0.181). Each submission is scored on its own nine pairs,
 so this comparison is unpaired, and the online simulation does not reproduce the gap.
-Kernel Rasch is submitted as 1026246 (score pending).
+Kernel Rasch is submitted as 1026512 (score pending; 1026246 failed to import and was cancelled).
 
 Before either becomes the final submission or a main-text claim:
 
@@ -117,7 +117,7 @@ Before either becomes the final submission or a main-text claim:
 - check that kernel Rasch's gain is not mainly editbench's near-duplicate items
   (54% of its items have a near-copy).
 
-Details and scripts: `docs/paper-draft.md` (Sections 3-4, Appendix C.7-C.10);
+Details and scripts: `docs/paper-draft.md` (Sections 4-5, Appendices C.7-C.9 and D.3);
 `organized/submission/pooled_rasch/`, `organized/submission/kernel_rasch/`.
 
 ## Terminology and framing
