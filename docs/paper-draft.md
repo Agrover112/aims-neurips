@@ -479,15 +479,26 @@ be combined.
 
 **Difficulty prediction without outcomes.** Krsteski and Meyer (2026) predict each
 task's Rasch difficulty before any agent runs it, from task text, language-model
-entropy features and embeddings, across many agentic benchmarks. Predictions
+entropy features and embeddings, across many agentic benchmarks. Their setting
+differs from ours in what is known and what is held out. They fit a Rasch model to a
+known pool of agents on a partially observed response matrix, which gives every task
+a difficulty to predict, and they hold out tasks or whole benchmarks
+(leave-one-benchmark-out); at prediction time they know the task text and the agent
+pool, and the unknown is the task's difficulty. In the competition setting the
+subjects are hidden and new, and so are the benchmarks. What is known is subject
+metadata, item text, the benchmark identity and the labels acquired so far, and what
+is unknown is the subject's ability, the item's difficulty and the evaluation labels.
+We must therefore predict a particular subject's outcome on a particular item with
+both subject and benchmark unseen, a harder target than a task's difficulty, which is
+consistent with our finding that text features alone are not enough. Their predictions
 recover the fitted difficulty well in distribution but much less on an unseen
-benchmark (leave-one-benchmark-out), and embeddings alone recover almost none, in
-line with our finding that text embeddings recover little cross-benchmark
-difficulty. They also show that response AUC stays high for
-degenerate difficulty estimates, because it mostly rewards ability, and evaluate
-within-benchmark rank recovery instead; we likewise report a difficulty-specific
-metric beside Brier (Table 4). Their setting has no revealed outcomes. Ours has a
-few, and kernel Rasch combines text similarity with the labels that arrive.
+benchmark, and embeddings alone recover almost none, in line with our finding that
+text embeddings recover little cross-benchmark difficulty. They also show that
+response AUC stays high for degenerate difficulty estimates, because it mostly
+rewards ability, and evaluate within-benchmark rank recovery instead; we likewise
+report a difficulty-specific metric beside Brier. Their setting has no revealed
+outcomes. Ours has a few, and kernel Rasch combines text similarity with the labels
+that arrive.
 
 **Benchmark prediction from few data.** Zhang et al. (2025) compare many methods
 across benchmarks for predicting aggregate accuracy and find that learned
@@ -495,7 +506,7 @@ predictors fail on unfamiliar models, while an AIPW estimator anchored to the
 observed labels holds up. We find the item-level analogue: under benchmark
 shift the estimator anchored to observed labels (Beta-Binomial, pooled Rasch)
 beats the learned prior. An AIPW-style correction does not carry over to
-item-level probabilities from a handful of labels (Appendix C.3).
+item-level probabilities from a handful of labels.
 
 **Meta-learning.** MAML [Finn et al., 2017] adapts by gradient steps; NPs by
 conditioning. Both assume the training tasks resemble the test tasks, which a
