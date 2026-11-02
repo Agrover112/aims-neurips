@@ -115,6 +115,16 @@ with different observed pass rates, for which the model correctly says which ite
 is harder; a random guess scores 0.5. Both are computed per benchmark and
 averaged over benchmarks.
 
+**Item embeddings and the probe.** Every item's text is mapped to a fixed
+1024-dimensional vector $x_i$ by the frozen BGE-M3 embedding model [Chen et al.,
+2024]; all models in this paper describe an item only through this *item
+embedding*. A *linear probe* is a linear model trained on frozen embeddings to
+predict a target. Here, **the probe** is a ridge regression (least squares with an
+L2 penalty chosen by cross-validation) from the item embedding to the item's
+observed pass rate, centred within its benchmark. It measures how much of an item's
+difficulty the embedding carries, with no other model involved. Its fitting
+protocol is in Appendix D.2.
+
 **Beta-Binomial baseline.** Treat a subject's answers on a benchmark as
 exchangeable Bernoulli draws with one unknown accuracy $\pi$, and put a Beta prior
 on it, $\pi \sim \mathrm{Beta}(\alpha, \beta)$. After $n$ revealed labels, $h$ of
@@ -218,8 +228,8 @@ the acquisition policy does not matter).
 
 ## 4. Methods
 
-**Attentive Neural Process (ANP).** Each item is a 1024-d BGE-M3 embedding of its
-text. A context of (item, label) pairs is encoded by a shared value embedding and
+**Attentive Neural Process (ANP).** Each item is represented by its embedding $x_i$
+(Section 2). A context of (item, label) pairs is encoded by a shared value embedding and
 one self-attention block; a target item attends to the context (keys from
 embeddings only, values carrying labels) to form a deterministic representation,
 and a mean-pooled latent path gives a global $z$ (width 64, 4 heads, 32-d latent).
@@ -404,7 +414,7 @@ better; * marks a 95% CI that excludes zero.
 | ANP, random-subject split: editbench (seen in training) | -0.073* | -0.025* | -0.053* | -0.081* | -0.011* | -0.073* |
 
 **Text embeddings recover little cross-benchmark difficulty.** Within a benchmark, item
-text does predict which items are harder: a ridge probe from BGE-M3 embeddings
+text does predict which items are harder: the probe
 reaches Spearman rank correlation 0.40 and pairwise accuracy 0.65 on held-out items of the
 11 training benchmarks, and the ANPs trained on a benchmark reach
 0.40 to 0.48 on its items (Table 4). The benchmark-holdout ANPs, stopped early at the checkpoint that is best on the unseen validation benchmarks, learn little item ordering even on their own training benchmarks (0.10 to 0.13): the ordering is learned late and is specific to the benchmarks seen. On unseen benchmarks the probe falls to
@@ -429,7 +439,7 @@ ANPs). A random guess scores $\rho = 0$ and pairwise accuracy 0.5.
 | ANP, prefix training | +0.12 | 0.54 | +0.04 | 0.51 | 11 / 6 |
 | ANP, random-subject split | +0.48 | 0.67 | +0.03 | 0.51 | 7 / 10 |
 | ANP, random-subject split (width 128) | +0.40 | 0.64 | +0.03 | 0.51 | 7 / 10 |
-| Ridge probe on BGE-M3 embeddings | +0.40 | 0.65 | +0.09 | 0.53 | 11 / 6 |
+| Probe | +0.40 | 0.65 | +0.09 | 0.53 | 11 / 6 |
 
 **The ANP overfits the training benchmarks.** With the split as the only
 difference, the same ANP's validation NLL keeps falling in distribution but
@@ -567,7 +577,7 @@ learning a prior.
 - **[Rasch, 1960]** G. Rasch. *Probabilistic Models for Some Intelligence and Attainment Tests*. Danish Institute for Educational Research, 1960.
 - **[Truong et al., 2025]** S. T. Truong, Y. Tu, P. Liang, B. Li, S. Koyejo. Reliable and Efficient Amortized Model-based Evaluation. *ICML*, PMLR 267, 2025.
 - **[Zhang et al., 2025]** G. Zhang, F. E. Dorner, M. Hardt. How Benchmark Prediction from Fewer Data Misses the Mark. arXiv:2506.07673, 2025.
-- **[TODO]** BGE-M3 embedding model citation; Qwen3 embedding citation.
+- **[Chen et al., 2024]** J. Chen, S. Xiao, P. Zhang, K. Luo, D. Lian, Z. Liu. BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation. arXiv:2402.03216, 2024. **[verify]**
 
 ---
 
@@ -622,7 +632,7 @@ Supports Section 4.
 **B.1 Architecture.** `docs/np-architecture-final.pdf`: p. 1, NP and ANP after
 Kim et al. (2019); p. 2, our ANP; p. 3, its graphical model.
 
-**B.2 Training variants.** All use the benchmark holdout, BGE-M3 embeddings,
+**B.2 Training variants.** All use the benchmark holdout, the item embeddings of Section 2,
 width 64, one self-attention block, 4 heads, a 32-d latent, and early stopping
 on a fixed validation bank. Overview table: `docs/training-final-results.pdf`,
 p. 1.
@@ -754,7 +764,7 @@ despite being best on validation.
 **C.8 Sharing difficulty across similar items: kernel Rasch.** Kernel Rasch
 (Section 4) correlates difficulties within a benchmark through
 $K = \tau^2[(1 - \rho) I + \rho S]$ with $S_{ij} = \exp\big((\cos(x_i, x_j) - 1)/T\big)$
-on BGE-M3 embeddings. Clustered Rasch uses $S_{ij} = \mathbb{1}[\text{same k-means cluster}]$
+on the item embeddings. Clustered Rasch uses $S_{ij} = \mathbb{1}[\text{same k-means cluster}]$
 instead. Settings were chosen on the 60 validation draws (kernel: $T = 0.2$,
 $\rho = 0.8$, $\tau = 1.4$, at the edge of the grid **[TODO: widen]**; clustered:
 $k = 16$, $\rho = 0.5$) and scored on the same 150 test draws as Section 5.2.
@@ -834,8 +844,11 @@ only" pairs the ANP's item offsets with the Beta-Binomial's ability estimate.
 | ANP, random-subject split (width 128): unseen | +0.050* [+0.044, +0.057] | -0.009* [-0.013, -0.005] | +0.052* [+0.045, +0.058] |
 | ANP, random-subject split (width 128): editbench (seen) | -0.079* [-0.090, -0.068] | -0.009* [-0.012, -0.007] | -0.072* [-0.082, -0.063] |
 
-**D.2 Text embeddings and item difficulty.** Ridge probe from BGE-M3
-embeddings to item pass rate (within-benchmark-centred targets).
+**D.2 Embeddings and item difficulty.** The probe (Section 2) is fitted in two ways, with the L2
+penalty chosen from {0.01, 0.1, 1, 10, 100} by cross-validation. *Within a benchmark (ID):* on a random 80% of
+a training benchmark's items and scored on the remaining 20%. *Across benchmarks (OOD):* on up to 800 items
+of each of the 11 training benchmarks and scored on each unseen benchmark. Targets are centred within each
+benchmark.
 
 | Fit on | Score on | r |
 | --- | --- | --- |
@@ -846,7 +859,7 @@ embeddings to item pass rate (within-benchmark-centred targets).
 Per unseen benchmark, Spearman rank correlation / pairwise accuracy (the OOD columns of Table 4;
 script: `organized/testing/online/difficulty_rank_metrics.py`):
 
-| Benchmark (role) | ANP | ANP, prefix training | Ridge probe |
+| Benchmark (role) | ANP | ANP, prefix training | Probe |
 | --- | --- | --- | --- |
 | algotune (test) | -0.04 / 0.48 | -0.04 / 0.48 | -0.09 / 0.47 |
 | cmmlu (test) | -0.06 / 0.48 | -0.07 / 0.48 | +0.08 / 0.53 |
@@ -862,8 +875,8 @@ the random-split models on p. 10). Data-analysis summary:
 
 **D.3 Are answers IID within a task?** The Beta-Binomial assumes a subject's
 answers on one benchmark are IID given one rate. They are not: after removing
-each task's mean, a subject's answers on two text-similar items (BGE-M3
-nearest neighbours, mean cosine 0.84) correlate +0.24 [0.18, 0.30] on test and
+each task's mean, a subject's answers on two text-similar items (nearest
+neighbours in embedding space, mean cosine 0.84) correlate +0.24 [0.18, 0.30] on test and
 +0.19 [0.17, 0.22] on validation, against about 0 for random item pairs
 (editbench +0.48). A group-weighted Beta-Binomial that lets labels on similar
 items count more, $\hat p_i = \dfrac{\kappa g + \sum_j w_{ij} y_j}{\kappa + \sum_j w_{ij}}$, with $g$ the Beta-Binomial estimate\nand similarity weights $w_{ij}$ ($\kappa = 1$, temperature 0.1, chosen on validation), gains little: -0.0006 [-0.0009, -0.0003] on validation and
@@ -926,7 +939,7 @@ budget (0.213 against 0.206 at 31 labels).
 | ANP training | `organized/training/codex_es_fixed_modal_cnp_train.py`, `modal_anp_crossattn_train.py`, `local_anp_train.py` |
 | Figures | `organized/utils/plot_*_final*.py`, `plot_online_main.py`, `plot_online_posthoc.py`, `plot_ability_final.py`; display names in `model_names.py` |
 | Pooled Rasch submission | `organized/submission/pooled_rasch/` |
-| CodaBench submissions (leaderboard Brier ALC, each on its own 9 pairs) | 1005155 Beta-Binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, prefix training 0.1918; 1024003 pooled Rasch 0.2022; 1026512 kernel Rasch [TODO] |
+| CodaBench submissions (leaderboard Brier ALC, each on its own 9 pairs) | 1005155 Beta-Binomial 0.1486; 1019401 constant-0.8 test submission 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, prefix training 0.1918; 1024003 pooled Rasch 0.2022; 1026512 kernel Rasch [TODO] |
 
 ## F. Open items
 

@@ -74,7 +74,7 @@ def main() -> int:
             s[["model", "setting"]] = m, setting
             rows.append(s)
 
-    # Ridge probe from item-text embeddings to centred observed pass rate.
+    # The probe: ridge regression from item embeddings to centred observed pass rate.
     ids = pd.read_parquet(EMB / "items.parquet")["item_uid"].astype(str).to_numpy()
     pos = {u: i for i, u in enumerate(ids)}
     store = np.load(EMB / "item_embeddings.npy", mmap_mode="r")
@@ -90,7 +90,7 @@ def main() -> int:
         test = t.loc[idx[cut:]].assign(probe=m.predict(X[idx[cut:]]))
         probe_id.append(score(test, "probe", rng))
     s = pd.concat(probe_id)
-    s[["model", "setting"]] = "Ridge probe on BGE-M3 embeddings", "ID"
+    s[["model", "setting"]] = "Probe", "ID"
     rows.append(s)
     # OOD: fit on (up to 800 items of) each training benchmark, score on the unseen benchmarks.
     train_idx = np.concatenate([rng.choice(g.index.to_numpy(), min(800, len(g)), replace=False)
@@ -99,7 +99,7 @@ def main() -> int:
     unseen = t[t.benchmark_split != "train"].copy()
     unseen["probe"] = m.predict(X[unseen.index.to_numpy()])
     s = score(unseen, "probe", rng)
-    s[["model", "setting"]] = "Ridge probe on BGE-M3 embeddings", "OOD"
+    s[["model", "setting"]] = "Probe", "OOD"
     rows.append(s)
 
     per_bench = pd.concat(rows, ignore_index=True)
