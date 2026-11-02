@@ -12,7 +12,7 @@ done yet.*
 
 ## Abstract
 
-Evaluating language models across benchmarks is expensive, so a natural goal is to predict how a model will answer each item of a new benchmark after seeing only a few labelled answers. Neural processes offer one approach: trained on many past (model, benchmark) tasks, they infer a new task from a handful of labels. But evaluation rarely stays in distribution. New benchmarks and new models keep arriving, so a predictor trained on past tasks is asked about unseen benchmarks and models. We ask what such a predictor actually transfers. We build an online protocol in which labels are bought one at a time and predictions are scored by Brier ALC, on unseen benchmarks and models. Attentive Neural Processes trained this way fail to beat a Beta-Binomial estimator on the unseen benchmarks. Because item difficulty is specific to each benchmark, we instead estimate it from the new benchmark itself, at test time. In simulations of the online protocol on three unseen benchmarks, a Rasch (one-parameter logistic item response theory) model refit on the labels revealed for all models, with no offline training, improves on the Beta-Binomial baseline (−0.0035 Brier ALC, 95% CI [−0.0046, −0.0026]), and a Gaussian-process prior that ties the difficulty of similar items together improves it further (−0.0049). A model's ability carries over to an unseen benchmark, but item difficulty does not, so it is better estimated online than learned from past benchmarks.
+Evaluating language models across benchmarks is expensive, so a natural goal is to predict how a model will answer each item of a new benchmark after seeing only a few labelled answers. Neural processes offer one approach: trained on many past (model, benchmark) tasks, they infer a new task from a handful of labels. But evaluation rarely stays in distribution. New benchmarks and new models keep arriving, so a predictor trained on past tasks is asked about unseen benchmarks and models. We ask what such a predictor actually transfers. We build an online protocol in which labels are bought one at a time and predictions are scored by Brier ALC, on unseen benchmarks and models. Attentive Neural Processes trained this way fail to beat a Beta-Binomial estimator on the unseen benchmarks. Because item difficulty is specific to each benchmark, we instead estimate it from the new benchmark itself, at test time. In simulations of the online protocol on three unseen benchmarks, a Rasch (one-parameter logistic item response theory) model refit on the labels revealed for all models, with no offline training, improves on the Beta-Binomial baseline (−0.0035 Brier ALC, 95% CI [−0.0046, −0.0026]), and a Gaussian-process prior that ties the difficulty of similar items together improves it further (−0.0049). A model's ability carries over to an unseen benchmark, but item difficulty largely does not (text embeddings recover little of it across benchmarks), so it is better estimated online than learned from past benchmarks.
 
 ---
 
@@ -55,7 +55,7 @@ never seen in training. We ask three questions.
   ability or the difficulty of its items, carries over to a new benchmark?
   (Section 6)
 
-Our answers are: no, yes, and ability but not difficulty. We contribute an
+Our answers are: no, yes, and ability but little of difficulty. We contribute an
 online simulation protocol that mirrors the competition's draws (Section 3), a
 negative result and a diagnosis for neural processes (RQ1 and RQ3), and a
 test-time Rasch estimator, optionally with a Gaussian-process prior over item
@@ -103,6 +103,17 @@ budget $k \in \{0, 1, 3, 7, 15, 31\}$, and **Brier ALC** is its weighted average
 $\mathrm{ALC} = \sum_k w_k\, \mathrm{Brier}_k$ with
 $w = (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)$ (the normalized area under the curve on a log
 scale), so 70% of the weight is on seven labels or fewer.
+
+**Item-difficulty metrics.** To score how well a model recovers which items are
+harder, independently of any subject's ability, we compare its predicted
+probability of a correct answer for each item with the item's *observed pass
+rate* (the fraction of subjects who answered it correctly), within one benchmark
+at a time. The *Spearman rank correlation* $\rho$ is the ordinary correlation
+between the two rankings of the items (+1 for identical order, 0 for unrelated,
+-1 for reversed). *Pairwise accuracy* is the fraction of item pairs, among pairs
+with different observed pass rates, for which the model correctly says which item
+is harder; a random guess scores 0.5. Both are computed per benchmark and
+averaged over benchmarks.
 
 **Beta-Binomial baseline.** Treat a subject's answers on a benchmark as
 exchangeable Bernoulli draws with one unknown accuracy $\pi$, and put a Beta prior
@@ -354,9 +365,9 @@ from a sharper ability estimate.
 
 ## 6. RQ3: What transfers across benchmarks, ability or difficulty?
 
-**Answer: a model's ability, in a limited sense; not the difficulty of items.**
+**Answer: a model's ability, in a limited sense; little of the difficulty of items.**
 
-**An ANP's ability component transfers; its difficulty component does not.** We
+**An ANP's ability component transfers; its difficulty component does not help.** We
 split each ANP prediction into an *ability component*, its mean over the task's
 items (how well the ANP thinks the subject does on this benchmark overall), and a
 *difficulty component*, each item's offset from that mean (which items it thinks
@@ -392,15 +403,33 @@ better; * marks a 95% CI that excludes zero.
 | ANP, random-subject split: unseen benchmarks | +0.040* | -0.003 | +0.039* | +0.046* | -0.010* | +0.050* |
 | ANP, random-subject split: editbench (seen in training) | -0.073* | -0.025* | -0.053* | -0.081* | -0.011* | -0.073* |
 
-**Text carries within-benchmark, not cross-benchmark, difficulty.** A ridge
-probe from BGE-M3 embeddings to item pass rate reaches r = 0.22 to 0.88 when
-fitted and tested inside one benchmark, but about 0 when the within-benchmark
-ordering is tested on a held-out benchmark (Appendix D.2). Transfer grows
-slowly with the number of training benchmarks, from r = 0.007 with one to
-0.076 with 14, far from the within-benchmark level. The ANP's budget-0 item
-predictions mirror this: r = +0.46 on benchmarks the random-split model
-trained on, +0.14 on the rest, and about -0.05 on test for the holdout models
-(`docs/item_difficulty-final-results.pdf`, pp. 2 and 10).
+**Text embeddings recover little cross-benchmark difficulty.** Within a benchmark, item
+text does predict which items are harder: a ridge probe from BGE-M3 embeddings
+reaches Spearman rank correlation 0.40 and pairwise accuracy 0.65 on held-out items of the
+11 training benchmarks, and the ANPs trained on a benchmark reach
+0.40 to 0.48 on its items (Table 4). The benchmark-holdout ANPs, stopped early at the checkpoint that is best on the unseen validation benchmarks, learn little item ordering even on their own training benchmarks (0.10 to 0.13): the ordering is learned late and is specific to the benchmarks seen. On unseen benchmarks the probe falls to
+0.09 and 0.53, and every ANP to between +0.00 and +0.04 and 0.50 to 0.51,
+which is chance. The probe improves only slowly with the number of training benchmarks
+(Appendix D.2). Krsteski and Meyer (2026) report the same on agentic benchmarks: embeddings of
+a task's text reach 0.017 out of distribution against 0.107 in distribution, while
+language-model entropy features, which we did not test, retain more (0.137).
+
+**Table 4** (RQ3). Item-difficulty recovery within a benchmark: Spearman rank correlation
+$\rho$ and pairwise accuracy between each model's predicted probability of a correct
+answer for an item (ANPs: budget 0, no labels) and the item's observed pass rate, averaged
+over benchmarks. ID: benchmarks the model trained on (probe: held-out items of the 11
+training benchmarks; ANPs: items seen in training, subjects held out). OOD: unseen
+benchmarks (6 for the benchmark-holdout models and the probe, 10 for the random-subject-split
+ANPs). A random guess scores $\rho = 0$ and pairwise accuracy 0.5.
+
+| Model | ID $\rho$ | ID pairwise acc. | OOD $\rho$ | OOD pairwise acc. | Benchmarks (ID / OOD) |
+| --- | --- | --- | --- | --- | --- |
+| ANP | +0.10 | 0.53 | +0.00 | 0.50 | 11 / 6 |
+| ANP + SAM | +0.13 | 0.55 | +0.01 | 0.50 | 11 / 6 |
+| ANP, prefix training | +0.12 | 0.54 | +0.04 | 0.51 | 11 / 6 |
+| ANP, random-subject split | +0.48 | 0.67 | +0.03 | 0.51 | 7 / 10 |
+| ANP, random-subject split (width 128) | +0.40 | 0.64 | +0.03 | 0.51 | 7 / 10 |
+| Ridge probe on BGE-M3 embeddings | +0.40 | 0.65 | +0.09 | 0.53 | 11 / 6 |
 
 **The ANP overfits the training benchmarks.** With the split as the only
 difference, the same ANP's validation NLL keeps falling in distribution but
@@ -448,6 +477,18 @@ items with similar text share difficulty, refit online at every checkpoint.
 It keeps the logistic response function, so it is not GPIRT; the two could
 be combined.
 
+**Difficulty prediction without outcomes.** Krsteski and Meyer (2026) predict each
+task's Rasch difficulty before any agent runs it, from task text, language-model
+entropy features and embeddings, over 17 agentic benchmarks. In distribution the
+best feature set reaches a Spearman rank correlation of 0.40 with the fitted
+difficulty; on an unseen benchmark (leave-one-benchmark-out) it drops to 0.23, and
+embeddings alone reach 0.02, in line with our finding that text embeddings recover
+little cross-benchmark difficulty. They also show that response AUC stays high for
+degenerate difficulty estimates, because it mostly rewards ability, and evaluate
+within-benchmark rank recovery instead; we likewise report a difficulty-specific
+metric beside Brier (Table 4). Their setting has no revealed outcomes. Ours has a
+few, and kernel Rasch combines text similarity with the labels that arrive.
+
 **Benchmark prediction from few data.** Zhang et al. (2025) compare 11 methods
 on 19 benchmarks for predicting aggregate accuracy and find that learned
 predictors fail on unfamiliar models, while an AIPW estimator anchored to the
@@ -487,8 +528,8 @@ benchmark holdout breaks.
 
 On unseen benchmarks with a few revealed labels, the neural processes we trained
 do not beat a Beta-Binomial estimator. A model's ability, estimated from its own
-labels, carries over to a new benchmark; the difficulty of the benchmark's items
-does not, and what the networks learn about it is specific to the benchmarks they
+labels, carries over to a new benchmark; little of the difficulty of the benchmark's items
+does, and what the networks learn about it is specific to the benchmarks they
 saw. Estimating difficulty at test time from the new benchmark's own labels,
 shared across subjects (Rasch) and across similar items (kernel Rasch), improves
 on the Beta-Binomial without any offline training. For online evaluation under
@@ -509,6 +550,7 @@ learning a prior.
 - **[Garnelo et al., 2018b]** M. Garnelo, J. Schwarz, D. Rosenbaum, F. Viola, D. J. Rezende, S. M. A. Eslami, Y. W. Teh. Neural Processes. *ICML Workshop on Theoretical Foundations and Applications of Deep Generative Models*, 2018.
 - **[Jeffreys, 1946]** H. Jeffreys. An invariant form for the prior probability in estimation problems. *Proc. Royal Society A* 186, 1946.
 - **[Kim et al., 2019]** H. Kim, A. Mnih, J. Schwarz, M. Garnelo, A. Eslami, D. Rosenbaum, O. Vinyals, Y. W. Teh. Attentive Neural Processes. *ICLR*, 2019.
+- **[Krsteski and Meyer, 2026]** S. Krsteski, C. Meyer. Predicting Task Difficulty Without Rollouts. *COLM 2026 Workshop on Agent Behavior*; arXiv:2608.05797, 2026.
 - **[Lord, 1980]** F. M. Lord. *Applications of Item Response Theory to Practical Testing Problems*. Erlbaum, 1980.
 - **[Mortimer et al., 2026]** P. Mortimer, C. Diaconu, T. Rochussen, B. K. Mlodozeniec, R. E. Turner. Incremental Transformer Neural Processes. *ICML*, PMLR 306, 2026.
 - **[Rasch, 1960]** G. Rasch. *Probabilistic Models for Some Intelligence and Attainment Tests*. Danish Institute for Educational Research, 1960.
@@ -789,6 +831,18 @@ embeddings to item pass rate (within-benchmark-centred targets).
 | 80% of a benchmark's items | its other 20% | 0.22 (cmmlu) to 0.88 (editbench) |
 | 11 training benchmarks | held-out benchmarks, within each | about 0 |
 | 1 / 4 / 8 / 11 / 14 non-test benchmarks | test benchmarks, within each | 0.007 / 0.020 / 0.037 / 0.037 / 0.076 |
+
+Per unseen benchmark, Spearman rank correlation / pairwise accuracy (the OOD columns of Table 4;
+script: `organized/testing/online/difficulty_rank_metrics.py`):
+
+| Benchmark (role) | ANP | ANP, prefix training | Ridge probe |
+| --- | --- | --- | --- |
+| algotune (test) | -0.04 / 0.48 | -0.04 / 0.48 | -0.09 / 0.47 |
+| cmmlu (test) | -0.06 / 0.48 | -0.07 / 0.48 | +0.08 / 0.53 |
+| editbench (test) | +0.03 / 0.51 | +0.05 / 0.52 | -0.05 / 0.49 |
+| ai2d_test (validation) | -0.04 / 0.49 | +0.00 / 0.50 | +0.20 / 0.56 |
+| bird_sql (validation) | +0.01 / 0.51 | +0.16 / 0.55 | +0.12 / 0.54 |
+| financebench (validation) | +0.13 / 0.55 | +0.15 / 0.55 | +0.27 / 0.60 |
 
 `docs/item_difficulty-final-results.pdf`: budget-0 predictions against observed
 item difficulty for every ANP (pp. 1-12; seen against unseen benchmarks for
