@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Post-hoc analyses of the saved benchmark-holdout replays, as report pages.
 
-Everything here recombines predictions the replay already saved under random
+Everything here recombines predictions the online simulation already saved under random
 acquisition, whose label order does not depend on the predictor; no model is
 rerun. Four questions:
 
-    combinations   can beta-binomial rescue the ANP: gate, blend, AIPW-style shift
+    combinations   can the Beta-Binomial rescue the ANP: fallback, ensemble, residual correction
     budgets        where the ANP loses: per-budget gap, seen vs unseen benchmark
-    decomposition  which part fails: the ANP's level vs its item ordering
+    decomposition  which part fails: the ANP's ability component vs its difficulty component
     ability        does the loss grow with subject ability
 
 ``--build`` computes the summary tables from the run outputs and caches them
@@ -110,7 +110,7 @@ def build(runs: Path, panel_items: Path, responses: Path) -> dict:
             f = _predictions(runs, role, m).rename(columns={"probability": "anp"}) \
                 .merge(beta[role], on=KEY, validate="one_to_one") \
                 .merge(_shift(runs, role, m), on=KEY[:3])
-            f["gate"] = np.where(f.requested_budget < 2, f.beta, f.anp)
+            f["fallback"] = np.where(f.requested_budget < 2, f.beta, f.anp)
             f["aipw"] = (f.anp + f["shift"]).clip(1e-4, 1 - 1e-4)
             frames[role, m] = f
     for m in HOLDOUT:
@@ -121,13 +121,13 @@ def build(runs: Path, panel_items: Path, responses: Path) -> dict:
                            .groupby(V.task_id).mean().mean()) for b in BUDGETS}
         for role in SEEDS:
             f = frames[role, m]
-            f["blend"] = w_global * f.anp + (1 - w_global) * f.beta
-            f["blend_b"] = f.requested_budget.map(w_budget) * f.anp + (1 - f.requested_budget.map(w_budget)) * f.beta
+            f["ensemble"] = w_global * f.anp + (1 - w_global) * f.beta
+            f["ensemble_b"] = f.requested_budget.map(w_budget) * f.anp + (1 - f.requested_budget.map(w_budget)) * f.beta
             base = _alc(_task_budget(f, "beta"))
-            for col, name in (("anp", "ANP alone"), ("gate", "gate: beta below 2 labels"),
-                              ("blend", "blend, one weight"), ("blend_b", "blend, weight per budget"),
+            for col, name in (("anp", "ANP alone"), ("fallback", NAME["fallback"]),
+                              ("ensemble", NAME["ensemble"]), ("ensemble_b", NAME["ensemble-budget"]),
                               ("aipw", "AIPW-style shift")):
-                if role == "validation" and col.startswith("blend"):
+                if role == "validation" and col.startswith("ensemble"):
                     continue  # fitted there; an in-sample score is not a result
                 combos.append((role, m, name, *_ci((_alc(_task_budget(f, col)) - base).to_numpy(), rng)))
 
@@ -198,7 +198,7 @@ def _dot(ax, y, row, colour, marker="o"):
 
 def combinations_page(pdf, t: dict):
     c = t["combinations"]
-    methods = ["ANP alone", "gate: beta below 2 labels", "blend, one weight", "blend, weight per budget",
+    methods = ["ANP alone", NAME["fallback"], NAME["ensemble"], NAME["ensemble-budget"],
                "AIPW-style shift"]
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.0), sharey=True)
     fig.subplots_adjust(left=0.27, right=0.985, top=0.78, bottom=0.2, wspace=0.08)
@@ -267,8 +267,8 @@ def decomposition_page(pdf, t: dict):
     vcol = {NAME["full"]: INK, NAME["level"]: MUTED["teal"], NAME["order"]: MUTED["rose"]}
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.4), sharey=True)
     fig.subplots_adjust(left=0.45, right=0.985, top=0.8, bottom=0.17, wspace=0.08)
-    header(fig, "Which part fails on a new benchmark: level or item ordering? (test)",
-           "Level: the mean of the ANP's predictions for the task. Ordering: each item's offset from that mean.\n"
+    header(fig, "Which part of the ANP fails on a new benchmark: ability or difficulty? (test)",
+           "Ability component: the mean of the ANP's predictions for the task. Difficulty component: each item's offset from that mean.\n"
            "Brier minus beta-binomial; negative = better. Bars: 95% task bootstrap.")
     for ax, phase in zip(axes, ("0-1 labels", "3-31 labels")):
         for i, (m, s) in enumerate(cases):

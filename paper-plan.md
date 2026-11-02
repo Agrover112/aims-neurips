@@ -52,7 +52,7 @@ consistently, or does the model remain near a constant predictor?
 
 The contribution is a controlled benchmark-held-out study of a context-only
 Beta-Binomial baseline and neural-process predictors [Garnelo et al., 2018a,b]. IRT results may appear
-only when replayed on the same frozen panel; older benchmark-held-out grids
+only when simulated online on the same frozen panel; older benchmark-held-out grids
 remain historical context, not a matched main-text comparison. The report must
 not claim that a neural model beats the baseline unless a paired comparison on
 the frozen panel supports it.
@@ -62,13 +62,13 @@ from three test-only benchmarks, the constant training-mean predictor
 (0.24725) and the context-only Beta-Binomial reference (0.24943) are tied
 under the paired comparison: constant minus Beta is -0.00218 with 95% interval
 [-0.01099, +0.00664]. The three clean ANP variants tested with the same random
-streaming policy are worse: filtered ANP 0.27247, dense-prefix ANP 0.27617,
+streaming policy are worse: filtered ANP 0.27247, prefix-training ANP 0.27617,
 and SAM ANP 0.26627. The paired intervals exclude zero for all three ANP--Beta
 differences. Thus, for the tested frozen embeddings and ANP configurations,
 text-derived item representations did not transfer reliably under benchmark
 shift. This does **not** establish that Beta-Binomial is uniquely better than
 every simple predictor. The exact results live in the
-[frozen replay table](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks).
+[frozen online simulation table](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks).
 
 The report should answer these questions in that order. Any experiment that
 does not clarify transfer, ability-range extrapolation, or low-budget
@@ -94,18 +94,18 @@ on validation:
   `S_ij = exp((cos(x_i, x_j) - 1) / T)` on BGE-M3 embeddings, so a label on a
   similar item moves an unlabelled one.
 
-Replay evidence so far (multi-pair draws of the benchmark-holdout panel; test
-Brier-ALC minus the beta-binomial, 95% task bootstrap):
+Online simulation evidence so far (multi-pair draws of the benchmark-holdout panel; test
+Brier ALC minus the beta-binomial, 95% task bootstrap):
 
 | Model | 1-2 subjects per benchmark | 1 subject per benchmark (competition-like) | Validation |
 | --- | --- | --- | --- |
 | Pooled Rasch | -0.0035 [-0.0046, -0.0026] | -0.0011 (old priors), -0.0032 (re-tuned) | not better than the beta-binomial |
 | Kernel Rasch | -0.0049 [-0.0060, -0.0038] | -0.0024 [-0.0027, -0.0021] | ties the beta-binomial |
 
-Leaderboard: pooled Rasch (CodaBench 1024003) scored 0.2022 Brier-ALC against
+Leaderboard: pooled Rasch (CodaBench 1024003) scored 0.2022 Brier ALC against
 0.1486 for the shipped beta-binomial (1005155), with a large gap after one
 label (0.298 against 0.181). Each submission is scored on its own nine pairs,
-so this comparison is unpaired, and the replay does not reproduce the gap.
+so this comparison is unpaired, and the online simulation does not reproduce the gap.
 Kernel Rasch is submitted as 1026246 (score pending).
 
 Before either becomes the final submission or a main-text claim:
@@ -168,7 +168,7 @@ limit without losing the required story.
 | --- | --- | --- |
 | 1 | **Problem and contribution** | The three questions: held-out-benchmark transfer, ability-range extrapolation, and small-budget adaptation. Explain why benchmark-mixed masks and full-pool acquisition answer easier questions. |
 | 2 | **Data and protocol** | Binary response schema, cleaning/support filter, benchmark roles, ability-range stratification, allowed information, nested budgets, and Figure 1 plus one compact panel table. |
-| 3 | **Methods** | Context-only Beta-Binomial, shared-encoder latent ANP, and the dense-prefix training objective. State exactly what adapts at test time: context, not weights. |
+| 3 | **Methods** | Context-only Beta-Binomial, shared-encoder latent ANP, and the prefix training objective. State exactly what adapts at test time: context, not weights. |
 | 4 | **Experimental setup** | Frozen validation/test roles, random streaming policy, checkpoint rule, macro Brier ALC, paired aggregation, ability strata, and no-leakage controls. |
 | 5 | **Results** | Three subsections, one per question: transfer, ability extrapolation, then Brier curves at 1--7 labels. Include the constant sanity check and three clean ANPs. |
 | 6 | **Limitations and conclusion** | One neural seed, three held-out benchmarks, incomplete ANP-policy grid, panel-manifest reconciliation, release pointer, and narrow conclusions for each question. |
@@ -188,7 +188,7 @@ turning it into an experiment dump.
 | **Environment** | Pinned Python/package environment, CPU/GPU expectations, and deterministic seeds where possible. | Add a minimal environment file and reproduction README; do not rely on a personal Modal profile. |
 | **Data contract** | `measurement-db` reader, expected schema, filtering code, split seed, hashes/manifests, and an explicit statement of what is not redistributed. | `organized/training/benchmark_holdout_filters.py`, [protocol](docs/benchmark-holdout-online-replay.md), filter/audit artifacts. |
 | **Permitted extra data** | Only releasable external/derived training data, with source, licence, checksum, and regeneration command. | Decide per artifact; never silently include cached benchmark content. |
-| **Reproduction commands** | One path for preprocessing, one for training or checkpoint retrieval, one for evaluation/replay, and one for building/checking the submitted archive. | [online replay README](organized/testing/online/README.md), submission README; consolidate into one top-level reproduction guide. |
+| **Reproduction commands** | One path for preprocessing, one for training or checkpoint retrieval, one for evaluation/replay, and one for building/checking the submitted archive. | [online online simulation README](organized/testing/online/README.md), submission README; consolidate into one top-level reproduction guide. |
 | **Result ledger** | Frozen panel ID/manifest, checkpoint selection record, final per-budget and ALC scores, and paired intervals. | [online results](organized/testing/online/README.md); resolve manifest inconsistencies first. |
 
 The report should link to this release once the commit/tag is frozen. Do not
@@ -223,7 +223,7 @@ context-only estimator is hard to beat under shift.
 
 Contributions:
 
-1. A benchmark-held-out streaming replay protocol with disjoint acquisition
+1. A benchmark-held-out streaming online simulation protocol with disjoint acquisition
    and scoring pools.
 2. A data-construction procedure that handles duplicate questions, sparse
    responses, and cross-split textual overlap.
@@ -232,7 +232,7 @@ Contributions:
 4. A streaming-policy analysis that distinguishes completed paired controls
    from policies that have not yet been tested for a given model.
 
-### 2. Evaluation protocol: benchmark-held-out streaming replay
+### 2. Evaluation protocol: benchmark-held-out streaming online simulation
 
 Define a **task** as a `(subject, benchmark)` pair, an **item** as a question
 within that benchmark, and an outcome as a binary correct/incorrect response.
@@ -250,11 +250,11 @@ generalization-gap discussion belong in Appendix B.
 
 #### 2.1 Frozen validation and untouched test
 
-The final evaluation is a streaming replay over frozen benchmark-held-out
+The final evaluation is a streaming online simulation over frozen benchmark-held-out
 panels. Validation contains 82 tasks from `ai2d_test`, `bird_sql`, and
 `financebench`; untouched test contains 45 tasks from `algotune`, `cmmlu`, and
 `editbench`. These labels must be checked against the final panel manifest
-before writing the report because the current replay README has stale
+before writing the report because the current online simulation README has stale
 `cap19000`/`cap100000` header metadata.
 
 At each arrival, the policy sees the current item representation and the
@@ -287,7 +287,7 @@ Describe the preprocessing as part of the scientific method:
   a claim of semantic decontamination.
 
 These controls follow the measurement motivation in Truong et al. (2025), but
-our held-out benchmark roles and streaming replay are a separate protocol.
+our held-out benchmark roles and streaming online simulation are a separate protocol.
 
 Include one compact before/after support table in the main text. Put the
 random-subject comparison, response-matrix visualisations, and split-shift
@@ -398,9 +398,9 @@ and must not be implied by the diagram. This is set-based attention, not an
 autoregressive state model: when a label arrives, the normal ANP recomputes its
 context representation from the current set.
 
-#### 4.3 Dense-prefix ANP training
+#### 4.3 Prefix training of the ANP
 
-Ordinary training samples one context budget per task episode. Dense-prefix
+Ordinary training samples one context budget per task episode. prefix
 training samples a randomly ordered context stream \((a_1,\ldots,a_K)\) and a
 fixed disjoint target set \(T\). It trains all nested contexts
 \(C_k=\{a_1,\ldots,a_k\}\), including \(C_0=\varnothing\), in the same
@@ -478,7 +478,7 @@ Draw a random permutation pi of the n observed responses.
 
 Weighted budget ladder:
     Sample k from {0, 1, 3, 7, 15, 31} intersect {0, ..., min(K, n - 1)}
-    with probabilities proportional to the Brier-ALC weights
+    with probabilities proportional to the Brier ALC weights
     (0.1, 0.2, 0.2, 0.2, 0.2, 0.1).
     Set C = pi[:k] and sample disjoint T from later entries of pi.
 
@@ -486,7 +486,7 @@ Uniform budget ladder:
     Sample k uniformly from the same eligible ladder rungs.
     Set C = pi[:k] and sample disjoint T from later entries of pi.
 
-Dense-prefix context:
+prefix context:
     Let K' = min(K, n - 1), stream = pi[:K'], and fix a disjoint target set
     T from pi[K':]. Return every episode (C_k, T), where C_k = stream[:k]
     for k = 0, ..., K'. Average their losses before the optimiser update.
@@ -495,7 +495,7 @@ Dense-prefix context:
 Weighted and uniform schemes change the distribution of sampled context sizes;
 they do not reweight an episode loss after it is drawn. "Uniform" means equal
 probability over eligible *ladder rungs*, not over every integer from zero to
-31. Dense-prefix training uses all integer prefixes of one candidate order and
+31. Prefix training uses all integer prefixes of one candidate order and
 the same withheld targets at every prefix. It therefore trains nested updates
 directly, but still recomputes each set representation rather than caching a
 causal state.
@@ -513,8 +513,8 @@ but they answer different questions:
   training convention, and a separate post-hoc control retrained it with
   disjoint targets.
 - **Disjoint targets** require prediction of unseen labels from acquired ones.
-  The current filtered NP/ANP trainer, including all reported dense-prefix
-  runs, uses this convention. Dense-prefix targets are disjoint from every
+  The current filtered NP/ANP trainer, including all reported prefix
+  runs, uses this convention. prefix targets are disjoint from every
   prefix by construction.
 
 The main benchmark-held-out results must therefore be described as disjoint
@@ -528,10 +528,10 @@ as a matched result on the frozen current panel.
 | Constant training mean | Fixed probability estimated on training data | 0.25254 | 0.24725 | Tied with Beta on this panel; sanity check, not an adaptive predictor. |
 | Beta-Binomial | \((s+0.5)/(n+1)\); current acquired labels only | 0.17175 | 0.24943 | Reference; no item history or cold-item fallback. |
 | Latent ANP, filtered w64 | BGE-M3-long item embeddings + deterministic and latent context paths | 0.17346 | 0.27247 | Worse than the reference on test. |
-| Latent ANP, dense-prefix w64 | Same ANP; all nested prefixes trained jointly | 0.17345 | 0.27617 | Worse than the reference on test. |
+| Latent ANP, prefix w64 | Same ANP; all nested prefixes trained jointly | 0.17345 | 0.27617 | Worse than the reference on test. |
 | Latent ANP, SAM w64 | Same ANP; sharpness-aware training objective | 0.16665 | 0.26627 | Best tested ANP, still worse than the reference on test. |
 
-All rows use the same frozen benchmark-held-out replay and random streaming
+All rows use the same frozen benchmark-held-out online simulation and random streaming
 policy. Constant minus Beta is `-0.00218` (95% CI `[-0.01099,+0.00664]`), so
 the two simple predictors are tied. The ANP differences from Beta-Binomial are
 respectively `+0.02305`, `+0.02675`, and `+0.01684`; their paired 95%
@@ -596,7 +596,7 @@ filtered w64 ANP were tied (0.17175 versus 0.17346; paired difference +0.00171,
 95% CI [-0.00172, +0.00514]). The SAM variant looked better on this development
 panel (0.16665), but that observation was not replicated on the untouched test
 panel. The complete development table is in the
-[validation replay results](organized/testing/online/README.md#results---validation-unseen-benchmarks).
+[validation online simulation results](organized/testing/online/README.md#results---validation-unseen-benchmarks).
 
 **What did ability-range extrapolation establish?**
 For each task, compute its observed response rate using evaluation labels only
@@ -612,7 +612,7 @@ Fix random-prefix acquisition and compare only clean benchmark-held-out
 checkpoints on the 45-task, three-benchmark test panel. The constant
 training-mean baseline (0.24725) is tied with Beta-Binomial (0.24943): paired
 difference -0.00218, 95% CI [-0.01099, +0.00664]. Filtered ANP is worse than
-Beta by +0.02305 (95% CI [+0.01969, +0.02641]), dense-prefix ANP by +0.02675
+Beta by +0.02305 (95% CI [+0.01969, +0.02641]), prefix-training ANP by +0.02675
 ([+0.02286, +0.03063]), and SAM ANP by +0.01684 ([+0.01265, +0.02104]). This
 is evidence against the tested learned text-conditioned prior on this panel,
 not evidence that adaptive shrinkage is useless or that ANPs fail generally.
@@ -643,7 +643,7 @@ one-sentence qualification in the main text only if space remains.
 
 Use a small main report. Every quantitative display below has a source result
 linked here; do not use historical CNP-AIRT grids, random-subject-split scores,
-or the superseded five-task replay as main evidence.
+or the superseded five-task online simulation as main evidence.
 
 ### Main report
 
@@ -651,10 +651,10 @@ or the superseded five-task replay as main evidence.
 | --- | --- | --- | --- |
 | **Figure 1 — faithful streaming benchmark-holdout protocol** | A schematic: train benchmarks → unseen validation/test benchmarks; for one task, current candidate → accept/reject → label only if accepted → predict disjoint scoring items at nested budgets. Explicitly cross out future-pool access. | [Protocol](docs/benchmark-holdout-online-replay.md); [panel definition](organized/testing/online/README.md#panel) | New schematic, not a numerical result. Keep it simple enough that it explains why full-pool Fisher selection is invalid here. |
 | **Table 1 — benchmark-held-out panel audit** | Retained responses, tasks, items, response rate, support thresholds, exact-text overlap rule, and train/validation/test benchmark roles. Include only the benchmark-held-out corpus. | [Benchmark-holdout summary](docs/benchmark-holdout-split-distribution-summary.csv); [protocol](docs/benchmark-holdout-online-replay.md) | Main-text protocol table. Do not put a random-split comparison beside it: that belongs in Appendix B. |
-| **Figure 2 — Brier learning curves on untouched test** | Macro-task Brier at budgets 0, 1, 3, 7, 15, 31 for constant training mean, Beta-Binomial, filtered ANP, dense-prefix ANP, and SAM ANP, all with random-prefix acquisition. Lower is better. | [Test per-budget table](organized/testing/online/README.md#brier-by-number-of-labels-acquired) | Primary result. Five lines only; do not include contaminated ANPs. Shade paired bootstrap intervals if per-task files are exported, otherwise use the table for intervals. |
+| **Figure 2 — Brier learning curves on untouched test** | Macro-task Brier at budgets 0, 1, 3, 7, 15, 31 for constant training mean, Beta-Binomial, filtered ANP, prefix-training ANP, and SAM ANP, all with random-prefix acquisition. Lower is better. | [Test per-budget table](organized/testing/online/README.md#brier-by-number-of-labels-acquired) | Primary result. Five lines only; do not include contaminated ANPs. Shade paired bootstrap intervals if per-task files are exported, otherwise use the table for intervals. |
 | **Table 2 — final paired test comparison** | Macro Brier ALC, difference from Beta-Binomial, 95% paired CI, and verdict for constant, Beta-Binomial, and the three clean ANPs. | [Test ALC and paired differences](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks) | Primary result. It must show the constant/Beta tie and the three neural losses. |
 | **Table 3 — acquisition controls on untouched test** | Beta-Binomial random prefix, uncertainty, confidence extremes, Bernoulli variance, and EBR: ALC and paired difference versus random. | [Test policy rows and intervals](organized/testing/online/README.md#results---test-final-3-untouched-benchmarks) | Include only if space permits; otherwise Appendix E. Do not place empty ANP-policy cells in the table. |
-| **Figure 3 — ability-range extrapolation** | Test Brier by post-hoc subject response-rate/ability stratum, with the training-range boundaries shown explicitly. | Final per-task replay outputs plus the training-task response-rate distribution | Required for Q2 if the 45-task panel supports stable intervals; otherwise appendix-only with a limitation statement. Never use test labels to select a model or policy. |
+| **Figure 3 — ability-range extrapolation** | Test Brier by post-hoc subject response-rate/ability stratum, with the training-range boundaries shown explicitly. | Final per-task online simulation outputs plus the training-task response-rate distribution | Required for Q2 if the 45-task panel supports stable intervals; otherwise appendix-only with a limitation statement. Never use test labels to select a model or policy. |
 
 ### Appendix
 
@@ -662,13 +662,13 @@ or the superseded five-task replay as main evidence.
 | --- | --- | --- | --- |
 | **Figure A1 — benchmark-shift diagnostic** | Two small bars for validation and test: label-rate shift and BGE centroid similarity to training. Optionally add the corresponding random-subject-split values in a muted colour. | [Benchmark-holdout summary](docs/benchmark-holdout-split-distribution-summary.csv); [random-split summary](docs/non-benchmark-holdout-split-distribution-summary.csv) | Data ready. This explains the split; it is not a causal explanation of model failure. |
 | **Figure A1a — before/after response matrix and retained support** | Matrix sparsity/degree and retained rows/columns before versus after cleaning. | [Final data analysis](docs/final-data-analysis.pdf); [data preparation record](docs/data-preparation.md) | Appendix only. It substantiates data hygiene, not model quality. |
-| **Table A1 — complete development sweep** | All validation models × policies, per-budget Brier, ALC, and paired intervals. Separate clean and contaminated models with an unmissable label. | [Validation replay results](organized/testing/online/README.md#results---validation-unseen-benchmarks) | Data ready. This records the SAM development improvement without turning it into a final claim. |
+| **Table A1 — complete development sweep** | All validation models × policies, per-budget Brier, ALC, and paired intervals. Separate clean and contaminated models with an unmissable label. | [Validation online simulation results](organized/testing/online/README.md#results---validation-unseen-benchmarks) | Data ready. This records the SAM development improvement without turning it into a final claim. |
 | **Table A1a — offline non-benchmark-holdout results** | Cell, subject split-half, item split-half, and zero-response cold-item AUC/Brier for classic IRT, MIRT, and amortized IRT. | [Static result ledger](README.md#everything-run-so-far-side-by-side-2026-10-27) | Diagnostic appendix only. Mark shared-benchmark structure and do not compare its AUC directly with online Brier ALC. |
 | **Figure A2 — item-pass-rate diagnostic** | A restrained bar/scatter diagnostic: observed item pass-rate SD versus predicted SD, plus overall and within-benchmark correlation, for the 297-item diagnostic set. | [Held-out ANP diagnostic](docs/np-online-passrate-figure11-summary.csv); [non-holdout reference diagnostic](docs/non-benchmark-anp128-qwen-item-passrate-summary.csv) | Existing summaries support this, but label the item subset and construction precisely. Keep it appendix-only: it motivates the difficulty-transfer hypothesis; it does not prove the cause. |
 | **Table A2 — data cleaning and retained support** | Exact duplicate/missing-response handling, support thresholds, number retained after each filter, and exact content-overlap audit. | [Replay protocol](docs/benchmark-holdout-online-replay.md); filtering/export artifacts | Needs an explicit generated audit table before submission. Do not reconstruct counts from memory. |
 | **Figure A3 — ANP architecture** | Latent and deterministic paths, contextual/self-attention and target cross-attention, inputs/outputs, and what is shared. | [Architecture design note](docs/np-design.pdf) | Appendix-only. It should document the evaluated configuration, not imply that attention was the main contribution. |
 | **Figure A4 — training and latent diagnostics** | Train/validation objective components, KL, posterior/prior variance and mean shift, active dimensions, and checkpoint selection. | [Training results](docs/training-final-results.pdf) | Appendix only. It rules out complete latent collapse in the selected runs; it is not a causal explanation of test performance. |
-| **Table A3 — checkpoint/protocol ledger** | Checkpoint name, training split, embedding arm, selection panel, candidate-order seeds, and replay role. | [Online replay result ledger](organized/testing/online/README.md) | Needed for reproducibility. Exclude random-split checkpoints from any transfer row. |
+| **Table A3 — checkpoint/protocol ledger** | Checkpoint name, training split, embedding arm, selection panel, candidate-order seeds, and online simulation role. | [Online online simulation result ledger](organized/testing/online/README.md) | Needed for reproducibility. Exclude random-split checkpoints from any transfer row. |
 
 ### Displays to leave out
 
@@ -686,12 +686,12 @@ or the superseded five-task replay as main evidence.
 
 Interpret the results at the right level. In our setting, the tested frozen item
 embeddings and filtered ANP configuration did not yield a reliable improvement
-over a context-only Beta-Binomial predictor under benchmark shift. This replay
+over a context-only Beta-Binomial predictor under benchmark shift. This online simulation
 does not test an item-history empirical prior: every prediction from the
 baseline depends only on acquired labels in the current task.
 
 State that sequential policies need coherent updates as the context grows.
-Dense-prefix training was evaluated, but it was worse than Beta-Binomial on the
+Prefix training was evaluated, but it was worse than Beta-Binomial on the
 untouched test panel; it is therefore evidence against this particular training
 change, not a solved direction. The present evidence is consistent with
 difficulty transfer being a bottleneck, but does not isolate it causally from
@@ -703,19 +703,19 @@ is the one anchored to observed labels (AIPW). The item-level analogue here is
 a predictor that starts from the context-only Beta-Binomial and lets the
 network move it only when that helps. We tested four such combinations
 post hoc on the saved random-acquisition replays (same panel, candidate
-orders and seeds; macro Brier-ALC difference to Beta-Binomial on the
+orders and seeds; macro Brier ALC difference to Beta-Binomial on the
 untouched test panel, 45 tasks, paired bootstrap 95% CI):
 
-| combination | w64 filtered | w64 SAM | w64 dense-prefix |
+| combination | w64 filtered | w64 SAM | w64 prefix |
 | --- | --- | --- | --- |
 | ANP alone | +0.023 | +0.017 | +0.027 |
-| gate: Beta-Binomial below 2 labels, ANP after | +0.003 | +0.004 | +0.007 |
-| blend $w\,p_{\text{ANP}} + (1-w)\,p_{\text{BB}}$, $w$ fitted on validation | +0.006 | +0.008 | +0.007 |
-| per-budget blend, $w_k$ fitted on validation | +0.004 | +0.008 | +0.008 |
+| fallback: Beta-Binomial below 2 labels, ANP after | +0.003 | +0.004 | +0.007 |
+| ensemble $w\,p_{\text{ANP}} + (1-w)\,p_{\text{BB}}$, $w$ fitted on validation | +0.006 | +0.008 | +0.007 |
+| per-budget ensemble, $w_k$ fitted on validation | +0.004 | +0.008 | +0.008 |
 | AIPW-style shift (below) | +0.050 | +0.053 | +0.056 |
 
 Every row is significantly worse than Beta-Binomial on test. Gating and
-blending remove most of the ANP's loss, which confirms that most of it sits at
+ensembling remove most of the ANP's loss, which confirms that most of it sits at
 budgets 0 and 1, but no amount of ANP helps on unseen benchmarks.
 
 The AIPW-style item-level analogue was the worst, roughly twice as bad as the
@@ -741,9 +741,9 @@ also reduce sequential inference cost, following the incremental mechanism of
 Mortimer et al. (2026). We did not complete or evaluate this variant, so it is
 a proposed direction rather than a result.
 
-## Implementation walkthrough: dense-prefix training
+## Implementation walkthrough: prefix training
 
-This is the concrete training loop behind the phrase "dense-prefix training."
+This is the concrete training loop behind the phrase "prefix training."
 It is written in the same order as the discussion that motivated it.
 
 **What is a task?** One task is one `(subject, benchmark)` pair. It contains
@@ -858,10 +858,10 @@ link, not cited as substitutes for the scientific literature.
   Before submission, replace this convenience copy with the official challenge
   URL and version/date.
 - **[AIMS NeurIPS team, 2026a]** [Online testing notes](<Online Testing.md>)
-  and [benchmark-held-out replay protocol](docs/benchmark-holdout-online-replay.md).
-  These specify the local faithful streaming replay, metrics, and no-leakage
+  and [benchmark-held-out online simulation protocol](docs/benchmark-holdout-online-replay.md).
+  These specify the local faithful streaming online simulation, metrics, and no-leakage
   checks.
-- **[AIMS NeurIPS team, 2026b]** [Online replay result ledger](organized/testing/online/README.md),
+- **[AIMS NeurIPS team, 2026b]** [Online online simulation result ledger](organized/testing/online/README.md),
   [data-preparation record](docs/data-preparation.md), and
   [final data audit](docs/final-data-analysis.pdf). These are the traceable
   sources for the reported panels, preprocessing, and numerical results.
@@ -871,7 +871,7 @@ link, not cited as substitutes for the scientific literature.
 - Full data audit, filtering thresholds, exact-overlap counts, and
   per-benchmark retention counts.
 - Architecture diagrams, hyperparameters, checkpoint-selection rules, and the
-  relationship between the checkpoint and its replay result.
+  relationship between the checkpoint and its online simulation result.
 - Per-budget Brier, ECE, macro and micro metrics, with paired uncertainty where
   the result is used for a claim.
 - Equations and implementation details for valid streaming policies.
@@ -886,8 +886,8 @@ link, not cited as substitutes for the scientific literature.
 ## Evidence rules before drafting results
 
 1. Use only completed, reproducible results in the main report. The current
-   final clean evidence is the 45-task untouched test replay; the 82-task
-   validation replay is for development analysis.
+   final clean evidence is the 45-task untouched test online simulation; the 82-task
+   validation online simulation is for development analysis.
 2. Never combine the historical 104-task CNP-AIRT grid with the current
    82-task panel; do not use contaminated random-subject-split ANPs as transfer
    evidence.
@@ -944,4 +944,4 @@ They combine: run the draws inside each leave-one-benchmark-out fold.
 - Paired ANP policy-versus-random intervals and per-budget intervals. The
   current untouched-test paired policy evidence is sufficient only for the
   completed Beta controls.
-- A same-panel IRT replay if IRT is retained as a main-report comparator.
+- A same-panel IRT online simulation if IRT is retained as a main-report comparator.

@@ -52,10 +52,10 @@ HOLDOUT = "denseprefix-unweighted-best-step4550"       # trained on neither
 VARIANTS = {
     "in-dist": dict(benchmark="bird_sql", main=RANDOM_SPLIT, other=HOLDOUT,
                     main_label="ANP, random-subject split (trained on bird_sql)",
-                    other_label="ANP, dense-prefix training (never saw bird_sql)",
+                    other_label="ANP, prefix training (never saw bird_sql)",
                     tag="in distribution"),
     "ood": dict(benchmark="algotune", main=HOLDOUT, other=RANDOM_SPLIT,
-                main_label="ANP, dense-prefix training (never saw algotune)",
+                main_label="ANP, prefix training (never saw algotune)",
                 other_label="ANP, random-subject split (never saw algotune)",
                 tag="out of distribution"),
 }

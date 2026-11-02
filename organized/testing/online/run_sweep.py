@@ -111,7 +111,7 @@ MODELS = [
      "runner": ANP_RUNNER, "mode": "anp", "checkpoint": CKPT_W64_FILTERED},
     {"key": "w64-filtered-gate", "label": "ANP w64 filtered + beta at B0/B1",
      "runner": ANP_RUNNER, "mode": "anp_beta_gate", "checkpoint": CKPT_W64_FILTERED},
-    {"key": "w64-dense", "label": "ANP w64 dense-prefix (alone)",
+    {"key": "w64-dense", "label": "ANP w64 prefix training (alone)",
      "runner": ANP_RUNNER, "mode": "anp", "checkpoint": CKPT_W64_DENSE},
     {"key": "w128", "label": "ANP w128 (contaminated)",
      "runner": ANP_RUNNER, "mode": "anp", "checkpoint": CKPT_W128,

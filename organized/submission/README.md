@@ -34,7 +34,7 @@ macro Brier-ALC under random acquisition:
 | Jeffreys beta-binomial | 0.2494 |
 | ANP w64 SAM | 0.2663 |
 | ANP w64 filtered | 0.2725 |
-| ANP w64 dense-prefix | 0.2762 |
+| ANP w64 prefix training | 0.2762 |
 
 Every ANP is significantly worse than the beta-binomial on unseen benchmarks;
 the gap is mostly at budgets 0 and 1. The other acquisition policies do not

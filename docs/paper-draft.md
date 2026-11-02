@@ -39,40 +39,135 @@ the analogous failure for aggregate benchmark prediction: learned predictors
 work when a new model resembles the training models and fail on unfamiliar
 ones, while an estimator anchored to the observed labels survives.
 
-We study this question for calibrated, item-level, streaming prediction under
-a strict benchmark holdout. Our contributions:
+We study this question for item-level, streaming prediction under a strict
+benchmark holdout. Our contributions:
 
-1. **A benchmark-held-out streaming replay** of the AIMS online protocol, with
-   frozen candidate orders, disjoint acquisition and evaluation pools, and a
-   multi-pair variant that mirrors the competition's draws (Section 2).
+1. **A benchmark-holdout online simulation** of the AIMS protocol, with frozen
+   candidate orders, disjoint acquisition and evaluation pools, and a
+   multi-pair variant that mirrors the competition's draws (Section 3).
 2. **A negative result for neural processes.** Three clean ANP variants (the
-   others were trained but not replayed on test, or trained on a test
-   benchmark), plus combinations with the beta-binomial, never beat a
-   beta-binomial on unseen benchmarks (Section 4, Appendix C).
-3. **A diagnosis.** The ANP's level estimate transfers and its item ordering
-   does not; text embeddings carry within-benchmark but not cross-benchmark
-   difficulty; subject metadata breaks under model shift (Section 5,
-   Appendix D).
-4. **A simple estimator that wins.** A Rasch model refit online on every
-   pair's revealed labels beats the beta-binomial at every budget, with no
-   training (Section 4.2).
+   others were trained but not simulated online on test, or trained on a test
+   benchmark), plus combinations with the Beta-Binomial, never beat a
+   Beta-Binomial on unseen benchmarks (Section 5, Appendix C).
+3. **A diagnosis.** The ANP's ability component transfers and its difficulty
+   component does not; text embeddings carry within-benchmark but not
+   cross-benchmark difficulty (Section 6, Appendix D).
+4. **A simple estimator that wins.** A Rasch model refit online on every task's
+   revealed labels, optionally with a Gaussian-process prior over item
+   difficulty, improves on the Beta-Binomial at every budget with no offline
+   training (Section 5.2).
 
 ---
 
-## 2. Setting and evaluation protocol
+## 2. Preliminaries
 
-**Task.** A subject *s* answers the items of a benchmark *b*; responses are
-binary. At test time the evaluator buys up to 31 labels, one candidate item at
-a time, deciding to accept or skip each candidate before seeing the next. After
-0, 1, 3, 7, 15 and 31 labels the predictor outputs a probability for every
-item in a fixed, never-revealed evaluation pool, scored by Brier score
-[Brier, 1950]. The primary metric is Brier-ALC, a weighted average over the six
-budgets with weights 0.1, 0.2, 0.2, 0.2, 0.2, 0.1 (normalised trapezoidal area
-on log2(1 + budget)), so 70% of the score comes from seven labels or fewer.
+**Tasks.** A *subject* is a language model together with its evaluation settings
+(provider, harness, reasoning effort); the same model under different settings is
+a different subject. A *benchmark* is a set of *items* (questions or prompts), and
+a subject's *response* to an item is binary: 1 if correct, 0 otherwise. A **task
+is one subject-benchmark pair**: the items that subject answered on that
+benchmark, each with its response. Writing `x_i` for the embedding of item *i*'s
+text and `y_i` in {0, 1} for the response, a task is the set of pairs
+`(x_i, y_i)`. Every training episode and every evaluation in this paper is a
+task. In our filtered data each subject appears on one benchmark, so holding out
+a benchmark also holds out its subjects.
 
-**What the predictor sees.** The competition passes the predictor every label
-purchased so far *across all sampled subject-benchmark pairs*, together with
-each subject's metadata (model name, provider, release date). Section 4.2
+**Prediction from labels.** For a task, a predictor receives a *context* `C`, the
+(item, response) pairs revealed so far, and outputs for every *target* item `x` a
+probability `p(y = 1 | x, C)`. The number of revealed labels, `k = |C|`, is the
+*budget*; at `k = 0` the predictor can only use item text and priors. A *neural
+process* models this conditional. In *meta-training* each episode samples a
+training task, splits its items at random into a context and targets, and
+updates the network to predict the targets' responses from the context
+[Garnelo et al., 2018a;b]; the loss is the negative evidence lower bound (ELBO),
+the targets' negative log-likelihood plus a KL term that keeps a latent variable
+*z* consistent between context and targets. At test time the weights are frozen
+and a new task's revealed labels are read in one forward pass. This is what we
+call *amortized*: all fitting happens once, before evaluation, across training
+tasks.
+
+**Metrics.** The Brier score is the mean squared difference between a predicted
+probability and the response (lower is better; predicting 0.5 always scores
+0.25) [Brier, 1950]. The *learning curve* is the Brier score of the targets at
+each budget in {0, 1, 3, 7, 15, 31}. **Brier ALC** is its weighted average with
+weights 0.1, 0.2, 0.2, 0.2, 0.2, 0.1 (the normalized area under the curve on a
+log scale), so 70% of the weight is on seven labels or fewer.
+
+**Beta-Binomial baseline.** Treat a subject's answers on a benchmark as
+exchangeable Bernoulli draws with one unknown accuracy `p`, and put a Beta prior
+on it, `p ~ Beta(alpha, beta)`. After `n` revealed labels of which `h` are
+correct, conjugacy gives the posterior `Beta(alpha + h, beta + n - h)`. The
+probability that the next, unrevealed item is answered correctly is the
+posterior mean; the Beta and Gamma functions of the full Beta-Binomial
+likelihood cancel and leave a ratio:
+
+    p = (alpha + h) / (alpha + beta + n)
+
+The *Jeffreys prior* `alpha = beta = 0.5` [Jeffreys, 1946] is the standard
+default prior for a Bernoulli rate: it is defined so that it does not depend on
+how the rate is parameterized, so it encodes as little as possible. It gives
+
+    p = (h + 0.5) / (n + 1)
+
+| Symbol | Meaning |
+| --- | --- |
+| `p` | predicted probability that the subject answers any unrevealed item of the task correctly (the same for every item) |
+| `h` | number of correct answers among the labels revealed for this task |
+| `n` | number of labels revealed so far (0 to 31) |
+| `0.5` | `alpha`: the prior acts as half a correct answer |
+| `1` | `alpha + beta`: the prior is worth one pseudo-label in total |
+
+This is *shrinkage*: the estimate is pulled from the raw hit rate `h / n` toward
+the prior mean 0.5, strongly when `n` is small and negligibly when `n` is large.
+With no labels it predicts 0.5. It ignores item content and other tasks.
+Appendix C.7 tests its exchangeability assumption.
+
+**Item response theory and the Rasch model.** Item response theory (IRT) models
+the probability of a correct answer as a function of a latent subject *ability*
+`theta_s` and properties of the item. In the Rasch (one-parameter logistic) model
+[Rasch, 1960; Lord, 1980],
+
+    logit P(y_si = 1) = theta_s - b_i,    logit(p) = log(p / (1 - p)),
+
+where `b_i` is the item's *difficulty*; a subject whose ability equals an item's
+difficulty answers it correctly half of the time. Parameters can be fitted by
+maximum likelihood. Adding Gaussian priors and maximizing likelihood times prior
+gives the *maximum a posteriori* (MAP) estimate, which for Gaussian priors is
+ridge-penalized logistic regression.
+
+**In-distribution and out-of-distribution.** A test task is *in-distribution*
+(ID) when its benchmark also appears in training, as in a random split of
+subjects, and *out-of-distribution* (OOD) when its benchmark never appears, as
+in the benchmark holdout, which also holds out the subjects. "Unseen" means OOD.
+
+**Online simulation, single-pair and multi-pair.** We cannot query the
+competition's live models, so we evaluate by *online simulation*: the online
+procedure, in which labels are revealed one at a time in a frozen candidate
+order, is re-run on recorded responses. In a **single-pair** simulation each
+task is simulated alone, so the predictor sees only that task's own revealed
+labels. In a **multi-pair** simulation several tasks are simulated together in
+a *draw*, like the real competition, so the predictor may also use the labels
+revealed in the other tasks of the draw.
+
+**Confidence intervals and significance.** Every interval is a 95% bootstrap
+interval over tasks. The bootstrap resamples the tasks *with replacement* (each
+resample has as many tasks as the original, some appearing several times and
+others not at all), recomputes the statistic on each resample, and takes the
+2.5th and 97.5th percentiles over thousands of resamples. Differences between
+two models are *paired*: computed per task before resampling. A difference is
+*significant* when its 95% CI excludes zero (n.s. = it doesn't).
+
+---
+
+## 3. Setting and evaluation protocol
+
+**Protocol.** At test time the evaluator buys up to 31 labels per task, one
+candidate item at a time, deciding to accept or skip each candidate before
+seeing the next. After 0, 1, 3, 7, 15 and 31 labels the predictor outputs a
+probability for every item in a fixed evaluation pool whose labels are never
+revealed, scored by Brier ALC (Section 2). The competition also passes the
+predictor every label purchased so far across all sampled tasks, together with
+each subject's metadata (model name, provider, release date); Section 5.2
 exploits the first.
 
 **Split.** We hold out whole benchmarks: 11 for training, 3 for validation
@@ -83,71 +178,49 @@ items per benchmark, leaving 6.34 M responses over 123,035 items and 17
 benchmarks. Figure A2 contrasts this with a random-subject split, which holds
 out subjects but keeps every benchmark in training.
 
-**Replay.** Each validation or test task's items are split once, 50/50, into
-an acquisition pool and an evaluation pool. Candidate orders over the
-acquisition pool are frozen (3 orders per validation task, 10 per test task),
-so every model sees exactly the same labels in the same order. We report two
-protocols:
-
-- **Single-pair:** each task is replayed alone, on its own labels; 82
-  validation and 45 test tasks.
-- **Multi-pair:** competition-like draws of one or two subjects per benchmark,
-  where the predictor may use every pair's labels; 60 validation and 150 test
-  draws. Models that ignore other pairs are placed on the same draws from
-  their single-pair scores, so comparisons are paired.
-
-All intervals are 95% bootstrap intervals over tasks. Unless stated, labels
-are acquired in random order (Appendix C.5 shows the acquisition policy does
-not matter).
+**Online simulation.** Each validation or test task's items are split once,
+50/50, into an acquisition pool, from which labels are bought, and the
+evaluation pool. Candidate orders over the acquisition pool are frozen (3 orders
+per validation task, 10 per test task), so every model sees the same labels in
+the same order. We report both protocols of Section 2: single-pair (82
+validation and 45 test tasks) and multi-pair (draws of one or two subjects per
+benchmark; 60 validation and 150 test draws). Models that ignore other tasks
+are placed on the same draws from their single-pair scores, so comparisons are
+paired. Unless stated, labels are acquired in random order (Appendix C.5 shows
+the acquisition policy does not matter).
 
 ---
 
-## 3. Methods
+## 4. Methods
 
-**Beta-binomial.** Treat subject *s*'s answers on benchmark *b* as
-exchangeable Bernoulli draws with one unknown accuracy `p`. Put a Beta prior on
-it, `p ~ Beta(alpha, beta)`. After `n_s` revealed labels of which `h_s` are
-correct, conjugacy gives the posterior `Beta(alpha + h_s, beta + n_s - h_s)`.
-The probability that the next, unrevealed item is answered correctly is the
-posterior mean; the Beta and Gamma functions of the full beta-binomial
-likelihood cancel and leave a ratio:
+**Attentive Neural Process (ANP).** Each item is a 1024-d BGE-M3 embedding of its
+text. A context of (item, label) pairs is encoded by a shared value embedding and
+one self-attention block; a target item attends to the context (keys from
+embeddings only, values carrying labels) to form a deterministic representation,
+and a mean-pooled latent path gives a global *z* (width 64, 4 heads, 32-d latent).
+A decoder maps [target embedding, attention output, *z*] to a logit, and training
+minimizes the negative ELBO over episodes from training tasks (Section 2). The
+architecture is drawn next to Kim et al.'s ANP in Figure B1
+(`docs/np-architecture-final.pdf`, pp. 1-3). The variants we simulated online differ in
+training only (Appendix B.2).
 
-    p_si = P(y_si = 1 | h_s, n_s) = (alpha + h_s) / (alpha + beta + n_s)
+**Prefix training.** Standard training scores each episode at one randomly drawn
+context size, whereas online evaluation reveals labels one at a time and scores
+every prefix of the same label stream. Prefix training matches that: one random
+stream per task, the same held-out targets scored after every prefix of length
+0, 1, ..., 31, and the losses averaged before one update (Appendix B.5,
+Algorithm 1).
 
-With the Jeffreys prior `alpha = beta = 0.5` [Jeffreys, 1946], the standard
-reference prior for a Bernoulli rate,
+**Sharpness-Aware Minimization (SAM).** One variant adds SAM [Foret et al.,
+2021] on top of AdamW. Each update first perturbs the weights by a small step
+(radius 0.05) in the direction that increases the loss, computes the gradient
+there, and applies the AdamW update with that gradient, which favors flat
+regions of the loss surface. We tried it because flat minima are expected to
+generalize better to unseen benchmarks. It helps a little (test Brier ALC 0.2663
+against 0.2725 for the same ANP without it) and does not change the conclusion:
+it remains significantly worse than the Beta-Binomial (Section 5.1).
 
-    p_si = (h_s + 0.5) / (n_s + 1)
-
-| Symbol | Meaning |
-| --- | --- |
-| `p_si` | predicted probability that subject *s* answers item *i* correctly; the same for every item of the task |
-| `h_s` | number of correct answers among the labels revealed for this subject-benchmark pair |
-| `n_s` | number of labels revealed so far (0 to 31) |
-| `0.5` | `alpha`: the prior acts as half a correct answer |
-| `1` | `alpha + beta`: the prior is worth one pseudo-label in total |
-
-It ignores item content and other pairs, predicts 0.5 with no labels, and
-moves to the subject's hit rate as labels accumulate. Appendix C.7 tests its
-exchangeability assumption.
-
-**Attentive Neural Process.** Each item is a 1024-d BGE-M3 embedding of its
-text. A context set of (item, label) pairs is encoded by a shared value
-embedding and one self-attention block; a target item attends to the context
-(keys from embeddings only, values carrying labels) to form a deterministic
-representation, and a mean-pooled latent path gives a global *z* (width 64,
-4 heads, 32-d latent). A decoder maps [target embedding, attention output,
-*z*] to a logit. Training maximises the ELBO over episodes sampled from
-training tasks. Figure B1 shows the architecture next to Kim et al.'s ANP
-(`docs/np-architecture-final.pdf`, pp. 1-3). Variants differ in training
-recipe only (Appendix B.2). The most relevant is *dense-prefix training*
-(Appendix B.5, Algorithm 1): standard NP training scores each episode at one
-randomly drawn context size, whereas online evaluation reveals labels one at a
-time and scores every prefix of the same label stream. Dense-prefix training
-matches that: one random stream per task, the same held-out targets scored
-after every prefix 0, 1, ..., 31, and the losses averaged before one update.
-
-**Pooled (shared-evidence) Rasch.** At every checkpoint we fit
+**Pooled Rasch.** At every checkpoint we fit
 
     logit p(s, i) = mu_b + theta_s - b_i
 
@@ -158,55 +231,67 @@ by content; an item no one has labelled gets `b_i = 0`. `M0 = logit(0.512)`,
 the training-benchmark mean, which is close to uninformative; the three prior
 widths were chosen on validation. There is no training: the fit is ridge-
 penalised logistic regression with about 300 parameters, solved by Newton's
-method in the submission and L-BFGS in the replay, and refit from scratch at
+method in the submission and L-BFGS in the online simulation, and refit from scratch at
 every checkpoint.
 
+**Kernel Rasch.** Pooled Rasch gives each item an independent difficulty prior, so a
+label informs only that exact item. Kernel Rasch instead draws the difficulties
+of a benchmark's items from a Gaussian process, `b ~ N(0, K)` with
+`K_ij = tau^2 [(1 - rho) delta_ij + rho exp((cos(x_i, x_j) - 1) / T)]`, where `x_i` is
+the item-text embedding, so items with similar text have similar difficulty. An
+item nobody has labelled gets the kriging estimate `b_i = K_iL K_LL^-1 b_L` from
+the labelled items `L`. The settings (`tau = 1.4`, `rho = 0.8`, `T = 0.2`) were chosen
+on validation; everything else is as in pooled Rasch. Appendix C.8 compares it
+with a clustering variant.
+
 **Other baselines.** A constant at the training mean; the raw hit rate
-(no shrinkage); a hierarchical beta-binomial whose prior mean depends on
+(no shrinkage); a hierarchical Beta-Binomial whose prior mean depends on
 subject metadata (Appendix C.3).
 
 ---
 
-## 4. Results
+## 5. Results
 
-### 4.1 Meta-learners do not beat the beta-binomial on unseen benchmarks
+### 5.1 Neural processes do not beat the Beta-Binomial on unseen benchmarks
 
 **Figure 1** (`docs/online-final-results.pdf`, p. 1): single-pair Brier per
 budget, validation and test.
 
-| Model (single-pair) | Val ALC | Test ALC | Test minus beta-binomial [95% CI] |
+| Model (single-pair) | Val ALC | Test ALC | Test minus Beta-Binomial [95% CI] |
 | --- | --- | --- | --- |
 | Constant (training mean) | 0.2525 | 0.2472 | -0.0022 [-0.0105, +0.0067] |
-| Beta-binomial | 0.1717 | 0.2494 | - |
+| Beta-Binomial | 0.1717 | 0.2494 | - |
 | ANP | 0.1735 | 0.2725 | +0.0230 [+0.0198, +0.0267] |
 | ANP + SAM | 0.1667 | 0.2663 | +0.0168 [+0.0128, +0.0211] |
-| ANP, dense-prefix training | 0.1735 | 0.2762 | +0.0267 [+0.0231, +0.0306] |
-| Raw hit rate | 0.1892 | 0.2879 | +0.0385 [+0.0355, +0.0413] |
+| ANP, prefix training | 0.1735 | 0.2762 | +0.0267 [+0.0231, +0.0306] |
+| Raw hit rate **[POSSIBLE_APPENDIX]** | 0.1892 | 0.2879 | +0.0385 [+0.0355, +0.0413] |
 
-Every benchmark-holdout ANP is significantly worse than the beta-binomial on
+Every benchmark-holdout ANP is significantly worse than the Beta-Binomial on
 test. ANP + SAM beat it on validation (0.1667 against 0.1717), driven by two
 validation benchmarks, and the advantage reversed on test: validation wins do
 not transfer. The deficit is concentrated at zero and one label (+0.034 and
 +0.079 at budgets 0 and 1 for the ANP; Figure 1, Appendix D.1); from three
-labels on, the ANP and the beta-binomial are within noise. On test the
-constant predictor ties the beta-binomial: the beta-binomial's error at one
+labels on, the ANP and the Beta-Binomial are within noise. On test the
+constant predictor ties the Beta-Binomial: the Beta-Binomial's error at one
 label (0.28) is above the constant's, and later budgets only just recover it.
 
-### 4.2 Sharing labels across subjects at test time does beat it
+### 5.2 Sharing labels across tasks at test time does beat it
 
 **Figure 2** (`docs/online-final-results.pdf`, p. 2): multi-pair Brier per
 budget.
 
-| Model (multi-pair) | Val ALC | Test ALC | Test minus beta-binomial [95% CI] |
+| Model (multi-pair) | Val ALC | Test ALC | Test minus Beta-Binomial [95% CI] |
 | --- | --- | --- | --- |
 | Constant (training mean) | 0.2527 | 0.2472 | - |
-| Beta-binomial | 0.1685 | 0.2497 | - |
+| Beta-Binomial | 0.1685 | 0.2497 | - |
 | ANP | 0.1701 | 0.2726 | - |
 | **Pooled Rasch** | **0.1674** | **0.2461** | **-0.0035 [-0.0045, -0.0026]** |
 | Pooled Rasch without item difficulty | 0.1675 | 0.2477 | -0.0020 [-0.0029, -0.0011] |
+| **Kernel Rasch** | 0.1667 | **0.2448** | **-0.0049 [-0.0060, -0.0038]** |
 
-Pooled Rasch is the only model below the beta-binomial on test at every
-budget. Removing the item term halves the gain, so both sources of shared
+Pooled Rasch and kernel Rasch are the only models below the Beta-Binomial on
+test at every budget, and kernel Rasch improves on pooled Rasch by 0.0013 [0.0010,
+0.0017] (Appendix C.8). Removing the item term halves the gain, so both sources of shared
 evidence contribute: other subjects' labels on the same benchmark sharpen the
 benchmark rate and the subject's ability, and their labels on the same item
 reveal that item's difficulty. Another subject's label on the same item
@@ -214,25 +299,37 @@ predicts the outcome with AUC 0.74 on validation and 0.64 on test; only 34% of
 test evaluation items ever receive such a label, which bounds the item term's
 contribution.
 
-Surprisingly, pooled Rasch does not estimate a subject's *ability* better than
-the beta-binomial (Appendix D.4): its ability prior is tight and shrinks the
+**[POSSIBLE_APPENDIX]** Surprisingly, pooled Rasch does not estimate a subject's *ability* better than
+the Beta-Binomial (Appendix D.4): its ability prior is tight and shrinks the
 estimate. Its advantage comes from the benchmark rate and item difficulty, not
 from a sharper ability estimate.
 
 ---
 
-## 5. Why the meta-learners fail
+## 6. Why the neural processes fail
 
-**Level transfers; item ordering does not.** We split each ANP prediction
-into a *level* (its mean over the task's items) and an *ordering* (each item's
-offset from that mean), and score each part against the beta-binomial
-(Appendix D.2, `docs/online-final-results.pdf`, p. 15). For random-subject-
-split ANPs, which trained on editbench, the ordering is what wins on editbench
-(about -0.07 Brier against the beta-binomial) and what loses on the unseen
-benchmarks (+0.04 to +0.05). Their level alone is slightly better than the
-beta-binomial on unseen benchmarks from three labels on (-0.010). The
-benchmark-holdout ANPs learned an almost flat ordering, which is harmless;
-their entire loss is a miscalibrated level at zero and one label.
+**An ANP's ability component transfers; its difficulty component does not.** We
+split each ANP prediction into an *ability component*, its mean over the task's
+items (how well the ANP thinks the subject does on this benchmark overall), and a
+*difficulty component*, each item's offset from that mean (which items it thinks
+are easier or harder than average). Predictions of 0.7, 0.5 and 0.3 for three
+items, for example, have ability component 0.5 and difficulty components +0.2, 0
+and -0.2. We score each component on its own by pairing it with the
+Beta-Binomial's flat prediction for the other (Appendix D.2).
+
+From three labels on, the ability component alone is as good as the
+Beta-Binomial on unseen benchmarks for the benchmark-holdout ANPs (within 0.003)
+and slightly better for the random-subject-split ANPs (-0.010). Before any label
+arrives the benchmark-holdout ANP's ability estimate is miscalibrated (+0.04 to
++0.06), which is the whole deficit of Section 5.1. The difficulty component is
+where benchmark-specific structure sits. The random-subject-split ANPs, which
+trained on editbench among other benchmarks, learned an ordering that wins on
+editbench (about -0.05 to -0.08) and loses on unseen benchmarks (+0.04 to
++0.05). The benchmark-holdout ANPs learned an almost flat ordering, which is
+harmless (within 0.003 of the Beta-Binomial). Prefix training is not the cause:
+its difficulty component is as harmless as that of the standard ANP. What
+"transfers" is therefore an ability estimate that is no better than the
+Beta-Binomial's once labels arrive, not a well-calibrated prior over ability.
 
 **Text carries within-benchmark, not cross-benchmark, difficulty.** A ridge
 probe from BGE-M3 embeddings to item pass rate reaches r = 0.22 to 0.88 when
@@ -244,19 +341,19 @@ predictions mirror this: r = +0.46 on benchmarks the random-split model
 trained on, +0.14 on the rest, and about -0.05 on test for the holdout models
 (`docs/item_difficulty-final-results.pdf`, pp. 2 and 10).
 
-**The models overfit the training benchmarks.** With the split as the only
+**The ANP overfits the training benchmarks.** With the split as the only
 difference, the same ANP's validation NLL keeps falling in distribution but
 bottoms out near 0.48 at about 3,000 steps and rises to 0.59 on unseen
 benchmarks while its training loss keeps falling (Figure 3,
 `docs/training-final-results.pdf`, p. 2).
 
-**Subject metadata breaks under model shift.** Test subjects are newer and
-stronger than training subjects. A beta-binomial prior conditioned on provider
+**Subject metadata breaks under model shift.** **[POSSIBLE_APPENDIX]** Test subjects are newer and
+stronger than training subjects. A Beta-Binomial prior conditioned on provider
 and release date loses on test (+0.013, budget 0 +0.091) because the
 release-date term extrapolates; centring pooled Rasch's ability prior on the
 provider was chosen on validation and loses on test (Appendix C.3, C.4).
 
-**Gradient-based adaptation is unlikely to help.** MAML-style test-time
+**Gradient-based adaptation is unlikely to help.** **[MEHH_REMOVE]** (untested) MAML-style test-time
 fine-tuning [Finn et al., 2017] adapts weights from the same few labels, so it
 faces the same 0-7-label regime and cannot recover item difficulty from one
 subject's answers. Pooled Rasch is the low-dimensional, closed-form version of
@@ -264,7 +361,7 @@ test-time adaptation, and it adapts the parameters that matter.
 
 ---
 
-## 6. Related work
+## 7. Related work
 
 **Neural processes.** CNPs and NPs [Garnelo et al., 2018a; 2018b] amortise
 inference over functions; ANPs [Kim et al., 2019] add cross-attention to fix
@@ -272,10 +369,10 @@ underfitting; incremental transformer NPs [Mortimer et al., 2026] make the
 update causal and cacheable. We test them under a benchmark holdout, where the
 target functions come from unseen benchmarks.
 
-**Model-based and amortised evaluation.** Item response theory [Rasch, 1960;
+**Model-based and amortized evaluation.** Item response theory [Rasch, 1960;
 Lord, 1980] separates subject ability from item difficulty; Truong et al.
 (2025) amortise item parameters from text for efficient LLM evaluation. Our
-pooled Rasch is classical IRT refit online; our results suggest the amortised
+pooled Rasch is classical IRT refit online; our results suggest the amortized
 part is what fails to transfer across benchmarks.
 
 **Item features and Gaussian processes in IRT.** Two lines relax the Rasch
@@ -294,7 +391,7 @@ be combined.
 on 19 benchmarks for predicting aggregate accuracy and find that learned
 predictors fail on unfamiliar models, while an AIPW estimator anchored to the
 observed labels holds up. We find the item-level analogue: under benchmark
-shift the estimator anchored to observed labels (beta-binomial, pooled Rasch)
+shift the estimator anchored to observed labels (Beta-Binomial, pooled Rasch)
 beats the learned prior. An AIPW-style correction does not carry over to
 item-level probabilities from a handful of labels (Appendix C.2).
 
@@ -304,7 +401,7 @@ benchmark holdout breaks.
 
 ---
 
-## 7. Limitations
+## 8. Limitations
 
 - **Three held-out benchmarks per role.** Validation and test hold three
   benchmarks each, and benchmark difficulty varies widely (Table A1): test
@@ -321,19 +418,21 @@ benchmark holdout breaks.
   Rasch submission (1024003).
 - **One training seed** per ANP configuration.
 - **Random acquisition** for the new models; the five acquisition policies were
-  compared only for the ANPs and the beta-binomial.
+  compared only for the ANPs and the Beta-Binomial.
 
 ---
 
-## 8. Conclusion
+## 9. Conclusion
 
-On unseen benchmarks with a few labels, the meta-learners we trained do not
-beat a beta-binomial estimator, and the reason is identifiable: what they learn
-about item difficulty is specific to the benchmarks they saw. What does help is
-not learned offline at all: refitting a Rasch model at test time on every
-subject's revealed labels. For online evaluation under benchmark shift, simple
-estimators that share evidence across subjects are a stronger starting point
-than meta-learned priors.
+On unseen benchmarks with a few revealed labels, the neural processes we trained
+do not beat a Beta-Binomial estimator. A model's ability, estimated from its own
+labels, carries over to a new benchmark; the difficulty of the benchmark's items
+does not, and what the networks learn about it is specific to the benchmarks they
+saw. Estimating difficulty at test time from the new benchmark's own labels,
+shared across subjects (Rasch) and across similar items (kernel Rasch), improves
+on the Beta-Binomial without any offline training. For online evaluation under
+benchmark shift, estimation at test time is the first thing to try, before
+learning a prior.
 
 ---
 
@@ -415,9 +514,9 @@ p. 1.
 | ANP | uniform 0-31 context sizes | 100,000 | 1,200 |
 | ANP, budget-ladder training | context sizes drawn from the scored budgets, ALC weights | 15,000 | 50 |
 | ANP + SAM | sharpness-aware minimisation [Foret et al., 2021], rho = 0.05 | 30,000 | 5,450 |
-| ANP + prior anchor | output is the beta-binomial logit plus a learned residual | 10,000 | 100 |
+| ANP + prior anchor | output is the Beta-Binomial logit plus a learned residual | 10,000 | 100 |
 | ANP + SAM, budget-ladder training | both | 30,000 | 4,350 |
-| ANP, dense-prefix training | every prefix 0-31 of one label stream, same targets (B.5, Algorithm 1) | 10,000 | 4,550 (replayed; the run's best later moved to 7,800) |
+| ANP, prefix training | every prefix 0-31 of one label stream, same targets (B.5, Algorithm 1) | 10,000 | 4,550 (simulated online; the run's best later moved to 7,800) |
 | ANP without item embeddings | all item embeddings set to zero | 15,000 [TODO: finishing] | 400 so far |
 | ANP, random-subject split (width 64 / 128) | random-subject split, trains on 7 benchmarks incl. editbench | 100,000 | 79,700 / 97,800 |
 
@@ -426,14 +525,14 @@ in-distribution against out-of-distribution on one axis); pp. 3-12 (ELBO, NLL,
 KL, fixed-bank Brier, latent statistics, split-half and response-holdout
 generalisation, each in- and out-of-distribution).
 
-**B.4 What in-context learning looks like.** `docs/np-context-final.pdf` (also
+**B.4 Predictions as labels arrive.** **[MEHH_REMOVE]** `docs/np-context-final.pdf` (also
 `docs/training-final-results.pdf`, pp. 13-16): on bird_sql, a benchmark the
 random-split ANP trained on, its predicted curve follows the subject's
-difficulty pattern and beats the beta-binomial after one label (0.131 against
+difficulty pattern and beats the Beta-Binomial after one label (0.131 against
 0.151); on algotune, never trained on, the curve stays flat and loses at every
 budget (0.213 against 0.206 at 31 labels).
 
-**B.5 Dense-prefix training.** *Motivation.* Standard episodic NP training
+**B.5 Prefix training.** *Motivation.* Standard episodic NP training
 [Garnelo et al., 2018b] draws one context size per episode, so each sampled
 label sequence contributes a loss at a single size, and context sets of
 different sizes in a batch come from unrelated subsets. Online evaluation is
@@ -441,7 +540,7 @@ different: labels arrive one at a time on a single stream, the context at
 budget k is exactly the first k labels of that stream, and every budget is
 scored against the same held-out items. The predictive sequence
 `p(y_T | y_{1:0}), p(y_T | y_{1:1}), ..., p(y_T | y_{1:31})` should therefore
-be learned from nested contexts. Dense-prefix training scores all of them.
+be learned from nested contexts. Prefix training scores all of them.
 
 *Objective.* For a task (one subject on one benchmark) with items `I`, draw a
 random permutation `pi` of `I`. The stream is `s = (pi_1, ..., pi_K)` with
@@ -456,7 +555,7 @@ deterministic model, and for the latent ANP the negative ELBO, target NLL
 under `z ~ q(z | C u T)` plus `KL(q(z | C u T) || q(z | C))` divided by `|T|`.
 
 ```
-Algorithm 1  Dense-prefix training of a neural process
+Algorithm 1  Prefix training of a neural process
 Input:  training tasks D, each a set of (item embedding, binary label) pairs;
         max context K_max = 31; max targets M = 128; tasks per step B = 2;
         steps S; learning rate eta
@@ -483,12 +582,12 @@ a step sees fewer distinct tasks but every context size of each. Validation
 uses the same construction on a bank of streams frozen before training, so
 checkpoint selection is consistent with the training objective. The run used
 10,000 steps; its best validation checkpoint moved from step 4,550 (the one
-replayed and submitted) to 7,800 by the end.
+simulated online and submitted) to 7,800 by the end.
 
-*Effect.* Against uniform-size training, dense-prefix training improves the
+*Effect.* Against uniform-size training, prefix training improves the
 one-label Brier on test (-0.004, significant under random and uncertainty
-acquisition) but ties on Brier-ALC (single-pair test 0.2762 against 0.2725),
-and it remains significantly worse than the beta-binomial (+0.0267). Matching
+acquisition) but ties on Brier ALC (single-pair test 0.2762 against 0.2725),
+and it remains significantly worse than the Beta-Binomial (+0.0267). Matching
 the training objective to the evaluation protocol does not fix what fails
 under benchmark shift. Code: `_dense_prefix_episodes` in
 `organized/training/codex_es_fixed_modal_cnp_train.py`; a step-by-step
@@ -500,33 +599,33 @@ All ablations: `docs/online-final-results.pdf`, table on p. 3, curves on pp.
 4-7.
 
 **C.1 Training recipe and split** (p. 4). No recipe fixes the benchmark-
-holdout ANP. The random-subject-split ANPs tie the beta-binomial on test
+holdout ANP. The random-subject-split ANPs tie the Beta-Binomial on test
 (-0.0029, +0.0020, n.s.) only because they trained on editbench: they win
 there and lose on algotune and cmmlu.
 
-**C.2 Combining the ANP with the beta-binomial** (p. 5; test minus beta-
+**C.2 Combining the ANP with the Beta-Binomial** (p. 5; test minus beta-
 binomial).
 
 | Combination | Test |
 | --- | --- |
-| ANP, beta-binomial below 2 labels (gate) | +0.0025 [+0.0003, +0.0048] |
-| ANP/beta-binomial blend, one weight | +0.0062 [+0.0050, +0.0074] |
-| ANP/beta-binomial blend, per budget | +0.0043 [+0.0027, +0.0062] |
+| ANP with Beta-Binomial fallback at 0-1 labels | +0.0025 [+0.0003, +0.0048] |
+| ANP-Beta-Binomial ensemble, one weight | +0.0062 [+0.0050, +0.0074] |
+| ANP-Beta-Binomial ensemble, per-budget weights | +0.0043 [+0.0027, +0.0062] |
 | ANP + residual correction (AIPW-style) | +0.0502 [+0.0465, +0.0537] |
-| Beta-binomial + residual correction | +0.0492 [+0.0452, +0.0529] |
+| Beta-Binomial + residual correction | +0.0492 [+0.0452, +0.0529] |
 
-Gating and blending remove most of the ANP's loss but never beat the
-beta-binomial. The residual correction, the item-level analogue of AIPW
+The fallback and the ensemble remove most of the ANP's loss but never beat the
+Beta-Binomial. The residual correction, the item-level analogue of AIPW
 [Zhang et al., 2025], shifts every prediction by the mean residual of the
 labels seen so far; after one label that shift is about +/-0.5, and applied to
-the beta-binomial it undoes the shrinkage that makes it work (Brier at one
+the Beta-Binomial it undoes the shrinkage that makes it work (Brier at one
 label rises from 0.28 to 0.44).
 
-**C.3 Subject metadata (hierarchical beta-binomial)** (p. 6). A beta-binomial
+**C.3 Subject metadata (hierarchical Beta-Binomial)** (p. 6). A Beta-Binomial
 whose prior mean depends on CodaBench's subject metadata, fitted on training
 benchmarks, L2 chosen on validation.
 
-| Prior mean from | Test minus beta-binomial |
+| Prior mean from | Test minus Beta-Binomial |
 | --- | --- |
 | nothing (learned constant) | -0.0006 [-0.0027, +0.0017] |
 | provider | -0.0043 [-0.0078, +0.0001] |
@@ -547,20 +646,20 @@ despite being best on validation.
 
 **C.5 Acquisition policy.** Random, uncertainty, confidence extremes,
 Bernoulli variance and expected Brier reduction give near-identical ALC for
-the beta-binomial and every ANP on both splits (`docs/online-final-results.
+the Beta-Binomial and every ANP on both splits (`docs/online-final-results.
 pdf`, pp. 8-13).
 
-**C.6 Item-independent ANP** [TODO: final]. With all item embeddings zeroed,
+**C.6 Item-independent ANP** **[MEHH_REMOVE]** (unfinished). With all item embeddings zeroed,
 the ANP can only learn a level. At its step-400 checkpoint it scores 0.1786 on
-validation and 0.2714 on test against the beta-binomial's 0.1717 and 0.2494,
+validation and 0.2714 on test against the Beta-Binomial's 0.1717 and 0.2494,
 again almost entirely at zero and one label.
 
-**C.7 Are answers IID within a task?** The beta-binomial assumes a subject's
+**C.7 Are answers IID within a task?** The Beta-Binomial assumes a subject's
 answers on one benchmark are IID given one rate. They are not: after removing
 each task's mean, a subject's answers on two text-similar items (BGE-M3
 nearest neighbours, mean cosine 0.84) correlate +0.24 [0.18, 0.30] on test and
 +0.19 [0.17, 0.22] on validation, against about 0 for random item pairs
-(editbench +0.48). A group-weighted beta-binomial that lets labels on similar
+(editbench +0.48). A group-weighted Beta-Binomial that lets labels on similar
 items count more, `p_i = (kappa g + sum_j w_ij y_j) / (kappa + sum_j w_ij)`
 with similarity weights `w_ij` (kappa = 1, temperature 0.1, chosen on
 validation), gains little: -0.0006 [-0.0009, -0.0003] on validation and
@@ -579,23 +678,23 @@ gets the kriging estimate `b_i = K_iL K_LL^-1 b_L`. Clustered Rasch uses
 `S_ij = 1[same k-means cluster]` instead. Settings were chosen on the 60
 validation draws (kernel: T = 0.2, rho = 0.8, tau = 1.4, at the edge of the
 grid **[TODO: widen]**; clustered: k = 16, rho = 0.5) and scored on the same
-150 test draws as Section 4.2.
+150 test draws as Section 5.2.
 
-| Model (multi-pair) | Val ALC | Val minus beta-binomial | Test ALC | Test minus beta-binomial | Test minus pooled Rasch |
+| Model (multi-pair) | Val ALC | Val minus Beta-Binomial | Test ALC | Test minus Beta-Binomial | Test minus pooled Rasch |
 | --- | --- | --- | --- | --- | --- |
-| Beta-binomial | 0.1685 | - | 0.2497 | - | - |
+| Beta-Binomial | 0.1685 | - | 0.2497 | - | - |
 | Pooled Rasch | 0.1674 | -0.0012 [-0.0034, +0.0009] | 0.2461 | -0.0035 [-0.0046, -0.0026] | - |
 | Clustered Rasch | 0.1669 | -0.0017 [-0.0041, +0.0007] | 0.2462 | -0.0034 [-0.0045, -0.0024] | +0.0001 [-0.0002, +0.0004] |
 | **Kernel Rasch** | **0.1667** | -0.0019 [-0.0043, +0.0006] | **0.2448** | **-0.0049 [-0.0060, -0.0038]** | **-0.0013 [-0.0017, -0.0010]** |
 
 Validation is in-sample for the clustered and kernel settings, which were
-chosen on it. On validation every Rasch variant is ahead of the beta-binomial
+chosen on it. On validation every Rasch variant is ahead of the Beta-Binomial
 but none significantly (78 tasks, 60 draws); clustered and kernel Rasch beat
 pooled Rasch there by -0.0005 [-0.0008, -0.0002] and -0.0007 [-0.0012,
 -0.0002].
 
 Kernel Rasch improves on pooled Rasch at every budget, most after one label
-(-0.008 against the beta-binomial). The within-task agreement it exploits
+(-0.008 against the Beta-Binomial). The within-task agreement it exploits
 rises smoothly with item similarity (residual correlation 0.05 below cosine
 0.80, 0.42 above 0.97 on test). On editbench 54% of items have a near-copy
 (cosine > 0.97), so much of that benchmark's effect is near-duplicate items;
@@ -603,9 +702,9 @@ on the other benchmarks near-copies are 0-4% and agreement at cosines
 0.80-0.95 is still 0.08-0.31. **[TODO: promote kernel Rasch to the main
 results if it holds under leave-one-benchmark-out.]**
 
-**C.9 Diverse acquisition.** Buying labels so each pair's item clusters stay
+**C.9 Diverse acquisition.** **[MEHH_REMOVE]** (a null result already covered by C.5) Buying labels so each pair's item clusters stay
 evenly covered (streaming, with the reserve rule) changes test ALC by -0.0002
-to -0.0006 against random acquisition for the beta-binomial and every Rasch
+to -0.0006 against random acquisition for the Beta-Binomial and every Rasch
 model, none significant. Acquisition order does not matter here either.
 Script for C.8 and C.9: `organized/testing/online/kernel_rasch_replay.py`.
 
@@ -615,25 +714,25 @@ and nothing to pool with on that benchmark. Re-tuning the prior widths on 120
 validation draws with exactly one subject per benchmark keeps a wide
 benchmark-rate prior (tau_b = 2; narrower priors lose up to 0.026); kernel
 Rasch keeps its earlier settings and pooled Rasch prefers a narrower ability
-prior (tau_s = 0.5). On test (150 such draws; Brier-ALC minus the
-beta-binomial): pooled Rasch -0.0011 with the old priors and -0.0032 re-tuned,
+prior (tau_s = 0.5). On test (150 such draws; Brier ALC minus the
+Beta-Binomial): pooled Rasch -0.0011 with the old priors and -0.0032 re-tuned,
 kernel Rasch -0.0024, all significant; on the earlier draws re-tuned pooled
 Rasch reaches -0.0051. On validation in this shape, kernel Rasch (0.1735)
-ties the beta-binomial (0.1738) and pooled Rasch (0.1742) does not beat it.
+ties the Beta-Binomial (0.1738) and pooled Rasch (0.1742) does not beat it.
 
 On the leaderboard, pooled Rasch (1024003) scored 0.2022 against 0.1486 for
-the beta-binomial (1005155), with Brier 0.298 against 0.181 after one label.
+the Beta-Binomial (1005155), with Brier 0.298 against 0.181 after one label.
 Each submission is scored on its own nine pairs (these two share one pair), so
-the comparison is unpaired and noisy; the replay does not reproduce the
+the comparison is unpaired and noisy; the online simulation does not reproduce the
 one-label gap. **[TODO: kernel Rasch 1026246 score; a paired comparison would
 need the same pairs.]** Script: `organized/testing/online/codabench_shape_replay.py`.
 
 ## D. Diagnostics
 
 **D.1 Where the ANP loses.** `docs/online-final-results.pdf`, p. 14: per-budget
-gap to the beta-binomial on test; budgets 0-1 carry almost the whole deficit.
+gap to the Beta-Binomial on test; budgets 0-1 carry almost the whole deficit.
 
-**D.2 Level against item ordering.** p. 15. See Section 5.
+**D.2 Ability and difficulty components.** p. 15. See Section 6.
 
 **D.3 Text embeddings and item difficulty.** Ridge probe from BGE-M3
 embeddings to item pass rate (within-benchmark-centred targets).
@@ -654,25 +753,25 @@ RMSE of each model's per-task ability estimate on test:
 
 | Model | 1 label | 7 labels | 31 labels |
 | --- | --- | --- | --- |
-| Beta-binomial | 0.13 | 0.07 | 0.05 |
+| Beta-Binomial | 0.13 | 0.07 | 0.05 |
 | Pooled Rasch | 0.18 | 0.11 | 0.07 |
 | ANP | 0.15 | 0.09 | 0.09 |
 | ANP, random-subject split | 0.12 | 0.07 | 0.06 |
 
-The ANP's loss does not grow with subject ability (Spearman rho about 0 on
+The ANP's loss does not grow with subject ability (Spearman rank correlation about 0 on
 test; `docs/online-final-results.pdf`, p. 16).
 
 ## E. Reproducibility
 
 | What | Where |
 | --- | --- |
-| Replay, single-pair | `organized/testing/online/modal_benchmark_holdout_replay.py`, `run_sweep.py` |
-| Replay, multi-pair and pooled Rasch | `organized/testing/online/modal_pooled_rasch.py` |
-| Hierarchical beta-binomial | `organized/testing/online/modal_hier_beta.py` |
+| Online simulation, single-pair | `organized/testing/online/modal_benchmark_holdout_replay.py`, `run_sweep.py` |
+| Online simulation, multi-pair and pooled Rasch | `organized/testing/online/modal_pooled_rasch.py` |
+| Hierarchical Beta-Binomial | `organized/testing/online/modal_hier_beta.py` |
 | ANP training | `organized/training/codex_es_fixed_modal_cnp_train.py`, `modal_anp_crossattn_train.py`, `local_anp_train.py` |
 | Figures | `organized/utils/plot_*_final*.py`, `plot_online_main.py`, `plot_online_posthoc.py`, `plot_ability_final.py`; display names in `model_names.py` |
 | Pooled Rasch submission | `organized/submission/pooled_rasch/` |
-| CodaBench submissions (leaderboard Brier-ALC, each on its own 9 pairs) | 1005155 beta-binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, dense-prefix 0.1918; 1024003 pooled Rasch 0.2022; 1026246 kernel Rasch [TODO] |
+| CodaBench submissions (leaderboard Brier ALC, each on its own 9 pairs) | 1005155 Beta-Binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, dense-prefix 0.1918; 1024003 pooled Rasch 0.2022; 1026246 kernel Rasch [TODO] |
 
 ## F. Open items
 
@@ -681,6 +780,6 @@ test; `docs/online-final-results.pdf`, p. 16).
 - [TODO] CodaBench scores for 1022033, 1022030 and 1024003.
 - [TODO] Final item-independent ANP (training to 15,000 steps).
 - [TODO] Wider or fitted priors for pooled Rasch (ability width, item-difficulty
-  width about 1.4 from data, Student-t), and the amortised-difficulty prior mean
+  width about 1.4 from data, Student-t), and the amortized-difficulty prior mean
   `b_i ~ N(f(x_i), tau)`.
 - [TODO] Additional training seeds.

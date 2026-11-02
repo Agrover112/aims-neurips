@@ -14,7 +14,7 @@ probability it assigns over the task's scored items:
 
 The truth is the subject's accuracy on the task's evaluation pool, the items
 that are scored. ``--build`` computes the per-task estimates from the cached
-replay outputs and caches them; pages are drawn from the cache, which is how
+online-simulation outputs and caches them; pages are drawn from the cache, which is how
 ``plot_item_difficulty_final_results.py`` includes them.
 
     python organized/utils/plot_ability_final.py --build --cache /home/agrov/aims-replay-cache
@@ -64,7 +64,7 @@ def build(cache: Path, responses: Path, draws_per_role: int = 40) -> pd.DataFram
     truth = ev.groupby("task_id").agg(observed=("label", "mean"), benchmark_id=("benchmark_id", "first"))
     rows = []
 
-    # ANP and beta-binomial: mean prediction over the scored items, from the replay.
+    # ANP and beta-binomial: mean prediction over the scored items, from the online simulation.
     for role, seeds in SEEDS.items():
         for model in ROWS[role]:
             if model == "pooled-rasch":
@@ -78,7 +78,7 @@ def build(cache: Path, responses: Path, draws_per_role: int = 40) -> pd.DataFram
             lv[["role", "model"]] = role, model
             rows.append(lv.rename(columns={"requested_budget": "budget"}))
 
-    # Pooled Rasch: refit on simulated multi-pair draws, as in the replay.
+    # Pooled Rasch: refit on simulated multi-pair draws, as in the online simulation.
     sys.path.insert(0, str(ROOT / "organized" / "testing" / "online"))
     import modal_pooled_rasch as pr
 
@@ -141,8 +141,8 @@ def distribution_page(pdf, d: dict):
         ("Benchmark-holdout training tasks", tasks[tasks.benchmark_split == "train"].observed, SUBTLE),
         ("Random-subject-split training benchmarks", tasks[tasks.benchmark_id.isin(RANDOM_SPLIT_BENCHMARKS)].observed,
          MUTED["teal"]),
-        ("Validation tasks (replay panel)", panel[panel.role == "validation"].observed, MUTED["indigo"]),
-        ("Test tasks (replay panel)", panel[panel.role == "test"].observed, MUTED["rose"]),
+        ("Validation tasks (online simulation)", panel[panel.role == "validation"].observed, MUTED["indigo"]),
+        ("Test tasks (online simulation)", panel[panel.role == "test"].observed, MUTED["rose"]),
     ]
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 3.9))
     fig.subplots_adjust(left=0.09, right=0.985, top=0.89, bottom=0.52)
@@ -161,7 +161,7 @@ def distribution_page(pdf, d: dict):
     caption(fig, "Figure.", "Distribution of subject ability, measured as each subject's accuracy on one benchmark "
             "(a task); dashed lines mark the means. The benchmark-holdout models trained on the grey tasks; the "
             "random-subject-split models trained on the seven benchmarks in teal, with subjects split at random. "
-            "Validation and test tasks are the replay panel's, scored on their evaluation pools. Test subjects are "
+            "Validation and test tasks are those of the online simulation, scored on their evaluation pools. Test subjects are "
             "on average about 0.15 more accurate than the training subjects (0.62 against 0.47), and validation "
             "subjects slightly less (0.40), so a prior centred on the training mean starts too low on test and too "
             "high on validation. None of the validation or test subjects appear in training.")

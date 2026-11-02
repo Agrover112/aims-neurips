@@ -7,7 +7,7 @@ item embeddings), so a plain "ANP" is that model trained with uniform context
 sizes, and every other ANP name says only what differs from it.
 """
 
-BETA = "Beta-binomial"
+BETA = "Beta-Binomial"
 
 NAME = {
     # Baselines
@@ -22,31 +22,31 @@ NAME = {
     "w64-sam": "ANP + SAM",
     "w64-anchor": "ANP + prior anchor",
     "w64-sam-ladder": "ANP + SAM, budget-ladder training",
-    "w64-dense": "ANP, dense-prefix training",
+    "w64-dense": "ANP, prefix training",
     "w64-noitem": "ANP without item embeddings",
     # Random-subject split (trained on some test-set benchmarks)
     "w64-contam": "ANP, random-subject split",
     "w128": "ANP, random-subject split (width 128)",
     # ANP combined with the beta-binomial
-    "gate": "ANP, beta-binomial below 2 labels",
-    "blend": "ANP/beta-binomial blend",
-    "blend-budget": "ANP/beta-binomial blend, per budget",
+    "fallback": "ANP with Beta-Binomial fallback at 0-1 labels",
+    "ensemble": "ANP-Beta-Binomial ensemble",
+    "ensemble-budget": "ANP-Beta-Binomial ensemble, per-budget weights",
     "aipw": "ANP + residual correction",
-    "beta-aipw": "Beta-binomial + residual correction",
-    # Hierarchical beta-binomial with a subject-metadata prior
-    "hier, no metadata": "Hierarchical beta-binomial",
-    "hier + provider": "Hierarchical beta-binomial + provider",
-    "hier + name + provider": "Hierarchical beta-binomial + model name, provider",
-    "hier + provider + date": "Hierarchical beta-binomial + provider, release date",
-    "hier + name + provider + date": "Hierarchical beta-binomial + model name, provider, release date",
+    "beta-aipw": "Beta-Binomial + residual correction",
+    # Hierarchical Beta-Binomial with a subject-metadata prior
+    "hier, no metadata": "Hierarchical Beta-Binomial",
+    "hier + provider": "Hierarchical Beta-Binomial + provider",
+    "hier + name + provider": "Hierarchical Beta-Binomial + model name, provider",
+    "hier + provider + date": "Hierarchical Beta-Binomial + provider, release date",
+    "hier + name + provider + date": "Hierarchical Beta-Binomial + model name, provider, release date",
     # Pooled Rasch (uses every pair's labels)
     "pooled-rasch": "Pooled Rasch",
     "pooled-rasch-no-item": "Pooled Rasch without item difficulty",
     "combined-provider": "Pooled Rasch + provider prior",
     # ANP decomposition
     "full": "Full ANP",
-    "level": "ANP level only",
-    "order": "Beta-binomial level + ANP item ordering",
+    "level": "ANP ability component only",
+    "order": "Beta-Binomial ability + ANP difficulty component",
 }
 
 POLICY = {

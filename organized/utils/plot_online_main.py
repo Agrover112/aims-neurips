@@ -4,7 +4,7 @@
 Two protocols, never mixed on one axis because they put beta at different
 levels:
 
-    single-pair  each subject-benchmark task replayed alone on its own labels
+    single-pair  each subject-benchmark task simulated alone on its own labels
                  (the protocol of every other page in the report)
     multi-pair   CodaBench-like draws of one or two subjects per benchmark,
                  where a predictor may use every pair's labels. Models that
@@ -13,7 +13,7 @@ levels:
 
 Every curve is mean Brier per budget with a 95% task-bootstrap band; the task
 is the independent unit. ``--build`` assembles one tidy task x budget table
-from the saved replay outputs and caches it; pages are drawn from the cache.
+from the saved online-simulation outputs and caches it; pages are drawn from the cache.
 
     python organized/utils/plot_online_main.py --build --cache /home/agrov/aims-replay-cache
 """
@@ -64,7 +64,7 @@ ABLATIONS = [
     ("No training recipe fixes the ANP; having seen the benchmark does", "single-pair",
      [(k, NAME[k]) for k in ("w64-sam", "w64-dense", "w64-contam", "w128")]),
     ("The beta-binomial can limit the ANP's damage, but not turn it into a gain", "single-pair",
-     [(k, NAME[k]) for k in ("w64-filtered", "gate", "blend", "blend-budget", "aipw", "beta-aipw", "emp-mean")]),
+     [(k, NAME[k]) for k in ("w64-filtered", "fallback", "ensemble", "ensemble-budget", "aipw", "beta-aipw", "emp-mean")]),
     ("Subject metadata barely helps, and release date hurts", "single-pair",
      [(k, NAME[k]) for k in ("hier, no metadata", "hier + provider", "hier + name + provider",
                              "hier + provider + date", "hier + name + provider + date")]),
@@ -79,12 +79,12 @@ TABLE_LABEL = {
 }
 CAPTION = {
     "No training recipe fixes the ANP; having seen the benchmark does": (
-        "SAM and dense-prefix training of the benchmark-holdout ANP stay above the beta-binomial on test, by a wide "
+        "SAM and prefix training of the benchmark-holdout ANP stay above the Beta-Binomial on test, by a wide "
         "margin at 0-1 labels and slightly from 3 labels on. The random-split ANPs trained on editbench, one of the three test benchmarks; their small "
         "test difference averages a large win on editbench with a loss on algotune and cmmlu."),
     "The beta-binomial can limit the ANP's damage, but not turn it into a gain": (
-        "The ANP combined with the beta-binomial: the gate uses the beta-binomial below two labels; blend weights are fitted on "
-        "validation and frozen for test (the validation curves for the blends are in-sample). The residual-correction (AIPW-style) "
+        "The ANP combined with the Beta-Binomial: the fallback uses the Beta-Binomial below two labels, the ensemble averages the two predictions with weights fitted on "
+        "validation and frozen for test (the validation curves for the ensembles are in-sample). The residual-correction (AIPW-style) "
         "variants shift each prediction by the mean residual of the labels seen so far; after one label "
         "that shift is about +/-0.5, which is why they spike at budget 1. The raw hit rate shows the same "
         "spike for the same reason: no shrinkage."),
@@ -99,9 +99,9 @@ CAPTION = {
         "Centring ability on the subject's provider was chosen on validation but loses on test, at budget 0, "
         "because test models are stronger than training models from the same providers."),
 }
-NOT_REPLAYED = [(NAME["w64-ladder"], "trained, never replayed"),
-                (NAME["w64-anchor"], "trained, never replayed"),
-                (NAME["w64-sam-ladder"], "trained, never replayed"),
+NOT_REPLAYED = [(NAME["w64-ladder"], "trained, never simulated online"),
+                (NAME["w64-anchor"], "trained, never simulated online"),
+                (NAME["w64-sam-ladder"], "trained, never simulated online"),
                 (NAME["w64-noitem"], "training; step-400 checkpoint only")]
 
 
@@ -121,7 +121,7 @@ def build(cache: Path) -> pd.DataFrame:
     frames = []
     runs = cache / "runs"
 
-    # Single-pair: the replay grid, random acquisition.
+    # Single-pair: the online-simulation grid, random acquisition.
     single = {}
     for role in ROLES:
         d = pd.read_parquet(RESULTS / f"budget-scores-{PANEL}-{role}.parquet")
@@ -143,7 +143,7 @@ def build(cache: Path) -> pd.DataFrame:
              .merge(beta[posthoc.KEY + ["probability"]].rename(columns={"probability": "beta"}),
                     on=posthoc.KEY, validate="one_to_one")
              .merge(posthoc._shift(runs, role, "w64-filtered"), on=posthoc.KEY[:3]))
-        a["gate"] = np.where(a.requested_budget < 2, a.beta, a.anp)
+        a["fallback"] = np.where(a.requested_budget < 2, a.beta, a.anp)
         a["aipw"] = (a.anp + a["shift"]).clip(1e-4, 1 - 1e-4)
         pred[role] = a
     V = pred["validation"]
@@ -151,13 +151,13 @@ def build(cache: Path) -> pd.DataFrame:
     w_b = {b: min(grid, key=lambda w: ((w * V.anp + (1 - w) * V.beta - V.label)[V.requested_budget == b] ** 2)
                   .groupby(V.task_id).mean().mean()) for b in BUDGETS}
     for role, a in pred.items():
-        a["blend"] = w_one * a.anp + (1 - w_one) * a.beta
+        a["ensemble"] = w_one * a.anp + (1 - w_one) * a.beta
         wb = a.requested_budget.map(w_b)
-        a["blend-budget"] = wb * a.anp + (1 - wb) * a.beta
-        for col in ("gate", "aipw", "blend", "blend-budget"):
+        a["ensemble-budget"] = wb * a.anp + (1 - wb) * a.beta
+        for col in ("fallback", "aipw", "ensemble", "ensemble-budget"):
             frames.append(_long(posthoc._task_budget(a, col), "single-pair", role, col))
 
-    # Single-pair: hierarchical beta arms (Modal run, same orders as the replay).
+    # Single-pair: hierarchical beta arms (Modal run, same orders as the online simulation).
     h = pd.read_parquet(cache / "all-arms-task-budget.parquet")
     h = h[h.arm != "jeffreys"].rename(columns={"arm": "model"})
     h["protocol"] = "single-pair"
@@ -250,14 +250,14 @@ def main_page(pdf, t: pd.DataFrame, protocol: str):
     alc_text = "; ".join(f"{k} {v['validation']:.4f} / {v['test']:.4f}" for k, v in alcs.items())
     if protocol == "single-pair":
         body = ("Mean Brier on each task's held-out evaluation items after 0-31 labels, each subject-benchmark "
-                "task replayed alone on its own labels with random acquisition (validation: 3 candidate orders, "
+                "task simulated alone on its own labels with random acquisition (validation: 3 candidate orders, "
                 "test: 10; benchmarks never seen in training). Bands: 95% bootstrap over tasks. The ANP's whole "
                 "deficit sits at 0 and 1 labels; from 3 labels on it matches the beta-binomial. The constant ignores labels "
                 f"and sets the floor. Brier-ALC (val / test): {alc_text}. Pooled Rasch needs other pairs' labels "
                 "and is shown on the multi-pair page.")
     else:
         body = ("Same models on CodaBench-like draws: one or two subjects per benchmark, labels acquired in the "
-                "replay's frozen orders, and every pair's labels available to the predictor (60 validation and "
+                "the online simulation's frozen orders, and every pair's labels available to the predictor (60 validation and "
                 "150 test draws). Models that ignore other pairs are placed on the same draws from their "
                 "single-pair scores. Pooled Rasch fits benchmark rate, subject ability and item difficulty from "
                 "all pairs' labels and is the only model below the beta-binomial on test at every budget. Bands: 95% "
@@ -284,7 +284,7 @@ def ablation_table_page(pdf, t: pd.DataFrame):
             mean, lo, hi = _boot(d, rng)
             star = "*" if lo > 0 or hi < 0 else ""
             rows.append([f"  {label}", protocol, cells[0], cells[1], f"{mean:+.4f} [{lo:+.4f}, {hi:+.4f}]{star}"])
-    rows.append(["Not replayed", "", "", "", ""])
+    rows.append(["Not simulated online", "", "", "", ""])
     bold.add(len(rows) - 1)
     for label, why in NOT_REPLAYED:
         rows.append([f"  {label}", "-", "-", "-", why])
@@ -312,9 +312,9 @@ def ablation_table_page(pdf, t: pd.DataFrame):
             "(algotune, cmmlu, editbench), random acquisition. The last column is the paired test difference to "
             "the beta-binomial (Jeffreys prior) under the same protocol, with a 95% bootstrap interval over tasks; * marks intervals "
             "that exclude 0. Single-pair beta-binomial: 0.1717 / 0.2494 (val / test); multi-pair: 0.1685 / 0.2497. "
-            "Validation selected the blend weights, the metadata L2 and the pooled-Rasch priors. The "
-            "random-split ANPs trained on editbench. Rows under 'Not replayed' were trained but have no "
-            "replay result.")
+            "Validation selected the ensemble weights, the metadata L2 and the pooled-Rasch priors. The "
+            "random-split ANPs trained on editbench. Rows under 'Not simulated online' were trained but have no "
+            "online-simulation result.")
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 

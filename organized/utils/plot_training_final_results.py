@@ -14,7 +14,7 @@ Read the fixed-bank pages with care: the validation bank's context sizes follow
 each run's own sampling scheme (uniform 0-31, the budget ladder, or every
 prefix), and the in-distribution banks contain benchmarks those runs trained
 on. A fixed-bank number is comparable only between runs with the same bank;
-the replay columns on the overview page are the common yardstick.
+the online-simulation columns on the overview page are the common yardstick.
 
     python organized/utils/plot_training_final_results.py
 """
@@ -183,7 +183,7 @@ def method(m: dict) -> str:
 
 
 def replay_alc() -> dict:
-    """random_prefix macro ALC per replay model, for validation and test."""
+    """random_prefix macro ALC per online-simulation model, for validation and test."""
     weights = dict(zip((0, 1, 3, 7, 15, 31), (0.1, 0.2, 0.2, 0.2, 0.2, 0.1)))
     out = {}
     for role in ("validation", "test"):
@@ -201,11 +201,11 @@ def replay_alc() -> dict:
 def overview_page(pdf, meta: dict):
     fig = plt.figure(figsize=(TEXTWIDTH, 4.6))
     header(fig, "Training runs: ANP with BGE-M3 item embeddings (cross-attention, 1 self-attention block, 4 heads)",
-           "Same architecture throughout; the split is the variable. Replay: random "
+           "Same architecture throughout; the split is the variable. Online simulation: random "
            "acquisition, macro-task Brier ALC.")
     alc = replay_alc()
     cols = ["run", "split", "width /\nlatent", "context sizes, method", "steps",
-            "best step", "bank Brier", "replay val", "replay test"]
+            "best step", "bank Brier", "online sim.\nval", "online sim.\ntest"]
     rows = []
     for rid, name, group, key in RUNS:
         m = meta[rid]
@@ -243,10 +243,10 @@ def overview_page(pdf, meta: dict):
         "picked its checkpoint. That bank's context sizes follow the run's sampling "
         "scheme, and in-distribution banks hold benchmarks the run trained on, so bank "
         "Brier compares only runs with the same bank.\n"
-        "replay val / test: random acquisition on the 82-task validation and 45-task test "
+        "Online sim. val / test: random acquisition on the 82-task validation and 45-task test "
         "panels, the same protocol for every row. The random-split runs trained on "
         "ai2d_test and bird_sql (validation) and editbench (test).\n"
-        "The dense-prefix run kept training after its replay and CodaBench checkpoint was frozen "
+        "The prefix-training run kept training after its online simulation and CodaBench checkpoint were frozen "
         "at step 4,550 (bank Brier 0.1700); its final best is the step shown. SAM ran to "
         "30,000 steps but its best checkpoint, step 5,450, did not change."
     )
