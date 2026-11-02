@@ -235,8 +235,8 @@ def budgets_page(pdf, t: dict):
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.7), sharey=True)
     fig.subplots_adjust(left=0.09, right=0.985, top=0.78, bottom=0.27, wspace=0.08)
     header(fig, "Where the ANP loses: Brier minus Beta-Binomial at each budget (test)",
-           "Left: benchmark-holdout ANPs on the three unseen test benchmarks. Right: random-split ANPs on\n"
-           "editbench, which they trained on (solid), and on algotune + cmmlu, which they did not (dashed).")
+           "Left: benchmark-holdout ANPs on the three OOD test benchmarks. Right: random-subject-split ANPs on\n"
+           "the ID benchmark editbench (solid) and the OOD benchmarks algotune + cmmlu (dashed).")
     for ax, models in zip(axes, (HOLDOUT, RANDOM)):
         for m, name in models.items():
             for subset, ls in (("seen", "-"), ("unseen", "--" if m in RANDOM else "-")):
@@ -245,7 +245,7 @@ def budgets_page(pdf, t: dict):
                     continue
                 ax.fill_between(x, r.lo, r.hi, color=COLOR[m], alpha=0.15, lw=0)
                 ax.plot(x, r["mean"], color=COLOR[m], ls=ls, marker="o", ms=2.6, lw=1.0,
-                        label=name if m in HOLDOUT else f"{name.split(',')[0].replace('ANP ', '')} {subset}")
+                        label=name if m in HOLDOUT else f"{name.split(',')[0].replace('ANP ', '')} {'ID' if subset == 'seen' else 'OOD'}")
         ax.axhline(0, color=INK, lw=0.6, ls=(0, (4, 2)))
         ax.set_xticks(x)
         ax.set_xticklabels(BUDGETS)
@@ -263,12 +263,13 @@ def decomposition_page(pdf, t: dict):
     variants = [NAME["full"], NAME["level"], NAME["order"]]
     cases = [("w64-contam", "seen"), ("w64-contam", "unseen"), ("w128", "seen"), ("w128", "unseen"),
              ("w64-filtered", "unseen"), ("w64-sam", "unseen"), ("w64-dense", "unseen")]
-    labels = [f"{(RANDOM | HOLDOUT)[m]}, {'editbench (seen)' if s == 'seen' else 'unseen'}" for m, s in cases]
+    labels = [f"{(RANDOM | HOLDOUT)[m]}, {'ID (editbench)' if s == 'seen' else 'OOD'}" for m, s in cases]
     vcol = {NAME["full"]: INK, NAME["level"]: MUTED["teal"], NAME["order"]: MUTED["rose"]}
-    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.4), sharey=True)
-    fig.subplots_adjust(left=0.45, right=0.985, top=0.8, bottom=0.17, wspace=0.08)
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.7), sharey=True)
+    fig.subplots_adjust(left=0.45, right=0.985, top=0.76, bottom=0.25, wspace=0.08)
     header(fig, "Which part of the ANP fails on a new benchmark: ability or difficulty? (test)",
-           "Ability component: the mean of the ANP's predictions for the task. Difficulty component: each item's offset from that mean.\n"
+           "Ability component: the mean of the ANP's predictions for the task.\n"
+           "Difficulty component: each item's offset from that mean.\n"
            "Brier minus Beta-Binomial; negative = better. Bars: 95% task bootstrap.")
     for ax, phase in zip(axes, ("0-1 labels", "3-31 labels")):
         for i, (m, s) in enumerate(cases):
@@ -284,7 +285,7 @@ def decomposition_page(pdf, t: dict):
     axes[0].set_yticklabels(labels, fontsize=5.6)
     axes[0].invert_yaxis()
     handles = [plt.Line2D([], [], color=vcol[v], marker="o", ls="none", ms=3.2) for v in variants]
-    fig.legend(handles, variants, loc="lower center", ncol=3, fontsize=6, frameon=False, bbox_to_anchor=(0.6, 0.0))
+    fig.legend(handles, variants, loc="lower center", ncol=1, fontsize=6, frameon=False, bbox_to_anchor=(0.6, 0.0))
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 

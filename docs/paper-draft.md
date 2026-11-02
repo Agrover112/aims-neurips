@@ -170,10 +170,13 @@ maximum likelihood. Adding Gaussian priors and maximizing likelihood times prior
 gives the *maximum a posteriori* (MAP) estimate, which for Gaussian priors is
 ridge-penalized logistic regression.
 
-**In-distribution and out-of-distribution.** A test task is *in-distribution*
-(ID) when its benchmark also appears in training, as in a random split of
-subjects, and *out-of-distribution* (OOD) when its benchmark never appears, as in
-the benchmark holdout, which also holds out the subjects. "Unseen" means OOD.
+**In-distribution (ID) and out-of-distribution (OOD).** A test task is
+*in-distribution* (ID) when its benchmark also appears in training, as in a random
+split of subjects, where the test subjects are new but their benchmark is not. It is
+*out-of-distribution* (OOD) when its benchmark never appears in training, as in the
+benchmark holdout, where the subjects are new as well. "Unseen" means OOD. Tables and
+figures use ID and OOD as column or row labels wherever both occur, and results
+without a label are OOD.
 
 **Online simulation, single-pair and multi-pair.** We cannot query the
 competition's live models, so we evaluate by *online simulation*: the online
@@ -304,7 +307,7 @@ metadata (Appendix D.5).
 **Figure 1** (`docs/online-final-results.pdf`, p. 1): single-pair Brier per
 budget, validation and test.
 
-**Table 1** (RQ1). Brier ALC on validation and test (single-pair) and the test difference to the Beta-Binomial; negative is better.
+**Table 1** (RQ1). Brier ALC on validation and test (single-pair; both OOD) and the test difference to the Beta-Binomial; negative is better.
 
 | Model (single-pair) | Val ALC | Test ALC | Test minus Beta-Binomial [95% CI] |
 | --- | --- | --- | --- |
@@ -335,7 +338,7 @@ label (0.28) is above the constant's, and later budgets only just recover it.
 **Figure 2** (`docs/online-final-results.pdf`, p. 2): multi-pair Brier per
 budget.
 
-**Table 2** (RQ2). Brier ALC on validation and test (multi-pair) and the test difference to the Beta-Binomial; negative is better.
+**Table 2** (RQ2). Brier ALC on validation and test (multi-pair; both OOD) and the test difference to the Beta-Binomial; negative is better.
 
 | Model (multi-pair) | Val ALC | Test ALC | Test minus Beta-Binomial [95% CI] |
 | --- | --- | --- | --- |
@@ -403,15 +406,15 @@ Beta-Binomial's once labels arrive, not a well-calibrated prior over ability.
 **Table 3** (RQ3). Test Brier minus the Beta-Binomial's, using the full ANP prediction,
 only its ability component, or only its difficulty component (the other replaced
 by the Beta-Binomial's flat prediction), for budgets 0-1 and 3-31. Negative is
-better; * marks a 95% CI that excludes zero.
+better; * marks a 95% CI that excludes zero. Rows are OOD unless marked ID.
 
 | Model | Full, 0-1 | Ability, 0-1 | Difficulty, 0-1 | Full, 3-31 | Ability, 3-31 | Difficulty, 3-31 |
 | --- | --- | --- | --- | --- | --- | --- |
 | ANP | +0.064* | +0.064* | +0.000 | +0.003 | +0.003 | +0.000 |
 | ANP + SAM | +0.040* | +0.037* | +0.003* | +0.003 | +0.000 | +0.002* |
 | ANP, prefix training | +0.064* | +0.063* | +0.001 | +0.005* | +0.002 | +0.003* |
-| ANP, random-subject split: unseen benchmarks | +0.040* | -0.003 | +0.039* | +0.046* | -0.010* | +0.050* |
-| ANP, random-subject split: editbench (seen in training) | -0.073* | -0.025* | -0.053* | -0.081* | -0.011* | -0.073* |
+| ANP, random-subject split, OOD | +0.040* | -0.003 | +0.039* | +0.046* | -0.010* | +0.050* |
+| ANP, random-subject split, ID (editbench) | -0.073* | -0.025* | -0.053* | -0.081* | -0.011* | -0.073* |
 
 **Text embeddings recover little cross-benchmark difficulty.** Within a benchmark, item
 text does predict which items are harder: the probe
@@ -421,7 +424,7 @@ reaches Spearman rank correlation 0.40 and pairwise accuracy 0.65 on held-out it
 0.09 and 0.53, and every ANP to between +0.00 and +0.04 and 0.50 to 0.51,
 which is chance. The probe improves only slowly with the number of training benchmarks
 (Appendix D.2). Krsteski and Meyer (2026) report the same on agentic benchmarks: embeddings of
-a task's text reach 0.017 out of distribution against 0.107 in distribution, while
+a task's text reach 0.017 OOD against 0.107 ID, while
 language-model entropy features, which we did not test, retain more (0.137).
 
 **Table 4** (RQ3). Item-difficulty recovery within a benchmark: Spearman rank correlation
@@ -442,9 +445,9 @@ ANPs). A random guess scores $\rho = 0$ and pairwise accuracy 0.5.
 | Probe | +0.40 | 0.65 | +0.09 | 0.53 | 11 / 6 |
 
 **The ANP overfits the training benchmarks.** With the split as the only
-difference, the same ANP's validation NLL keeps falling in distribution but
-bottoms out near 0.48 at about 3,000 steps and rises to 0.59 on unseen
-benchmarks while its training loss keeps falling (Figure 3,
+difference, the same ANP's validation NLL keeps falling ID but
+bottoms out near 0.48 at about 3,000 steps and rises to 0.59 OOD
+while its training loss keeps falling (Figure 3,
 `docs/training-final-results.pdf`, p. 2).
 
 **Subject metadata breaks under model shift.** **[POSSIBLE_APPENDIX]** Test subjects are newer and
@@ -501,8 +504,7 @@ is unknown is the subject's ability, the item's difficulty and the evaluation la
 We must therefore predict a particular subject's outcome on a particular item with
 both subject and benchmark unseen, a harder target than a task's difficulty, which is
 consistent with our finding that text features alone are not enough. Their predictions
-recover the fitted difficulty well in distribution but much less on an unseen
-benchmark, and embeddings alone recover almost none, in line with our finding that
+recover the fitted difficulty well ID but much less OOD, and embeddings alone recover almost none, in line with our finding that
 text embeddings recover little cross-benchmark difficulty. They also show that
 response AUC stays high for degenerate difficulty estimates, because it mostly
 rewards ability, and evaluate within-benchmark rank recovery instead; we likewise
@@ -827,10 +829,10 @@ only" pairs the ANP's item offsets with the Beta-Binomial's ability estimate.
 | ANP | +0.064* [+0.056, +0.072] | +0.064* [+0.056, +0.072] | +0.000 [-0.001, +0.001] |
 | ANP + SAM | +0.040* [+0.029, +0.051] | +0.037* [+0.026, +0.048] | +0.003* [+0.001, +0.005] |
 | ANP, prefix training | +0.064* [+0.056, +0.073] | +0.063* [+0.055, +0.072] | +0.001 [-0.000, +0.002] |
-| ANP, random-subject split: unseen | +0.040* [+0.029, +0.052] | -0.003 [-0.014, +0.008] | +0.039* [+0.032, +0.046] |
-| ANP, random-subject split: editbench (seen) | -0.073* [-0.081, -0.065] | -0.025* [-0.031, -0.020] | -0.053* [-0.059, -0.046] |
-| ANP, random-subject split (width 128): unseen | +0.038* [+0.027, +0.048] | -0.006 [-0.017, +0.003] | +0.036* [+0.031, +0.041] |
-| ANP, random-subject split (width 128): editbench (seen) | -0.052* [-0.062, -0.040] | -0.011* [-0.019, -0.004] | -0.045* [-0.052, -0.038] |
+| ANP, random-subject split, OOD | +0.040* [+0.029, +0.052] | -0.003 [-0.014, +0.008] | +0.039* [+0.032, +0.046] |
+| ANP, random-subject split, ID (editbench) | -0.073* [-0.081, -0.065] | -0.025* [-0.031, -0.020] | -0.053* [-0.059, -0.046] |
+| ANP, random-subject split (width 128), OOD | +0.038* [+0.027, +0.048] | -0.006 [-0.017, +0.003] | +0.036* [+0.031, +0.041] |
+| ANP, random-subject split (width 128), ID (editbench) | -0.052* [-0.062, -0.040] | -0.011* [-0.019, -0.004] | -0.045* [-0.052, -0.038] |
 
 *Budgets 3-31.*
 
@@ -839,10 +841,10 @@ only" pairs the ANP's item offsets with the Beta-Binomial's ability estimate.
 | ANP | +0.003 [-0.001, +0.007] | +0.003 [-0.001, +0.007] | +0.000 [-0.003, +0.003] |
 | ANP + SAM | +0.003 [-0.001, +0.006] | +0.000 [-0.003, +0.004] | +0.002* [+0.000, +0.004] |
 | ANP, prefix training | +0.005* [+0.002, +0.010] | +0.002 [-0.001, +0.006] | +0.003* [+0.001, +0.005] |
-| ANP, random-subject split: unseen | +0.046* [+0.036, +0.055] | -0.010* [-0.013, -0.005] | +0.050* [+0.041, +0.059] |
-| ANP, random-subject split: editbench (seen) | -0.081* [-0.089, -0.073] | -0.011* [-0.014, -0.009] | -0.073* [-0.080, -0.064] |
-| ANP, random-subject split (width 128): unseen | +0.050* [+0.044, +0.057] | -0.009* [-0.013, -0.005] | +0.052* [+0.045, +0.058] |
-| ANP, random-subject split (width 128): editbench (seen) | -0.079* [-0.090, -0.068] | -0.009* [-0.012, -0.007] | -0.072* [-0.082, -0.063] |
+| ANP, random-subject split, OOD | +0.046* [+0.036, +0.055] | -0.010* [-0.013, -0.005] | +0.050* [+0.041, +0.059] |
+| ANP, random-subject split, ID (editbench) | -0.081* [-0.089, -0.073] | -0.011* [-0.014, -0.009] | -0.073* [-0.080, -0.064] |
+| ANP, random-subject split (width 128), OOD | +0.050* [+0.044, +0.057] | -0.009* [-0.013, -0.005] | +0.052* [+0.045, +0.058] |
+| ANP, random-subject split (width 128), ID (editbench) | -0.079* [-0.090, -0.068] | -0.009* [-0.012, -0.007] | -0.072* [-0.082, -0.063] |
 
 **D.2 Embeddings and item difficulty.** The probe (Section 2) is fitted in two ways, with the L2
 penalty chosen from {0.01, 0.1, 1, 10, 100} by cross-validation. *Within a benchmark (ID):* on a random 80% of
@@ -918,9 +920,9 @@ extend to 2026-03 against 2025-06 in training, so the release-date term
 extrapolates; only 27% of test model names occur in training.
 
 **D.6 Loss curves.** `docs/training-final-results.pdf`: p. 2 (Figure 3,
-in-distribution against out-of-distribution on one axis); pp. 3-12 (ELBO, NLL,
+ID against OOD on one axis); pp. 3-12 (ELBO, NLL,
 KL, fixed-bank Brier, latent statistics, split-half and response-holdout
-generalisation, each in- and out-of-distribution).
+generalisation, each ID and OOD).
 
 **D.7 Predictions as labels arrive.** **[MEHH_REMOVE]** `docs/np-context-final.pdf` (also
 `docs/training-final-results.pdf`, pp. 13-16): on bird_sql, a benchmark the

@@ -59,8 +59,8 @@ RUNS = [
     ("np-07013d1f3e4c31d20b7e", NAME["w64-sam-ladder"], "OOD", None),
     ("np-048f1586cd2fbaa02d48", NAME["w64-dense"], "OOD", "w64-dense"),
 ]
-GROUPS = [("in-dist", "In-distribution: random-subject split (validation shares training benchmarks)"),
-          ("OOD", "Out-of-distribution: benchmark holdout (validation benchmarks never trained on)")]
+GROUPS = [("in-dist", "ID: random-subject split (validation shares training benchmarks)"),
+          ("OOD", "OOD: benchmark holdout (validation benchmarks never trained on)")]
 COLOR = {rid: CYCLE[i % len(CYCLE)] for i, (rid, *_rest) in enumerate(RUNS)}
 
 KEYS = {
@@ -274,11 +274,11 @@ def split_contrast_page(pdf, frame: pd.DataFrame, meta: dict):
     """
     import textwrap
 
-    runs = [("np-470e0bbf02b0032be63c", "In distribution (random-subject split)", MUTED["indigo"]),
-            ("np-a3923b0595e9dd6718ce", "Out of distribution (benchmark holdout)", MUTED["rose"])]
+    runs = [("np-470e0bbf02b0032be63c", "ID (random-subject split)", MUTED["indigo"]),
+            ("np-a3923b0595e9dd6718ce", "OOD (benchmark holdout)", MUTED["rose"])]
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 3.9))
     fig.subplots_adjust(left=0.1, right=0.985, top=0.9, bottom=0.42)
-    fig.text(0.018, 0.985, "Validation loss keeps falling in distribution, but rises on unseen benchmarks",
+    fig.text(0.018, 0.985, "Validation loss keeps falling ID, but rises OOD",
              fontsize=8.6, fontweight="bold", va="top")
     for rid, label, colour in runs:
         for metric, ls, part in (("nll_tr", "-", "training"), ("nll_va", (0, (4, 2)), "validation")):
@@ -300,9 +300,9 @@ def split_contrast_page(pdf, frame: pd.DataFrame, meta: dict):
     fig.legend(handles, labels, loc="center", ncol=2, fontsize=6.1, frameon=False, bbox_to_anchor=(0.5, 0.285))
     body = ("Figure. Training (solid) and validation (dashed) negative log-likelihood of the same ANP (width 64, "
             "uniform 0-31 context sizes, 100,000 steps) trained on two splits; curves are exponentially smoothed "
-            "and stars mark each run's selected checkpoint. In distribution, validation holds out subjects but "
-            "keeps every benchmark in training, and its loss falls with the training loss throughout. Under the "
-            "benchmark holdout, validation uses benchmarks never trained on: its loss bottoms out near 0.48 "
+            "and stars mark each run's selected checkpoint. ID means the validation benchmarks also appear in training and OOD that they never do. ID, validation holds out subjects but "
+            "keeps every benchmark in training, and its loss falls with the training loss throughout. OOD, "
+            "validation uses benchmarks never trained on: its loss bottoms out near 0.48 "
             "around 3,000 steps and climbs to about 0.59 while the training loss keeps falling, the "
             "signature of fitting the training benchmarks rather than learning what transfers. The two "
             "validation sets differ by design, so compare each curve's shape, not their levels.")
@@ -351,7 +351,7 @@ def metric_page(pdf, frame: pd.DataFrame, meta: dict, title: str, panels: list):
             style(ax)
             ax.set_title(f"{ptitle}", fontsize=6.8, pad=3)
             if col == 0:
-                ax.set_ylabel(f"{'in-dist' if group == 'in-dist' else 'OOD'}\n{ylabel}",
+                ax.set_ylabel(f"{'ID' if group == 'in-dist' else 'OOD'}\n{ylabel}",
                               fontsize=6.6, labelpad=4)
             if row == 1:
                 ax.set_xlabel("step", fontsize=6.6)
@@ -360,7 +360,7 @@ def metric_page(pdf, frame: pd.DataFrame, meta: dict, title: str, panels: list):
     for row, (group, _) in enumerate(GROUPS):
         handles, labels = axes[row][0].get_legend_handles_labels()
         if handles:
-            fig.legend(handles, [f"{'in-dist' if group == 'in-dist' else 'OOD'}: {l}" for l in labels],
+            fig.legend(handles, [f"{'ID' if group == 'in-dist' else 'OOD'}: {l}" for l in labels],
                        loc="lower center", fontsize=5.6, frameon=False,
                        ncol=min(len(labels), 3 if group == "OOD" else 2),
                        bbox_to_anchor=(0.5, 0.06 if group == "in-dist" else 0.0))

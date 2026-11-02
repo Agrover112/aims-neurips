@@ -280,11 +280,11 @@ def seen_page(pdf, t: pd.DataFrame):
     """
     fig, axes = plt.subplots(2, 2, figsize=(TEXTWIDTH, 4.6), sharex=True, sharey=True)
     fig.subplots_adjust(left=0.10, right=0.965, top=0.83, bottom=0.16, wspace=0.12, hspace=0.40)
-    header(fig, "Random-split models: benchmarks seen in training vs never seen",
-           "Grey: observed. Colour: budget-0 prediction. Seen = benchmark "
-           "in the 7 trained on.")
+    header(fig, "Random-subject-split models: ID vs OOD benchmarks",
+           "Grey: observed. Colour: budget-0 prediction. ID = benchmark "
+           "among the 7 trained on; OOD = any other.")
     for row, (_, name) in enumerate(RANDOM_MODELS):
-        for col, (seen, label) in enumerate(((True, "seen in training"), (False, "never seen"))):
+        for col, (seen, label) in enumerate(((True, "ID"), (False, "OOD"))):
             ax = axes[row][col]
             s = t[t.seen_by_random_split == seen]
             filled(ax, s.observed, TRAIN_GREY, "observed")
