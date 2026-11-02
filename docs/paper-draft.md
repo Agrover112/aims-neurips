@@ -479,18 +479,18 @@ be combined.
 
 **Difficulty prediction without outcomes.** Krsteski and Meyer (2026) predict each
 task's Rasch difficulty before any agent runs it, from task text, language-model
-entropy features and embeddings, over 17 agentic benchmarks. In distribution the
-best feature set reaches a Spearman rank correlation of 0.40 with the fitted
-difficulty; on an unseen benchmark (leave-one-benchmark-out) it drops to 0.23, and
-embeddings alone reach 0.02, in line with our finding that text embeddings recover
-little cross-benchmark difficulty. They also show that response AUC stays high for
+entropy features and embeddings, across many agentic benchmarks. Predictions
+recover the fitted difficulty well in distribution but much less on an unseen
+benchmark (leave-one-benchmark-out), and embeddings alone recover almost none, in
+line with our finding that text embeddings recover little cross-benchmark
+difficulty. They also show that response AUC stays high for
 degenerate difficulty estimates, because it mostly rewards ability, and evaluate
 within-benchmark rank recovery instead; we likewise report a difficulty-specific
 metric beside Brier (Table 4). Their setting has no revealed outcomes. Ours has a
 few, and kernel Rasch combines text similarity with the labels that arrive.
 
-**Benchmark prediction from few data.** Zhang et al. (2025) compare 11 methods
-on 19 benchmarks for predicting aggregate accuracy and find that learned
+**Benchmark prediction from few data.** Zhang et al. (2025) compare many methods
+across benchmarks for predicting aggregate accuracy and find that learned
 predictors fail on unfamiliar models, while an AIPW estimator anchored to the
 observed labels holds up. We find the item-level analogue: under benchmark
 shift the estimator anchored to observed labels (Beta-Binomial, pooled Rasch)
