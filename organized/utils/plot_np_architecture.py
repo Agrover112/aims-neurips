@@ -252,7 +252,7 @@ def block_page(pdf):
     arrow(ax, [(dx + 11, yc), (103.6, yc)], TARGET)
 
     label(ax, 1.5, 0.8, "Train: $z\\sim q(z\\mid C\\cup T)$; loss BCE + KL$(q(z\\mid C\\cup T)\\,\\|\\,q(z\\mid C))$.  "
-          "Prior-anchor variant: + beta-binomial logit of $y_C$.", fs=5.4)
+          "Prior-anchor variant: + Beta-Binomial logit of $y_C$.", fs=5.4)
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 

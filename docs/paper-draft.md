@@ -771,7 +771,7 @@ test; `docs/online-final-results.pdf`, p. 16).
 | ANP training | `organized/training/codex_es_fixed_modal_cnp_train.py`, `modal_anp_crossattn_train.py`, `local_anp_train.py` |
 | Figures | `organized/utils/plot_*_final*.py`, `plot_online_main.py`, `plot_online_posthoc.py`, `plot_ability_final.py`; display names in `model_names.py` |
 | Pooled Rasch submission | `organized/submission/pooled_rasch/` |
-| CodaBench submissions (leaderboard Brier ALC, each on its own 9 pairs) | 1005155 Beta-Binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, dense-prefix 0.1918; 1024003 pooled Rasch 0.2022; 1026246 kernel Rasch [TODO] |
+| CodaBench submissions (leaderboard Brier ALC, each on its own 9 pairs) | 1005155 Beta-Binomial 0.1486; 1019401 probe 0.2026; 1022033 ANP + SAM 0.1808; 1022030 ANP, prefix training 0.1918; 1024003 pooled Rasch 0.2022; 1026246 kernel Rasch [TODO] |
 
 ## F. Open items
 

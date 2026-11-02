@@ -6,7 +6,7 @@ task (one subject on one benchmark); a reader can check it against a raw hit
 rate, which a logit theta would hide. Each model's estimate of it is the mean
 probability it assigns over the task's scored items:
 
-    Beta-binomial                (hits + 0.5) / (labels + 1), item-blind
+    Beta-Binomial                (hits + 0.5) / (labels + 1), item-blind
     Pooled Rasch                 sigmoid(mu_b + theta_s - b_h), averaged over items;
                                  fitted on every pair's labels (multi-pair draws)
     ANP                          the network's mean prediction, its "level"
@@ -64,7 +64,7 @@ def build(cache: Path, responses: Path, draws_per_role: int = 40) -> pd.DataFram
     truth = ev.groupby("task_id").agg(observed=("label", "mean"), benchmark_id=("benchmark_id", "first"))
     rows = []
 
-    # ANP and beta-binomial: mean prediction over the scored items, from the online simulation.
+    # ANP and Beta-Binomial: mean prediction over the scored items, from the online simulation.
     for role, seeds in SEEDS.items():
         for model in ROWS[role]:
             if model == "pooled-rasch":
@@ -177,8 +177,8 @@ def estimates_page(pdf, d: dict, role: str):
                              sharex=True, sharey=True, squeeze=False)
     fig.subplots_adjust(left=0.2, right=0.975, top=1 - 0.42 / height, bottom=1.85 / height,
                         wspace=0.16, hspace=0.12)
-    header(fig, "The beta-binomial tracks ability best; pooled Rasch shrinks it"
-           if role == "test" else "On validation the ANP tracks ability about as well as the beta-binomial")
+    header(fig, "The Beta-Binomial tracks ability best; pooled Rasch shrinks it"
+           if role == "test" else "On validation the ANP tracks ability about as well as the Beta-Binomial")
     for r, m in enumerate(models):
         g = lv[lv.model == m]
         for c, k in enumerate(SHOWN):
@@ -211,12 +211,12 @@ def estimates_page(pdf, d: dict, role: str):
     seen_note = (" In the random-subject-split row, diamonds are editbench tasks, a benchmark that model trained "
                  "on; circles are algotune and cmmlu, which it never saw." if role == "test" else "")
     finding = {
-        "test": ("The beta-binomial's estimate tracks the truth most closely from one label on; the random-subject-"
+        "test": ("The Beta-Binomial's estimate tracks the truth most closely from one label on; the random-subject-"
                  "split ANP matches it, and the benchmark-holdout ANP stalls at an error of about 0.09 from seven "
                  "labels on. Pooled Rasch shrinks ability harder (RMSE 0.18 after one label, 0.07 after 31): its "
                  "lower Brier comes from pooling the benchmark rate and item difficulty, not from a sharper ability "
                  "estimate."),
-        "validation": ("The ANP's estimate is slightly closer than the beta-binomial's at one and three labels and "
+        "validation": ("The ANP's estimate is slightly closer than the Beta-Binomial's at one and three labels and "
                        "slightly further from seven on; pooled Rasch again shrinks ability the most. Pooled Rasch is "
                        "shown for the 72 validation tasks its 40 draws covered."),
     }[role]

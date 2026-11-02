@@ -63,7 +63,7 @@ BASELINE = {"single-pair": "beta", "multi-pair": "jeffreys"}
 ABLATIONS = [
     ("No training recipe fixes the ANP; having seen the benchmark does", "single-pair",
      [(k, NAME[k]) for k in ("w64-sam", "w64-dense", "w64-contam", "w128")]),
-    ("The beta-binomial can limit the ANP's damage, but not turn it into a gain", "single-pair",
+    ("The Beta-Binomial can limit the ANP's damage, but not turn it into a gain", "single-pair",
      [(k, NAME[k]) for k in ("w64-filtered", "fallback", "ensemble", "ensemble-budget", "aipw", "beta-aipw", "emp-mean")]),
     ("Subject metadata barely helps, and release date hurts", "single-pair",
      [(k, NAME[k]) for k in ("hier, no metadata", "hier + provider", "hier + name + provider",
@@ -73,8 +73,8 @@ ABLATIONS = [
 ]
 TABLE_LABEL = {
     "No training recipe fixes the ANP; having seen the benchmark does": "ANP training recipe and split",
-    "The beta-binomial can limit the ANP's damage, but not turn it into a gain": "Combining the ANP with the beta-binomial",
-    "Subject metadata barely helps, and release date hurts": "Hierarchical beta-binomial: subject-metadata prior",
+    "The Beta-Binomial can limit the ANP's damage, but not turn it into a gain": "Combining the ANP with the Beta-Binomial",
+    "Subject metadata barely helps, and release date hurts": "Hierarchical Beta-Binomial: subject-metadata prior",
     "Other subjects' labels help; a provider prior undoes it": "Pooling all pairs' labels (multi-pair)",
 }
 CAPTION = {
@@ -82,14 +82,14 @@ CAPTION = {
         "SAM and prefix training of the benchmark-holdout ANP stay above the Beta-Binomial on test, by a wide "
         "margin at 0-1 labels and slightly from 3 labels on. The random-split ANPs trained on editbench, one of the three test benchmarks; their small "
         "test difference averages a large win on editbench with a loss on algotune and cmmlu."),
-    "The beta-binomial can limit the ANP's damage, but not turn it into a gain": (
+    "The Beta-Binomial can limit the ANP's damage, but not turn it into a gain": (
         "The ANP combined with the Beta-Binomial: the fallback uses the Beta-Binomial below two labels, the ensemble averages the two predictions with weights fitted on "
         "validation and frozen for test (the validation curves for the ensembles are in-sample). The residual-correction (AIPW-style) "
         "variants shift each prediction by the mean residual of the labels seen so far; after one label "
         "that shift is about +/-0.5, which is why they spike at budget 1. The raw hit rate shows the same "
         "spike for the same reason: no shrinkage."),
     "Subject metadata barely helps, and release date hurts": (
-        "A beta-binomial with a prior fitted on training benchmarks, whose mean depends on the subject's "
+        "A Beta-Binomial with a prior fitted on training benchmarks, whose mean depends on the subject's "
         "provider, model name and release date as sent by CodaBench. Test models are newer than any training "
         "model, so the release-date term extrapolates and hurts at budget 0. A leave-one-benchmark-out check "
         "on the 14 non-test benchmarks did not confirm the small gains of the other arms."),
@@ -226,8 +226,8 @@ def main_page(pdf, t: pd.DataFrame, protocol: str):
     x = np.arange(len(BUDGETS))
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.55), sharey=True)
     fig.subplots_adjust(left=0.085, right=0.985, top=0.86, bottom=0.40, wspace=0.08)
-    header(fig, "The ANP loses to the beta-binomial on unseen benchmarks, at 0-1 labels" if protocol == "single-pair"
-           else "Pooling other subjects' labels is the only thing that beats the beta-binomial")
+    header(fig, "The ANP loses to the Beta-Binomial on unseen benchmarks, at 0-1 labels" if protocol == "single-pair"
+           else "Pooling other subjects' labels is the only thing that beats the Beta-Binomial")
     alcs = {}
     for ax, role in zip(axes, ROLES):
         for key, label, colour in MAIN[protocol]:
@@ -252,16 +252,16 @@ def main_page(pdf, t: pd.DataFrame, protocol: str):
         body = ("Mean Brier on each task's held-out evaluation items after 0-31 labels, each subject-benchmark "
                 "task simulated alone on its own labels with random acquisition (validation: 3 candidate orders, "
                 "test: 10; benchmarks never seen in training). Bands: 95% bootstrap over tasks. The ANP's whole "
-                "deficit sits at 0 and 1 labels; from 3 labels on it matches the beta-binomial. The constant ignores labels "
-                f"and sets the floor. Brier-ALC (val / test): {alc_text}. Pooled Rasch needs other pairs' labels "
+                "deficit sits at 0 and 1 labels; from 3 labels on it matches the Beta-Binomial. The constant ignores labels "
+                f"and sets the floor. Brier ALC (val / test): {alc_text}. Pooled Rasch needs other pairs' labels "
                 "and is shown on the multi-pair page.")
     else:
         body = ("Same models on CodaBench-like draws: one or two subjects per benchmark, labels acquired in the "
                 "the online simulation's frozen orders, and every pair's labels available to the predictor (60 validation and "
                 "150 test draws). Models that ignore other pairs are placed on the same draws from their "
                 "single-pair scores. Pooled Rasch fits benchmark rate, subject ability and item difficulty from "
-                "all pairs' labels and is the only model below the beta-binomial on test at every budget. Bands: 95% "
-                f"bootstrap over tasks. Brier-ALC (val / test): {alc_text}.")
+                "all pairs' labels and is the only model below the Beta-Binomial on test at every budget. Bands: 95% "
+                f"bootstrap over tasks. Brier ALC (val / test): {alc_text}.")
     caption(fig, f"Figure ({protocol}).", body)
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
@@ -291,10 +291,10 @@ def ablation_table_page(pdf, t: pd.DataFrame):
 
     height = 1.55 + 0.15 * len(rows)
     fig = plt.figure(figsize=(TEXTWIDTH, height))
-    header(fig, "Only pooling other subjects' labels beats the beta-binomial on unseen benchmarks")
+    header(fig, "Only pooling other subjects' labels beats the Beta-Binomial on unseen benchmarks")
     ax = fig.add_axes((0.015, 1.0 / height, 0.97, 1 - 1.38 / height))
     ax.axis("off")
-    table = ax.table(cellText=rows, colLabels=["model", "protocol", "val ALC", "test ALC", "test minus beta-binomial [95% CI]"],
+    table = ax.table(cellText=rows, colLabels=["model", "protocol", "val ALC", "test ALC", "test minus Beta-Binomial [95% CI]"],
                      colWidths=[0.36, 0.11, 0.1, 0.1, 0.33], bbox=[0, 0, 1, 1], cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(5.6)
@@ -308,10 +308,10 @@ def ablation_table_page(pdf, t: pd.DataFrame):
             cell.set_text_props(weight="bold")
         if r > 0 and (r - 1) in bold:
             cell.set_facecolor("#F4F4F4")
-    caption(fig, "Table.", "Macro Brier-ALC (lower is better) on validation and on the untouched test benchmarks "
+    caption(fig, "Table.", "Macro Brier ALC (lower is better) on validation and on the untouched test benchmarks "
             "(algotune, cmmlu, editbench), random acquisition. The last column is the paired test difference to "
-            "the beta-binomial (Jeffreys prior) under the same protocol, with a 95% bootstrap interval over tasks; * marks intervals "
-            "that exclude 0. Single-pair beta-binomial: 0.1717 / 0.2494 (val / test); multi-pair: 0.1685 / 0.2497. "
+            "the Beta-Binomial (Jeffreys prior) under the same protocol, with a 95% bootstrap interval over tasks; * marks intervals "
+            "that exclude 0. Single-pair Beta-Binomial: 0.1717 / 0.2494 (val / test); multi-pair: 0.1685 / 0.2497. "
             "Validation selected the ensemble weights, the metadata L2 and the pooled-Rasch priors. The "
             "random-split ANPs trained on editbench. Rows under 'Not simulated online' were trained but have no "
             "online-simulation result.")
@@ -343,11 +343,11 @@ def ablation_curves_page(pdf, t: pd.DataFrame, title: str, protocol: str, models
         ax.set_xlabel("labels acquired", fontsize=6.5)
         ax.tick_params(labelsize=6)
         style(ax, grid_axis="both")
-    axes[0].set_ylabel("Brier minus beta-binomial (negative = better)", fontsize=6.5)
+    axes[0].set_ylabel("Brier minus Beta-Binomial (negative = better)", fontsize=6.5)
     shared_legend(fig, axes, 0.265, ncol=3)
     caption(fig, f"Ablation ({protocol}).",
-            f"Paired Brier difference to the beta-binomial (Jeffreys prior) at each label budget, validation (left) and test (right); "
-            f"bands: 95% bootstrap over tasks; the dashed line is the beta-binomial. {CAPTION[title]}")
+            f"Paired Brier difference to the Beta-Binomial (Jeffreys prior) at each label budget, validation (left) and test (right); "
+            f"bands: 95% bootstrap over tasks; the dashed line is the Beta-Binomial. {CAPTION[title]}")
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 

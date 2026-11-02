@@ -9,9 +9,9 @@ volume's runs rather than from hand-copied numbers.
 Each split gets three pages:
 
 1. macro-task Brier ALC for every model x acquisition policy, and the paired
-   difference from beta-binomial under the same policy with a 95% CI;
+   difference from Beta-Binomial under the same policy with a 95% CI;
 2. Brier against the number of labels acquired, one panel per policy;
-3. the same curves as a paired difference from beta-binomial, which is where
+3. the same curves as a paired difference from Beta-Binomial, which is where
    per-budget effects are actually visible -- the raw curves overlap almost
    everywhere because subject difficulty dominates the absolute level.
 
@@ -200,7 +200,7 @@ def table_page(pdf, role: str, mats: dict):
                 bold.add((r, c))
         rows.append(line)
     draw_table(fig.add_axes([0.01, 0.07, 0.98, 0.34]), header, rows, bold,
-               "ALC minus beta-binomial under the same policy, paired over tasks: "
+               "ALC minus Beta-Binomial under the same policy, paired over tasks: "
                "mean ± 95% CI. Bold: CI excludes 0.", fontsize=5.2, label_width=0.23)
     fig.text(0.018, 0.012, FOOTNOTE, fontsize=5.6, color=SUBTLE)
     pdf.savefig(fig, bbox_inches=exact_page(fig))
@@ -211,7 +211,7 @@ def series(mats: dict, key: str, policy: str, difference: bool):
     """(mean, band) per budget for one model and policy, or None if not run.
 
     Raw curves use ± 1 SE over tasks; difference curves use the paired 95% CI
-    against beta-binomial under the same policy.
+    against Beta-Binomial under the same policy.
     """
     m = mats.get((key, policy))
     ref = mats.get(("beta", policy))
@@ -262,7 +262,7 @@ def single_plot(role: str, mats: dict, policy: str, difference: bool):
     ax.set_xticks(x, [str(b) for b in BUDGETS])
     ax.set_ylim(*y_limits(mats, difference))
     ax.set_xlabel("labels acquired")
-    ax.set_ylabel("Brier − beta-binomial" if difference else "Brier score")
+    ax.set_ylabel("Brier − Beta-Binomial" if difference else "Brier score")
     style(ax)
     ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=6.2, frameon=False)
     return fig
@@ -273,7 +273,7 @@ def curve_page(pdf, role: str, mats: dict, difference: bool):
     fig, axes = plt.subplots(2, 3, figsize=(TEXTWIDTH, 4.7), sharex=True, sharey=True)
     fig.subplots_adjust(left=0.12, right=0.99, top=0.84, bottom=0.13,
                         wspace=0.12, hspace=0.34)
-    what = ("Brier minus beta-binomial (paired, 95% CI)" if difference
+    what = ("Brier minus Beta-Binomial (paired, 95% CI)" if difference
             else "Brier by labels acquired (mean ± 1 SE)")
     page_header(fig, f"{title}: {what}", subtitle)
     x = np.arange(len(BUDGETS))
@@ -295,7 +295,7 @@ def curve_page(pdf, role: str, mats: dict, difference: bool):
     for ax in axes[1]:
         ax.set_xlabel("labels acquired")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Brier − beta-binomial" if difference else "Brier")
+        ax.set_ylabel("Brier − Beta-Binomial" if difference else "Brier")
     legend_ax = axes.flat[-1]
     legend_ax.axis("off")
     handles, labels = axes.flat[0].get_legend_handles_labels()
@@ -340,7 +340,7 @@ def main() -> int:
                 for policy, plabel in POLICIES:
                     fig = single_plot(role, mats, policy, difference)
                     plots.savefig(fig, bbox_inches=exact_page(fig))
-                    kind = "Brier minus beta-binomial" if difference else "Brier"
+                    kind = "Brier minus Beta-Binomial" if difference else "Brier"
                     page_map.append(f"{len(page_map) + 1}: {role}, {kind}, {plabel}")
                     plot_pages.append((f"plot-{len(page_map):02d}", fig))
         # Post-hoc recombinations of the saved replays; built by

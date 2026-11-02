@@ -5,18 +5,18 @@
 3: test, Brier, Confidence extremes
 4: test, Brier, Bernoulli variance
 5: test, Brier, Expected Brier reduction
-6: test, Brier minus beta-binomial, Random
-7: test, Brier minus beta-binomial, Uncertainty
-8: test, Brier minus beta-binomial, Confidence extremes
-9: test, Brier minus beta-binomial, Bernoulli variance
-10: test, Brier minus beta-binomial, Expected Brier reduction
+6: test, Brier minus Beta-Binomial, Random
+7: test, Brier minus Beta-Binomial, Uncertainty
+8: test, Brier minus Beta-Binomial, Confidence extremes
+9: test, Brier minus Beta-Binomial, Bernoulli variance
+10: test, Brier minus Beta-Binomial, Expected Brier reduction
 11: validation, Brier, Random
 12: validation, Brier, Uncertainty
 13: validation, Brier, Confidence extremes
 14: validation, Brier, Bernoulli variance
 15: validation, Brier, Expected Brier reduction
-16: validation, Brier minus beta-binomial, Random
-17: validation, Brier minus beta-binomial, Uncertainty
-18: validation, Brier minus beta-binomial, Confidence extremes
-19: validation, Brier minus beta-binomial, Bernoulli variance
-20: validation, Brier minus beta-binomial, Expected Brier reduction
+16: validation, Brier minus Beta-Binomial, Random
+17: validation, Brier minus Beta-Binomial, Uncertainty
+18: validation, Brier minus Beta-Binomial, Confidence extremes
+19: validation, Brier minus Beta-Binomial, Bernoulli variance
+20: validation, Brier minus Beta-Binomial, Expected Brier reduction

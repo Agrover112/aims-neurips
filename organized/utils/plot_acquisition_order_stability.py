@@ -17,7 +17,7 @@ NAMES = {
     "anp": "ANP-AIRT",
     "stacked_mhsa_anp": "Stacked MHSA ANP",
     "np": "NP-AIRT",
-    "beta_binomial": "Beta-binomial",
+    "beta_binomial": "Beta-Binomial",
     "cnp_airt": "CNP-AIRT",
 }
 COLORS = {

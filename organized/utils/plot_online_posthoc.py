@@ -97,7 +97,7 @@ def build(runs: Path, panel_items: Path, responses: Path) -> dict:
     combos, budgets, decomp, ability_rows = [], [], [], []
     grid = np.round(np.linspace(0, 1, 11), 1)
 
-    # Beta-binomial with the AIPW-style shift, on both roles.
+    # Beta-Binomial with the AIPW-style shift, on both roles.
     for role in SEEDS:
         f = _predictions(runs, role, "beta").merge(_shift(runs, role, "beta"), on=KEY[:3])
         f["aipw"] = (f.probability + f["shift"]).clip(1e-4, 1 - 1e-4)
@@ -202,8 +202,8 @@ def combinations_page(pdf, t: dict):
                "AIPW-style shift"]
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.0), sharey=True)
     fig.subplots_adjust(left=0.27, right=0.985, top=0.78, bottom=0.2, wspace=0.08)
-    header(fig, "Can beta-binomial rescue the ANP?",
-           "Macro Brier-ALC minus beta-binomial, random acquisition; bars: 95% task bootstrap.\n"
+    header(fig, "Can Beta-Binomial rescue the ANP?",
+           "Macro Brier ALC minus Beta-Binomial, random acquisition; bars: 95% task bootstrap.\n"
            "Negative = better than beta. Blend weights fitted on validation, so they appear on test only.")
     rows = methods + ["beta + AIPW-style shift"]
     for ax, role in zip(axes, ("validation", "test")):
@@ -234,7 +234,7 @@ def budgets_page(pdf, t: dict):
     x = np.arange(len(BUDGETS))
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.7), sharey=True)
     fig.subplots_adjust(left=0.09, right=0.985, top=0.78, bottom=0.27, wspace=0.08)
-    header(fig, "Where the ANP loses: Brier minus beta-binomial at each budget (test)",
+    header(fig, "Where the ANP loses: Brier minus Beta-Binomial at each budget (test)",
            "Left: benchmark-holdout ANPs on the three unseen test benchmarks. Right: random-split ANPs on\n"
            "editbench, which they trained on (solid), and on algotune + cmmlu, which they did not (dashed).")
     for ax, models in zip(axes, (HOLDOUT, RANDOM)):
@@ -253,7 +253,7 @@ def budgets_page(pdf, t: dict):
         ax.tick_params(labelsize=6)
         ax.legend(fontsize=5.4, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2)
         style(ax, grid_axis="both")
-    axes[0].set_ylabel("Brier minus beta-binomial", fontsize=6.5)
+    axes[0].set_ylabel("Brier minus Beta-Binomial", fontsize=6.5)
     pdf.savefig(fig, bbox_inches=exact_page(fig))
     return fig
 
@@ -269,7 +269,7 @@ def decomposition_page(pdf, t: dict):
     fig.subplots_adjust(left=0.45, right=0.985, top=0.8, bottom=0.17, wspace=0.08)
     header(fig, "Which part of the ANP fails on a new benchmark: ability or difficulty? (test)",
            "Ability component: the mean of the ANP's predictions for the task. Difficulty component: each item's offset from that mean.\n"
-           "Brier minus beta-binomial; negative = better. Bars: 95% task bootstrap.")
+           "Brier minus Beta-Binomial; negative = better. Bars: 95% task bootstrap.")
     for ax, phase in zip(axes, ("0-1 labels", "3-31 labels")):
         for i, (m, s) in enumerate(cases):
             for j, v in enumerate(variants):
@@ -277,7 +277,7 @@ def decomposition_page(pdf, t: dict):
                 _dot(ax, i + (j - 1) * 0.24, r.iloc[0], vcol[v])
         ax.axvline(0, color=INK, lw=0.6, ls=(0, (4, 2)))
         ax.set_title(phase, fontsize=7, pad=3)
-        ax.set_xlabel("Brier minus beta-binomial", fontsize=6.5)
+        ax.set_xlabel("Brier minus Beta-Binomial", fontsize=6.5)
         ax.tick_params(labelsize=6)
         style(ax, grid_axis="x")
     axes[0].set_yticks(range(len(cases)))
@@ -311,7 +311,7 @@ def ability_page(pdf, t: dict):
         ax.set_xlabel("subject ability (acquisition-pool accuracy)", fontsize=6.5)
         ax.tick_params(labelsize=6)
         style(ax, grid_axis="both")
-    axes[0].set_ylabel("ANP ALC minus beta-binomial", fontsize=6.5)
+    axes[0].set_ylabel("ANP ALC minus Beta-Binomial", fontsize=6.5)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=6, frameon=False, bbox_to_anchor=(0.5, 0.0),
                markerscale=1.8)
@@ -320,7 +320,7 @@ def ability_page(pdf, t: dict):
 
 
 def pages(pdf, t: dict) -> list:
-    # The beta-binomial combinations now have their own ablation page in
+    # The Beta-Binomial combinations now have their own ablation page in
     # plot_online_main.py, so they are not drawn twice.
     return [("posthoc-2-budgets", budgets_page(pdf, t)),
             ("posthoc-3-decomposition", decomposition_page(pdf, t)),

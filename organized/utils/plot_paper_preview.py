@@ -93,7 +93,7 @@ def main() -> None:
     bootstrap_means = task_curves[samples].mean(axis=1)
     lower, upper = np.quantile(bootstrap_means, [0.05, 0.95], axis=0)
     ax.fill_between(BUDGETS, lower, upper, color="#F28E2B", alpha=0.22, label="90% task bootstrap")
-    ax.plot(BUDGETS, aggregate, marker="o", lw=2.6, color="#F28E2B", label="Beta-binomial")
+    ax.plot(BUDGETS, aggregate, marker="o", lw=2.6, color="#F28E2B", label="Beta-Binomial")
     ax.axhline(0.25, color="0.35", ls="--", lw=1.2, label="uninformed p=0.5 reference")
     ax.set(
         title=(

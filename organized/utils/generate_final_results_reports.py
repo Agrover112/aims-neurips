@@ -467,7 +467,7 @@ def offline_main_page(pdf: PdfPages) -> None:
         "anp": "ANP",
         "np": "latent NP",
         "stacked_mhsa_anp": "stacked ANP",
-        "beta_binomial": "Beta-binomial",
+        "beta_binomial": "Beta-Binomial",
     }
     order = [key for key in display if key in metrics]
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.9), gridspec_kw={"width_ratios": [1.45, 1]})
@@ -493,7 +493,7 @@ def offline_main_page(pdf: PdfPages) -> None:
     axes[1].set_title("(b) ALC ± seed SD", loc="left", weight="bold"); style(axes[1], "x")
     fig.text(.02, .015,
              "Source: results/faithful-np-beavertails-3seed-v2-fixed/metrics.json. "
-             "It documents a useful earlier model comparison, but must not be combined numerically with the final unseen-benchmark replay.",
+             "It documents a useful earlier model comparison, but must not be combined numerically with the final unseen-benchmark online simulation.",
              fontsize=5.9, color=MUTED["wine"])
     fig.tight_layout(rect=(0, .08, 1, .84), pad=.55)
     save_page(pdf, fig)
@@ -521,7 +521,7 @@ def offline_sensitivity_page(pdf: PdfPages) -> None:
     ax.legend(fontsize=6.4, ncol=3); style(ax)
     fig.text(.02, .025,
              "Sources: results/faithful-np-beavertails-3seed-v{1,2-fixed,3-residual}/metrics.json. "
-             "The key lesson is not a winner: conclusions from a single legacy protocol are fragile, motivating the frozen benchmark-holdout replay.",
+             "The key lesson is not a winner: conclusions from a single legacy protocol are fragile, motivating the frozen benchmark-holdout online simulation.",
              fontsize=6.1, color=SUBTLE)
     fig.tight_layout(rect=(0, .10, 1, .86), pad=.6)
     save_page(pdf, fig)

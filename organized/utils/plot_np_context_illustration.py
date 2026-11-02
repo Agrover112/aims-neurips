@@ -11,7 +11,7 @@ benchmarks the same model gains far less (see the online results).
             as the context grows, +-1 sd over latent samples.
     page 2  Fig-3a analogue: subject x item matrix -- context, mean, spread --
             with held-out Brier per budget, beside the unseen-benchmark model
-            and the Jeffreys beta-binomial.
+            and the Jeffreys Beta-Binomial.
 
 The model pass is cached under ``organized/training/results/`` so the training
 report can include these pages without the data:
@@ -280,7 +280,7 @@ def matrix_page(pdf, c: dict):
     x = np.arange(len(BUDGETS))
     for key, label, colour, ls in (("main", c["main_label"], MUTED["indigo"], "-"),
                                    ("other", c["other_label"], MUTED["teal"], "-."),
-                                   ("beta", "Beta-binomial", INK, "--")):
+                                   ("beta", "Beta-Binomial", INK, "--")):
         v = c[f"brier_{key}"]
         ax.errorbar(x, v.mean(0), yerr=v.std(0), color=colour, ls=ls, marker="o", ms=2.6,
                     lw=1.0, capsize=1.5, elinewidth=0.6, label=label)

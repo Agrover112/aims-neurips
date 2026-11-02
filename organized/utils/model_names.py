@@ -27,7 +27,7 @@ NAME = {
     # Random-subject split (trained on some test-set benchmarks)
     "w64-contam": "ANP, random-subject split",
     "w128": "ANP, random-subject split (width 128)",
-    # ANP combined with the beta-binomial
+    # ANP combined with the Beta-Binomial
     "fallback": "ANP with Beta-Binomial fallback at 0-1 labels",
     "ensemble": "ANP-Beta-Binomial ensemble",
     "ensemble-budget": "ANP-Beta-Binomial ensemble, per-budget weights",

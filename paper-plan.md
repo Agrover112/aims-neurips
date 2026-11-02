@@ -9,7 +9,7 @@ statistics, deep learning) weighed in. It frames the paper as neural-process
 and Bayesian deep-learning methods against statistics and measurement-theory
 methods on one problem. The claims are scoped: "Neural Processes" (not all
 amortized meta-learners, since one ANP family was tested) and "Rasch" (not
-"classical psychometrics", since the beta-binomial is not IRT and kernel Rasch
+"classical psychometrics", since the Beta-Binomial is not IRT and kernel Rasch
 is a Gaussian-process extension).
 
 Poster hook: the network learned each model's ability, which transfers, and
@@ -95,15 +95,15 @@ on validation:
   similar item moves an unlabelled one.
 
 Online simulation evidence so far (multi-pair draws of the benchmark-holdout panel; test
-Brier ALC minus the beta-binomial, 95% task bootstrap):
+Brier ALC minus the Beta-Binomial, 95% task bootstrap):
 
 | Model | 1-2 subjects per benchmark | 1 subject per benchmark (competition-like) | Validation |
 | --- | --- | --- | --- |
-| Pooled Rasch | -0.0035 [-0.0046, -0.0026] | -0.0011 (old priors), -0.0032 (re-tuned) | not better than the beta-binomial |
-| Kernel Rasch | -0.0049 [-0.0060, -0.0038] | -0.0024 [-0.0027, -0.0021] | ties the beta-binomial |
+| Pooled Rasch | -0.0035 [-0.0046, -0.0026] | -0.0011 (old priors), -0.0032 (re-tuned) | not better than the Beta-Binomial |
+| Kernel Rasch | -0.0049 [-0.0060, -0.0038] | -0.0024 [-0.0027, -0.0021] | ties the Beta-Binomial |
 
 Leaderboard: pooled Rasch (CodaBench 1024003) scored 0.2022 Brier ALC against
-0.1486 for the shipped beta-binomial (1005155), with a large gap after one
+0.1486 for the shipped Beta-Binomial (1005155), with a large gap after one
 label (0.298 against 0.181). Each submission is scored on its own nine pairs,
 so this comparison is unpaired, and the online simulation does not reproduce the gap.
 Kernel Rasch is submitted as 1026246 (score pending).
@@ -236,7 +236,7 @@ Contributions:
 
 Define a **task** as a `(subject, benchmark)` pair, an **item** as a question
 within that benchmark, and an outcome as a binary correct/incorrect response.
-The main text evaluates only benchmark-held-out streaming replay. Benchmark
+The main text evaluates only benchmark-held-out streaming online simulation. Benchmark
 roles are assigned before fitting; exact duplicate text is removed across
 roles, and bipartite response support is filtered within each role. Thus every
 validation/test benchmark and item is absent from neural-model training. In
@@ -548,7 +548,7 @@ treated as exchangeable Bernoulli draws with accuracy \(p\), and
 \(p \sim \operatorname{Beta}(\alpha,\beta)\). After \(n\) revealed labels with
 \(h\) correct, the posterior is \(\operatorname{Beta}(\alpha+h,\,\beta+n-h)\).
 The predictive probability that the next item is answered correctly is the
-posterior mean; the Beta and Gamma functions of the beta-binomial likelihood
+posterior mean; the Beta and Gamma functions of the Beta-Binomial likelihood
 cancel, leaving
 
 \[
@@ -678,7 +678,7 @@ or the superseded five-task online simulation as main evidence.
   item-pass-rate plots in the main text. They are exploratory data diagnostics,
   not direct evidence for the benchmark-transfer claim.
 - Do **not** use [`online-replay-acquisition-validation.pdf`](docs/online-replay-acquisition-validation.pdf)
-  as final evidence: it is the earlier, low-resolution five-task replay.
+  as final evidence: it is the earlier, low-resolution five-task online simulation.
 - Do **not** plot a policy as successful merely because it was best on
   validation; the SAM validation result reversed on test.
 
@@ -702,7 +702,7 @@ fail under extrapolation (to stronger models), and the estimator that survives
 is the one anchored to observed labels (AIPW). The item-level analogue here is
 a predictor that starts from the context-only Beta-Binomial and lets the
 network move it only when that helps. We tested four such combinations
-post hoc on the saved random-acquisition replays (same panel, candidate
+post hoc on the saved random-acquisition online simulations (same panel, candidate
 orders and seeds; macro Brier ALC difference to Beta-Binomial on the
 untouched test panel, 45 tasks, paired bootstrap 95% CI):
 
@@ -731,7 +731,7 @@ where residual noise averages out over the benchmark; it does not carry over
 to calibrated per-item probabilities from a handful of labels.
 
 The ANP results above are offline recombinations of saved predictions, not
-new replays; they are exact for random acquisition, whose label order does
+new online simulations; they are exact for random acquisition, whose label order does
 not depend on the predictor.
 
 **Future work.** A causal-masked ANP could encode acquired responses in their
@@ -922,7 +922,7 @@ stronger. Two changes before the final report:
   4,278 subjects count as one benchmark, not 71% of the data.
 - **Leave-one-benchmark-out:** train on all benchmarks except one, test on the
   one left out, and rotate through all 17. That gives 17 held-out results
-  instead of 3. Only the hierarchical beta-binomial check (14 folds) has used
+  instead of 3. Only the hierarchical Beta-Binomial check (14 folds) has used
   this so far.
 
 The online curves and the multi-pair draws both still use the one fixed split

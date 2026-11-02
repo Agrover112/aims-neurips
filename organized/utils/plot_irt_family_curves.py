@@ -15,13 +15,13 @@ WEIGHTS = np.array([0.1, 0.2, 0.2, 0.2, 0.2, 0.1])
 
 
 def main() -> None:
-    baseline_path = Path("/tmp/beta-binomial-full-metrics.json")
+    baseline_path = Path("/tmp/Beta-Binomial-full-metrics.json")
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     beta = np.array([baseline["by_budget"][str(int(b))]["brier"] for b in BUDGETS])
 
     # Hypothetical values solely for visualizing the intended comparison.
     curves = {
-        "Beta-binomial (REAL)": beta,
+        "Beta-Binomial (REAL)": beta,
         "1PL (illustrative)": np.array([0.238, 0.229, 0.218, 0.205, 0.196, 0.190]),
         "2PL (illustrative)": np.array([0.231, 0.222, 0.210, 0.197, 0.188, 0.182]),
         "Amortized 1PL (illustrative)": np.array([0.218, 0.211, 0.201, 0.190, 0.181, 0.175]),
@@ -49,7 +49,7 @@ def main() -> None:
 
     ax.set(
         title="How the model-family comparison would look\n"
-        "Only beta-binomial is measured; IRT-family curves are hypothetical",
+        "Only Beta-Binomial is measured; IRT-family curves are hypothetical",
         xlabel="Acquired labels",
         ylabel="Brier score (lower is better)",
         xticks=BUDGETS,

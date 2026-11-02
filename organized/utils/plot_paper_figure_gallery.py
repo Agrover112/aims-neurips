@@ -97,7 +97,7 @@ def main() -> None:
                 color="white" if abs(value) > 0.022 else "black", fontsize=8.5,
             )
     ax.set(
-        title="C  Benchmark × model heatmap: Δ Brier ALC vs beta-binomial",
+        title="C  Benchmark × model heatmap: Δ Brier ALC vs Beta-Binomial",
         xticks=np.arange(len(models)),
         xticklabels=models,
         yticks=np.arange(len(benchmarks)),
