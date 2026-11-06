@@ -218,14 +218,14 @@ def caption(fig, label: str, text: str, width: int = 116) -> None:
 def shared_legend(fig, axes, y: float, ncol: int = 4) -> None:
     handles, labels = axes[-1].get_legend_handles_labels()
     fig.legend(handles, labels, loc="center", ncol=ncol, fontsize=5.9, frameon=False,
-               bbox_to_anchor=(0.5, y))
+               bbox_to_anchor=(0.5, 0.915))
 
 
 def main_page(pdf, t: pd.DataFrame, protocol: str):
     rng = np.random.default_rng(0)
     x = np.arange(len(BUDGETS))
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.55), sharey=True)
-    fig.subplots_adjust(left=0.085, right=0.985, top=0.86, bottom=0.40, wspace=0.08)
+    fig.subplots_adjust(left=0.085, right=0.985, top=0.80, bottom=0.40, wspace=0.08)
     header(fig, "The ANP loses to the Beta-Binomial on unseen benchmarks, at 0-1 labels" if protocol == "single-pair"
            else "Pooling other subjects' labels is the only thing that beats the Beta-Binomial")
     alcs = {}
@@ -324,7 +324,7 @@ def ablation_curves_page(pdf, t: pd.DataFrame, title: str, protocol: str, models
     rng = np.random.default_rng(2)
     x = np.arange(len(BUDGETS))
     fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 3.65), sharey=True)
-    fig.subplots_adjust(left=0.085, right=0.985, top=0.86, bottom=0.42, wspace=0.08)
+    fig.subplots_adjust(left=0.085, right=0.985, top=0.80, bottom=0.42, wspace=0.08)
     header(fig, title)
     for ax, role in zip(axes, ROLES):
         base = _matrix(t, protocol, role, BASELINE[protocol])

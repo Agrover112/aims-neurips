@@ -1904,6 +1904,31 @@ NCF follows a different route. It learns a direct mapping from subject content
 and item content to a probability, so it does not explicitly calculate an item
 difficulty `b_j`.
 
+## Proposed ablation of the Rasch models (planned, not run)
+
+Pooled Rasch has three components (benchmark rate $\mu_b$, subject ability $\theta_s$, item difficulty $b_i$) and kernel Rasch adds similarity between items. We ablated only two of them, so the paper needs one nested ladder.
+
+Two corrections first:
+1. With one subject per benchmark, $\mu_b$ and $\theta_s$ cannot be separated by the data (the prior splits them). Show that $\mu_b$ earns its place, or drop it.
+2. "Bayesian sequential update" describes only the Beta-Binomial. Pooled and kernel Rasch refit a MAP estimate from scratch at each budget, so remove that language for them (or add a carry-forward variant).
+
+Test Brier ALC difference to the Beta-Binomial, with 95% CIs over tasks:
+
+| # | Model | $\mu_b$ | $\theta_s$ | $b_i$ | Kernel | Multi-pair | Competition-shaped (one subject per benchmark) |
+|---|---|---|---|---|---|---|---|
+| 0 | Beta-Binomial | - | - | - | - | reference | reference |
+| 1 | Benchmark rate only | on | off | off | off | new | new |
+| 2 | + subject ability | on | on | off | off | exists (-0.0020) | new |
+| 3 | + item difficulty = pooled Rasch | on | on | on | off | exists (-0.0035) | exists (-0.0011 old priors, -0.0032 re-tuned) |
+| 4 | Pooled, without $\mu_b$ | off | on | on | off | new | new |
+| 5 | Pooled, without $\theta_s$ | on | off | on | off | new | new |
+| 6 | Clustered Rasch | on | on | on | clusters | exists (-0.0034) | new |
+| 7 | Kernel Rasch | on | on | on | kernel | exists (-0.0049) | exists (-0.0024) |
+
+- **Cost:** the replay code (`organized/testing/online/kernel_rasch_replay.py`) already takes a prior width per component (`tau_b`, `tau_s`, item width); setting a width near zero approximates removing that component. Rows 1, 2, 4, 5 and the competition-shaped cell of row 6 are therefore runs of existing code with different settings.
+- **Caveats:** rows reuse the full model's settings (re-tuning each row would be fairer); a near-zero width is not exactly removal; CIs resample tasks over three test benchmarks. Replay runtime was not measured.
+- **Presentation:** a forest plot of the differences with a grid of filled and empty dots showing which components are on; the full-number table goes in the appendix.
+
 ## Official sources
 
 - [AIMS competition page](https://aimslab.stanford.edu/competition/)

@@ -1,0 +1,44 @@
+\documentclass[10pt]{extarticle}
+\usepackage[landscape,letterpaper,margin=0.35in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amsfonts}
+\usepackage{booktabs,array,tabularx,ragged2e}
+\usepackage{xcolor}
+\usepackage{microtype}
+\setlength{\parindent}{0pt}\setlength{\parskip}{2pt}
+\pagestyle{empty}
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\minus}{\ensuremath{-}}
+\newcommand{\reasoning}{\textcolor{red!60!black}{\emph{(reasoning)}}}
+\begin{document}
+\sffamily
+{\large\bfseries The four predictors in one page: inputs, assumptions, tests, limits}\\[2pt]
+{\footnotesize All numbers are Brier ALC from the online simulation (lower is better); ``minus BB'' is the test difference to the Beta-Binomial with a 95\% bootstrap CI over tasks (paired). Test uses 3 never-trained benchmarks (\code{algotune}, \code{cmmlu}, \code{editbench}); validation uses \code{ai2d\_test}, \code{bird\_sql}, \code{financebench}. No model here uses subject metadata or a benchmark label as a predictive feature; they serve only to select or index labels (the hierarchical Beta-Binomial, not shown, did use metadata). Inputs are read from the submission code. Items marked \reasoning{} are my deduction from the equations, not something we tested.}\\[3pt]
+\footnotesize
+\renewcommand{\arraystretch}{1.08}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}L{0.7in}L{1.55in}L{2.25in}L{2.45in}L{2.85in}@{}}
+\toprule
+& \textbf{Beta-Binomial (baseline)} & \textbf{ANP} & \textbf{Pooled Rasch} & \textbf{Kernel Rasch} \\
+\midrule
+\textbf{Labels used} & only this subject's labels on this benchmark (counts $h$, $n$) & only this subject's labels on this benchmark, as the context (a fixed maximum number of the latest) & every revealed label in the draw: all subjects, all benchmarks & same as pooled Rasch \\
+\textbf{Subject input} & none; the subject record only selects which labels are its own & none enters the network. The subject record (name, provider, dates, harness, \dots) is used only to decide which labels belong to the same subject; its contents are never read & a name tag only: the whole subject record (name, provider, dates, harness, \dots) is turned into one piece of text; labels with the same text belong to one subject and share one ability $\theta_s$. The contents are never read, so two subjects that differ only in provider are unrelated & same as pooled Rasch \\
+\textbf{Benchmark input} & none; \code{benchmark\_id} only selects the labels & none enters the network; \code{benchmark\_id} only selects same-benchmark labels & \code{benchmark\_id} is a name tag: labels with the same \code{benchmark\_id} share one benchmark rate $\mu_b$ & the same name tag for $\mu_b$; it also decides which items share the kernel $K$ (only items of one benchmark are linked) \\
+\textbf{Item input} & none (item text ignored) & BGE-M3 embedding of \code{item\_content}, for the target and every context item & item identity only: a hash of \code{benchmark\_id}, \code{item\_content}, \code{item\_features}; no embedding & the same identity, plus the BGE-M3 embedding of \code{item\_content} \\
+\textbf{Output} & one probability for every item of the task & one probability per item & one probability per (subject, item) & same \\
+\textbf{Model} & $\hat p = (h + 0.5)/(n + 1)$ & latent attentive neural process: 1 self-attention block over the context, 4-head cross-attention from each target, 32-d latent, width 64, MLP decoder & $\operatorname{logit} p = \mu_b + \theta_s - b_i$; $\mu_b \sim \mathcal N(m_0, 2^2)$, $m_0 = \operatorname{logit}(0.512)$; $\theta_s \sim \mathcal N(0,1)$; $b_i \sim \mathcal N(0,1)$ & same, but $\mathbf b \sim \mathcal N(0,K)$ within each benchmark, $K_{ij} = \tau^2\big[(1-\rho)\delta_{ij} + \rho\, e^{(\cos(x_i,x_j)-1)/T}\big]$; unlabelled item: $\hat b_i = K_{iL}K_{LL}^{-1}\hat{\mathbf b}_L$ \\
+\textbf{Fitted} & nothing & offline on 11 training benchmarks (negative ELBO, random context sizes 0--31), early-stopped on a fixed validation bank, one seed. Variants: + SAM, prefix training & no offline training; 3 prior widths picked on validation; MAP (Newton in the submission, L-BFGS in the simulation), refit from scratch at budgets 0, 1, 3, 7, 15, 31 & no offline training; $\tau = 1.4$, $\rho = 0.8$, $T = 0.2$ picked on 60 validation draws (at the edge of the grid); otherwise as pooled \\
+\textbf{Assumes} & one exchangeable accuracy per task, independent labels & test tasks resemble training tasks; items enter only through the embedding; weights frozen at test time & equal item discrimination (Rasch); labels independent given parameters; the same item has the same difficulty for every subject; Gaussian priors; an unlabelled item has difficulty 0 & pooled's assumptions, but difficulty is not independent: text-similar items have similar difficulty, decaying with cosine distance; no sharing across benchmarks (block-diagonal) \\
+\midrule
+\textbf{Tested} & single-pair 82 val / 45 test tasks; multi-pair 60 val / 150 test draws & single-pair only: test ALC 0.2725 (ANP), 0.2663 (+SAM), 0.2762 (prefix training) vs 0.2494; also multi-pair for the plain ANP (0.2726) & multi-pair, 150 test draws, random acquisition: 0.2461, \textbf{minus BB \minus0.0035 [\minus0.0046, \minus0.0026]} & same draws: 0.2448, \textbf{\minus0.0049 [\minus0.0060, \minus0.0038]}; minus pooled \minus0.0013 [\minus0.0017, \minus0.0010] \\
+\textbf{Competition-shaped} (one subject per benchmark, 150 test draws) & reference & not run & \minus0.0011 with old priors; \textbf{\minus0.0032} with priors re-tuned on 120 validation draws & \textbf{\minus0.0024}; on validation in this shape it ties BB (0.1735 vs 0.1738) and pooled does not beat it \\
+\midrule
+\textbf{Known limits} & answers are not independent: text-similar items correlate $+0.24$ on test; ignores item content & every ANP is significantly worse than BB on test, $+0.0168$ to $+0.0267$; the loss sits at 0--1 labels (ability component miscalibrated $+0.04$ to $+0.06$); item ordering does not transfer (OOD rank correlation about 0.00--0.04); training is 71\% one benchmark (\code{alignment\_faking}) & ability is estimated no better than BB (RMSE 0.18 vs 0.13 at one label); with one subject per benchmark $\mu_b$ and $\theta_s$ are not separately identified, the priors split them \reasoning{} & needs BGE-M3 inside the submission; much of the effect on \code{editbench} is near-duplicate items (54\% have cosine $> 0.97$; 0--4\% elsewhere); text embeddings recover little cross-benchmark difficulty (probe OOD rank correlation 0.09) \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+{\footnotesize\textbf{Not tested, for any of these:} leave-one-benchmark-out (only 3 test benchmarks, so results can turn on which are held out); per-benchmark loss weighting; more than one ANP seed; acquisition policies other than random for the Rasch models (only one diverse-acquisition run, no effect); the competition's real hidden draw (about 7 benchmarks; unpaired leaderboard: pooled Rasch 0.2022 vs BB 0.1486; kernel Rasch submission 1026512 unscored); single-pair runs of the Rasch models; text-entropy features (computed on question text, not used in any model).}
+\end{document}

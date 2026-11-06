@@ -1,0 +1,8 @@
+shape,role,model,alc,diff,lo,hi
+competition,test,ladder-no-rate,0.23564,-0.0143,-0.0171,-0.01133
+competition,test,ladder-no-ability,0.24598,-0.00396,-0.00435,-0.00356
+competition,test,kernel-old,0.24754,-0.0024,-0.00273,-0.00208
+competition,test,ladder-rate-only,0.24775,-0.00218,-0.00245,-0.00193
+competition,test,ladder-plus-item,0.24887,-0.00107,-0.00132,-0.00081
+competition,test,jeffreys,0.24994,0.0,0.0,0.0
+competition,test,ladder-plus-ability,0.25066,0.00072,0.00035,0.00107

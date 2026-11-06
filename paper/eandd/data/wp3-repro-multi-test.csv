@@ -1,0 +1,4 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,test,kernel-old,0.24481,-0.00486,-0.006,-0.00375
+multi-pair,test,rasch-old,0.24614,-0.00353,-0.00457,-0.00256
+multi-pair,test,jeffreys,0.24967,0.0,0.0,0.0

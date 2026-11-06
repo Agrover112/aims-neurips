@@ -1,0 +1,119 @@
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=0.8in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs,array,xcolor,microtype,enumitem}
+\usepackage[colorlinks=true,linkcolor=blue!50!black]{hyperref}
+\usepackage{algorithm,algpseudocode}
+\setlength{\parindent}{0pt}\setlength{\parskip}{4pt}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\reasoning}{\textcolor{red!60!black}{\emph{(reasoning, not tested)}}}
+\newcommand{\sig}{\operatorname{\sigma}}
+\newcommand{\logit}{\operatorname{logit}}
+\begin{document}
+
+{\Large\bfseries Offline models and the online test: math and procedure}
+
+\textbf{Status key.} \textbf{built} = code exists and was simulated online; \textbf{not built} = described as a design only. Numbers quoted are from the paper draft. Items marked \reasoning{} are my deduction from the equations.
+
+%------------------------------------------------------------------
+\section{Notation}
+A \emph{task} is one subject $s$ answering one benchmark $b$. Items $i$ belong to one benchmark, $b(i)$. A response is $y_{si}\in\{0,1\}$. Every item has a frozen 1024-d BGE-M3 embedding $x_i$ of its text. At a budget $k$ the \emph{context} is the first $k$ revealed labels $C_k=\{(x_{j},y_{j})\}_{j\le k}$ and a predictor outputs $\hat p(x)=p(y=1\mid x,C_k)$ for every unrevealed evaluation item $x$. Splits are by benchmark: 11 training, 3 validation, 3 test benchmarks. Scores are Brier ALC with budgets $k\in\{0,1,3,7,15,31\}$ and weights $w=(0.1,0.2,0.2,0.2,0.2,0.1)$.
+
+%------------------------------------------------------------------
+\section{Offline models (fitted on the 11 training benchmarks)}
+
+\subsection{Offline Rasch with fitted priors \quad [not built]}
+\textbf{Model.} For training subject $s$ on item $i$ in benchmark $b=b(i)$:
+\begin{equation}
+\logit P(y_{si}=1)=\mu_b+\theta_s-b_i .
+\end{equation}
+\textbf{Estimation.} Maximise the penalised log-likelihood over all training responses jointly,
+\begin{equation}
+\max_{\mu,\theta,b}\ \sum_{(s,i)}\Big[y_{si}\log\sig(z_{si})+(1-y_{si})\log\big(1-\sig(z_{si})\big)\Big]
+-\sum_b\frac{(\mu_b-m_0)^2}{2\tau_b^2}-\sum_s\frac{\theta_s^2}{2\tau_s^2}-\sum_i\frac{b_i^2}{2\tau_i^2},
+\end{equation}
+with $z_{si}=\mu_b+\theta_s-b_i$. The hyperparameters $(m_0,\tau_b,\tau_s,\tau_i)$ would be set by empirical Bayes: $m_0$ is the mean of the fitted $\hat\mu_b$ and each $\tau$ the spread of its fitted parameters (maximising the marginal likelihood is the better estimator, since a raw spread includes estimation noise).
+
+\textbf{Optional feature link} (explanatory IRT): $b_i=w^\top x_i+u_i$, $u_i\sim\mathcal N(0,\tau_i^2)$, with $x_i$ centred within its benchmark and $w$ fitted by ridge on the training benchmarks. Our probe of this idea transfers poorly (OOD rank correlation 0.09).
+
+\textbf{What survives to a test benchmark.} Only the hyperparameters, and $w$ if used. The fitted $\hat\mu_b,\hat\theta_s,\hat b_i$ belong to training benchmarks, subjects and items; none of them occurs in test.
+
+\textbf{What offline fitting can do that the online fit cannot} \reasoning{}: in training, a benchmark has many subjects, so $\mu_b$ (benchmark average) and $\theta_s$ (deviation from it) are separately identified, and $\tau_b,\tau_s$ can be estimated separately. In a competition-shaped draw there is one subject per benchmark, so the data fix only $\mu_b+\theta_s$ and the prior alone splits it.
+
+\subsection{Hierarchical Beta-Binomial with subject metadata \quad [built]}
+Task accuracy $\pi\sim\mathrm{Beta}(\kappa\mu_s,\kappa(1-\mu_s))$, so with $h$ hits in $k$ labels
+\begin{equation}
+\hat p=\frac{\kappa\mu_s+h}{\kappa+k},\qquad
+\mu_s=\sig\big(\beta_0+e_{\text{name}}+e_{\text{provider}}+w\cdot\text{date}+v\cdot\text{date\_missing}\big).
+\end{equation}
+Name and provider embeddings, $w$, $v$ and the single $\kappa$ are fitted by Beta-Binomial marginal likelihood on the training tasks; unseen names map to a learned ``unknown''; the $L_2$ strength is chosen on validation. At $k=0$ it predicts $\mu_s$. On test it did not beat the plain Beta-Binomial reliably (the release-date term extrapolates).
+
+\subsection{Linear probe for item difficulty \quad [built; a diagnostic, not a predictor]}
+Ridge regression $\hat d_i=\beta^\top x_i$ from the item embedding to the benchmark-centred observed pass rate, penalty chosen by cross-validation. ID: fit on 80\% of a training benchmark's items, score the rest. OOD: fit on training benchmarks, score each unseen benchmark. Scored by within-benchmark Spearman rank correlation and pairwise accuracy.
+
+%------------------------------------------------------------------
+\section{Online testing procedure}
+
+\subsection{Protocol for one task}
+\begin{enumerate}[nosep]
+\item Split the task's items once, 50/50, into an \emph{acquisition pool} and an \emph{evaluation pool}. The evaluation labels are never revealed.
+\item Fix a candidate order over the acquisition pool (3 frozen orders per validation task, 10 per test task), so every model sees the same labels in the same order.
+\item Reveal labels one at a time. After $k=0,1,3,7,15,31$ labels, the predictor outputs $\hat p$ for every evaluation item. Score the Brier $\frac1{|E|}\sum_{i\in E}(\hat p_i-y_i)^2$.
+\item Combine budgets: $\mathrm{ALC}=\sum_k w_k\,\mathrm{Brier}_k$.
+\end{enumerate}
+
+\subsection{Single-pair, multi-pair and competition-shaped draws}
+\begin{itemize}[nosep]
+\item \textbf{Single-pair:} each task runs alone; the predictor sees only its own labels (82 validation, 45 test tasks).
+\item \textbf{Multi-pair:} a \emph{draw} is a random group of tasks with one or two subjects per benchmark (3--6 tasks); the predictor sees every task's revealed labels (60 validation, 150 test draws).
+\item \textbf{Competition-shaped:} multi-pair with exactly one subject per benchmark (120 validation, 150 test draws).
+\end{itemize}
+Example test draw: \code{algotune} (subject A), \code{cmmlu} (subject B), \code{editbench} (subject C): at budget $k$ the predictor holds up to $3k$ labels in total.
+
+\subsection{How each model is run online}
+\begin{description}[leftmargin=0pt,nosep]
+\item[Beta-Binomial (exact Bayesian sequential update).] State $(h,n)$ per task; each label adds $1$ to $n$ and $y$ to $h$. Posterior $\mathrm{Beta}(\tfrac12+h,\tfrac12+n-h)$; prediction $\hat p=(h+0.5)/(n+1)$, the same for every item of the task. No offline data.
+\item[Pooled Rasch (online MAP, no offline training).] At each budget, with the labels $\mathcal D$ revealed so far in the \emph{draw}, solve
+\begin{equation}
+\max_{\mu,\theta,b}\ \sum_{(b,s,i,y)\in\mathcal D}\log p(y\mid z)-\sum_{b}\tfrac{(\mu_b-m_0)^2}{2\tau_b^2}-\sum_s\tfrac{\theta_s^2}{2\tau_s^2}-\sum_i\tfrac{b_i^2}{2\tau_i^2},\quad z=\mu_b+\theta_s-b_i,
+\end{equation}
+by Newton's method ($\theta^{t+1}=\theta^t-H^{-1}g$ with $g$ the penalised gradient and $H$ its Hessian), starting from the prior means, discarded after predicting. Predict $\hat p=\sig(\hat\mu_b+\hat\theta_s-\hat b_i)$, with $\hat b_i=0$ for an item no one has labelled. Fixed: $m_0=0.049$, $\tau_b=2$, $\tau_s=1$, $\tau_i=1$. Items are matched across subjects by content. Ablating $\mu_b$ or $\theta_s$ means setting that width near zero.
+\item[Kernel Rasch.] Same, but within each benchmark the item prior is joint, $\mathbf b_b\sim\mathcal N(0,K_b)$ with $K_{ij}=\tau^2[(1-\rho)\delta_{ij}+\rho\,e^{(\cos(x_i,x_j)-1)/T}]$: the item penalty becomes $\tfrac12\mathbf b_b^\top K_b^{-1}\mathbf b_b$. An unlabelled item gets $\hat b_i=K_{iL}K_{LL}^{-1}\hat{\mathbf b}_L$ (kriging) from the labelled items $L$. Fixed: $\tau=1.4$, $\rho=0.8$, $T=0.2$.
+\item[Offline Rasch with fitted priors \textnormal{[not built]}.] The pooled Rasch online fit above, with $(m_0,\tau_b,\tau_s,\tau_i)$ (and, if used, a prior mean $w^\top x_i$ for $b_i$) taken from the offline fit instead of picked on validation.
+\end{description}
+
+\begin{algorithm}[h]
+\caption{Online test of one predictor on one draw}
+\begin{algorithmic}[1]
+\Require draw $\mathcal G$ of tasks; per task: acquisition pool, evaluation pool, frozen order; budgets $\{0,1,3,7,15,31\}$
+\For{each budget $k$}
+  \State $\mathcal D_k \gets$ first $k$ labels of every task's order \Comment{labels revealed so far}
+  \State predictor produces $\hat p_i$ for every evaluation item of every task in $\mathcal G$, using $\mathcal D_k$ (own-task labels only in single-pair runs)
+  \For{each task $t \in \mathcal G$}
+    \State $\mathrm{Brier}_{t,k} \gets$ mean squared error on $t$'s evaluation items
+  \EndFor
+\EndFor
+\State $\mathrm{ALC}_t \gets \sum_k w_k\,\mathrm{Brier}_{t,k}$ for each task; average over tasks and draws
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Statistics}
+For each model the per-task ALC is stored. Differences between two models are computed per task (paired) and resampled with replacement over tasks (thousands of resamples); the 95\% CI is the 2.5th--97.5th percentile. A difference is called significant when the CI excludes zero. The resampling unit is the task, not the benchmark, with three test benchmarks, so these intervals understate the uncertainty about new benchmarks.
+
+%------------------------------------------------------------------
+\section{What each model carries from offline to online}
+\begin{center}\small
+\begin{tabular}{p{3.1cm}p{2.6cm}p{5.6cm}p{2.3cm}}
+\toprule
+Model & Offline fit & Carried into the online test & Status \\
+\midrule
+Beta-Binomial & none & prior $\mathrm{Beta}(\tfrac12,\tfrac12)$ only & built \\
+Pooled / kernel Rasch & none & $m_0$ (training mean), prior widths chosen on validation; kernel: $\tau,\rho,T$ & built \\
+Offline Rasch, fitted priors & joint MAP over training tasks & $m_0,\tau_b,\tau_s,\tau_i$ (and $w$ if used); no fitted $\mu_b,\theta_s,b_i$ & not built \\
+Hierarchical Beta-Binomial & marginal likelihood on training tasks & $\kappa$, metadata coefficients, embeddings & built \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{document}
