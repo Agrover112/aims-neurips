@@ -24,7 +24,12 @@ exact result. Macro means first give equal weight to tasks within a benchmark,
 then equal weight to benchmarks. A task-weighted result is also in the CSV.
 The 17-point explanation plot uses saved per-benchmark gains and a common
 query-rate distance, so it is distinct from the split refits and from the
-original 11-point figure. Rasch on 40 triples waits for Person A's R6.
+original 11-point figure. The R6 fit-score CSV and sampled-triples JSON
+were not in the R2 handoff. Once available, `reviewer_r6.py <scores>
+<triples> <output>` aggregates the matched 40 triples and marks the
+original test benchmark names. R6 fits only on the remaining original
+training benchmarks, so its Beta comparator is not the 14-benchmark
+refit above.
 
 ## R9--R14
 
@@ -38,14 +43,22 @@ original 11-point figure. Rasch on 40 triples waits for Person A's R6.
   These are rank metrics, not downstream Brier gains. The Rasch results
   are provisional: the local refit matched the original response and
   item counts but used an item scale of 1.507 versus 1.491 in the stored
-  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`.
+  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`. R5 should
+  wait for the original item fit and the replay panel keys. Rerun
+  `reviewer_probes.py --rasch-fit <original-fit> --export --panel
+  <panel/items.parquet>` with the canonical responses and BGE cache
+  to write one `benchmark_id,content_hash,difficulty` parquet per
+  passing Rasch arm. The exported sign is Rasch difficulty, not easiness.
 - R10 test metrics are complete on the existing prediction handoff. Official
   log-loss ALC is 0.6656 for the fitted Beta-Binomial versus 0.7045 for Jeffreys;
   ten-bin task ECE ALC is 0.1113 versus 0.1426. The CSVs also contain uniform
   and late-only weights, rankable-task counts, and reliability bins. Add
   validation and ID from the newly announced R2 prediction handoff before
   drawing cross-role conclusions.
-- R11 figures remain to be built from Person A's newly merged R3/R4 outputs.
+- R11 figures are `data/figure-r11-adaptive-harm.pdf` (17 benchmarks,
+  fitted prior and three adaptive variants) and `data/figure-r11-pilot-auc.pdf`
+  (three and seven pilot labels; pooled and benchmark-macro AUC).
+  The seven-label pooled AUC reaches 0.732, while benchmark-macro AUC is 0.636.
 - R12 adds related work with references verified against the author copies,
   proceedings, or publisher records.
 - R13 is optional. R14's split-specific limitations, Figure 4 caption and

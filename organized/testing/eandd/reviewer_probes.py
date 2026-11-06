@@ -67,7 +67,18 @@ def population(responses):
     return t
 
 
-def fetch_matched_embeddings(responses, embeddings, volume, remote_file):
+def export_keys(responses, panel):
+    ood = pd.read_parquet(responses, columns=["item_uid", "benchmark_id", "benchmark_split", "content_hash"])
+    ood = ood.loc[ood.benchmark_split.isin(["validation", "test"])].drop_duplicates()
+    if panel:
+        keys = pd.read_parquet(panel, columns=["benchmark_id", "content_hash"]).drop_duplicates()
+        if keys.merge(ood, how="left", on=["benchmark_id", "content_hash"]).item_uid.isna().any():
+            raise ValueError("Panel contains keys outside the canonical validation/test responses")
+        ood = ood.merge(keys, on=["benchmark_id", "content_hash"], validate="many_to_one")
+    return ood
+
+
+def fetch_matched_embeddings(responses, embeddings, volume, remote_file, export, panel):
     """Stream the public volume file; retain only the exact WP7 rows needed here."""
     import io
     import modal
@@ -75,6 +86,8 @@ def fetch_matched_embeddings(responses, embeddings, volume, remote_file):
     t = population(responses)
     fit, _ = wp7_sample(t)
     keep = set(t.item_uid.iloc[fit].astype(str)) | set(t.loc[t.benchmark_split.ne("train"), "item_uid"].astype(str))
+    if export:
+        keep.update(export_keys(responses, panel).item_uid.astype(str))
     ids = pd.read_parquet(embeddings / "items.parquet", columns=["item_uid"])
     positions = np.flatnonzero(ids.item_uid.astype(str).isin(keep))
     if len(positions) != len(keep):
@@ -109,7 +122,7 @@ def fetch_matched_embeddings(responses, embeddings, volume, remote_file):
     print(f"Cached {copied:,} exact vectors without storing the full embedding file", flush=True)
 
 
-def run(responses, embeddings, rasch_fit, output):
+def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
     t = population(responses)
     fit, rng = wp7_sample(t)
     unseen = t.loc[t.benchmark_split.ne("train")].copy()
@@ -135,6 +148,7 @@ def run(responses, embeddings, rasch_fit, output):
                                      batch_size=256, max_iter=100), [.001, .01, .1]),
     }
     selected, scores = {}, [score(unseen, "random", copy.deepcopy(rng)).assign(arm="random")]
+    export_models = {}
     for target, raw in targets.items():
         valid = np.isfinite(raw)
         tx, yy, gg = x[valid], raw[valid], groups[valid]
@@ -147,6 +161,8 @@ def run(responses, embeddings, rasch_fit, output):
             best = choose(tx, centered, gg, make, options)
             model = make(best).fit(scaler.transform(tx), centered)
             unseen[arm] = model.predict(scaler.transform(z))
+            if export and target == "rasch_easiness":
+                export_models[arm] = (scaler, model)
             scores.append(score(unseen, arm, copy.deepcopy(rng)).assign(arm=arm))
             selected[arm] = {"alpha": best, "fit_items": int(valid.sum()), "wp7_sample": len(fit)}
             print(arm, selected[arm], flush=True)
@@ -164,6 +180,24 @@ def run(responses, embeddings, rasch_fit, output):
     by.to_csv(output / "wp13-probe-per-benchmark.csv", index=False)
     summary.to_csv(output / "wp13-probe-summary.csv", index=False)
     (output / "wp13-probe-criterion.json").write_text(json.dumps(dict(selection=selected, criterion=criterion), indent=2))
+    for row in criterion:
+        arm = row["arm"]
+        if not row["passes"] or arm not in export_models:
+            continue
+        scaler, model = export_models[arm]
+        keys = export_keys(responses, panel)
+        indices = lookup.get_indexer(keys.item_uid.astype(str))
+        if (indices < 0).any():
+            raise ValueError("Embedding cache is missing export keys; fetch with --export")
+        # Training predicts negative b (easiness) for ranking; R5 consumes b.
+        keys["difficulty"] = np.concatenate([
+            -model.predict(scaler.transform(np.asarray(vec[indices[i:i+2048]], np.float32)))
+            for i in range(0, len(indices), 2048)])
+        table = keys.groupby(["benchmark_id", "content_hash"], as_index=False).difficulty.mean()
+        if not np.isfinite(table.difficulty).all() or table.empty:
+            raise ValueError("Invalid exported difficulties")
+        table.to_parquet(output / f"r5-{arm}-item-difficulties.parquet", index=False)
+        print(f"{arm}: exported {len(table):,} unique benchmark/hash pairs", flush=True)
     print(pd.DataFrame(criterion).to_string(index=False))
 
 
@@ -176,9 +210,11 @@ if __name__ == "__main__":
     action.add_argument("--output", type=Path)
     action.add_argument("--fetch-volume")
     p.add_argument("--remote-file", default="/datasets/full/allbench-embed-bge_m3_long-v2/item_embeddings.npy")
+    p.add_argument("--export", action="store_true", help="Export each passing Rasch arm")
+    p.add_argument("--panel", type=Path, help="Restrict export to exact validation/test panel keys")
     a = p.parse_args()
     if a.fetch_volume:
-        fetch_matched_embeddings(a.responses, a.embeddings, a.fetch_volume, a.remote_file)
+        fetch_matched_embeddings(a.responses, a.embeddings, a.fetch_volume, a.remote_file, a.export, a.panel)
     else:
         with threadpool_limits(limits=2):
-            run(a.responses, a.embeddings, a.rasch_fit, a.output)
+            run(a.responses, a.embeddings, a.rasch_fit, a.output, a.export, a.panel)
