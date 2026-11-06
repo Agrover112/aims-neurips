@@ -65,6 +65,16 @@ OOD item-difficulty Spearman or pairwise accuracy. Do not use it as Table 2 data
 
 ## WP9: rebuild from the Person A handoff
 
+### Ownership of the replay code
+
+`common.py` and `run_replay.py` are Person A's files. The analysis branch
+has no independent edits to either file, and both now match `main` at
+`45afc54` after the merge. The differences seen before the merge were
+upstream changes: `e6320df` added the ID role, panel routing and separate
+frozen draws; `5c4baa2` added the offline-fitted replay, keeping the
+training benchmark rates and item difficulties fixed while updating ability.
+Future replay changes should land on Person A's branch first.
+
 Download `/results/eandd-analysis/person-a-v1/` from the shared
 `aims-neurips` workspace into a private local directory. Then run:
 
@@ -75,7 +85,7 @@ python organized/testing/eandd/wp9.py --handoff <person-a-v1> --output <new-outp
 This reads saved scores and main-run predictions, checks the replay keys
 against the frozen draws, and verifies Brier from the prediction files. It
 produces the nine-cell Table 1, matched task-bootstrap summaries, within-task
-AUC and 10-bin calibration error, and three native-width vector figures.
+AUC and 10-bin calibration error, and four native-width vector figures.
 Per-budget figures use the same equal-task averaging as the ALC table. No
 model is fitted or replayed. Only the competition-shaped test predictions
 were supplied, so AUC/calibration are limited to that run. AUC averages only
@@ -85,3 +95,15 @@ On the handoff from 45afc54, the 150 prediction shards reproduced 27,000
 Brier scores with maximum absolute error 2.61e-8. The three Beta prior curves
 are within 0.001 Brier at 31 labels on the competition test set. This is a
 descriptive threshold, not a test of statistical equivalence.
+
+The figure PDFs and the small Table 1, AUC/calibration, and audit files are
+in `paper/eandd/data/`. Figure 1(b) subtracts Jeffreys at each budget;
+Figure 3 shows the training-fitted Beta–Binomial prior versus Jeffreys.
+Figure 4 uses the 11 benchmark rows and paired task-bootstrap intervals
+from `wp10-lobo-explained.csv`. Negative values favor the fitted prior;
+the Spearman correlation with distance from 0.52 is +0.93 on this signed
+scale. The distance uses observed benchmark outcomes and is an explanatory
+diagnostic, not a feature available before acquiring labels.
+
+To regenerate only the figures from a previously rebuilt WP9 directory,
+replace `--handoff <person-a-v1>` with `--figures-from <wp9-directory>`.

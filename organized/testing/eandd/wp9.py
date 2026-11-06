@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
+from scipy.stats import spearmanr
 
 from analysis import compare
 from plot_replay import build
@@ -16,6 +17,7 @@ from plotstyle import CYCLE, TEXTWIDTH, style
 
 PRED_KEYS = ["model", "draw", "task_id", "order_seed", "budget"]
 DRAW_KEYS = ["shape", "role", "draw", "task_id", "order_seed"]
+LOBO = Path(__file__).resolve().parents[3] / "paper/eandd/data/wp10-lobo-explained.csv"
 
 
 def verify_draws(score, handoff):
@@ -60,6 +62,41 @@ def prediction_metrics(path, scores):
                    "max_brier_reconstruction_error": float(delta.max())}
 
 
+def save_figure(fig, out):
+    for ext in ("pdf", "png"):
+        fig.savefig(out.with_suffix("." + ext),
+                    bbox_inches=Bbox.from_bounds(0, 0, *fig.get_size_inches()), dpi=180)
+    plt.close(fig)
+
+
+def prior_source_plot(summary, out):
+    t = summary.loc[summary.run.eq("wp5-competition-test") & summary.budget.ne("ALC")].copy()
+    t["budget"] = t.budget.astype(int)
+    budgets = [0, 1, 3, 7, 15, 31]
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.52))
+    for j, (model, name) in enumerate([("jeffreys", "Jeffreys"),
+                                       ("bb-tuned", "Validation tuned"),
+                                       ("bb-eb", "Training fitted")]):
+        rows = t.loc[t.model.eq(model)].set_index("budget").loc[budgets]
+        for ax, metric in zip(axes, ("brier", "delta")):
+            ax.plot(range(len(budgets)), rows[metric], marker=["o", "s", "^"][j],
+                    ms=3.5, color=CYCLE[j], label=name, lw=1.25)
+    axes[0].set_ylabel("Brier score")
+    axes[0].set_ylim(0, .30)
+    axes[1].set_ylabel("Brier difference to Jeffreys")
+    axes[1].set_yticks([-.04, -.02, 0, .02, .04])
+    for ax in axes:
+        ax.set_xticks(range(len(budgets)), budgets)
+        ax.set_xlabel("Label budget")
+        style(ax)
+    for ax, letter in zip(axes, ("(a)", "(b)")):
+        ax.text(0, 1.04, letter, transform=ax.transAxes, fontweight="bold")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False)
+    fig.subplots_adjust(left=.11, right=.98, top=.79, bottom=.21, wspace=.50)
+    save_figure(fig, out)
+
+
 def per_benchmark_plot(table, out):
     t = table.loc[table.budget.eq("ALC") & table.model.eq("bb-eb") & table.role.isin(["test", "validation"])]
     t = t.sort_values(["role", "benchmark"]).reset_index(drop=True)
@@ -68,25 +105,60 @@ def per_benchmark_plot(table, out):
         ax.errorbar(group.delta, group.index, xerr=[group.delta-group.ci_low, group.ci_high-group.delta],
                     fmt="o", color=CYCLE[j], capsize=2, label=role.title())
     ax.axvline(0, color=".55", lw=.8)
-    ax.set_yticks(t.index, t.benchmark.str.replace("_", " "))
+    ax.set_yticks(t.index, t.benchmark)
     ax.invert_yaxis()
-    ax.set_xlabel("Brier ALC difference to Jeffreys")
+    ax.set_xlabel("Training-fitted Beta–Binomial minus Jeffreys (Brier ALC)")
     style(ax)
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
     fig.subplots_adjust(left=.24, right=.97, top=.83, bottom=.21)
-    for ext in ("pdf", "png"):
-        fig.savefig(out.with_suffix("."+ext), bbox_inches=Bbox.from_bounds(0, 0, *fig.get_size_inches()), dpi=180)
-    plt.close(fig)
+    save_figure(fig, out)
+
+
+def lobo_plot(table, out):
+    if table.held_out.duplicated().any():
+        raise ValueError("Expected one row per held-out benchmark")
+    x = table["mean_abs_acc_minus_0.52"]
+    y = table.bb_eb_diff
+    rho = spearmanr(x, y).statistic
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH, 2.85))
+    ax.axhline(0, color=".55", lw=.8)
+    ax.errorbar(x, y, yerr=[y-table.lo, table.hi-y], fmt="o", ms=4,
+                color=CYCLE[0], capsize=2)
+    ax.set_xlabel("Mean absolute distance of task accuracy from prior mean (0.52)")
+    ax.set_ylabel("Brier ALC difference\n(fitted Beta–Binomial − Jeffreys)")
+    ax.text(.04, .91, rf"Spearman $\rho={rho:.2f}$; {len(table)} benchmarks",
+            transform=ax.transAxes, va="top")
+    style(ax)
+    fig.subplots_adjust(left=.16, right=.97, top=.93, bottom=.21)
+    save_figure(fig, out)
+
+
+def render_figures(summary, per_benchmark, lobo, out):
+    prior_source_plot(summary, out / "figure1-prior-source")
+    build(summary.loc[summary.run.isin(["wp6-competition-id", "wp6-competition-test"])], "competition",
+          [("ID", "id"), ("OOD test", "test")],
+          [("Offline fitted values kept", "offline-kept"), ("Online Rasch, fitted prior", "rasch-fitted")],
+          out / "figure2-offline-online")
+    per_benchmark_plot(per_benchmark.loc[per_benchmark.run.isin(["wp5-competition-val", "wp5-competition-test"])],
+                       out / "figure3-benchmark-breakdown")
+    lobo_plot(pd.read_csv(lobo), out / "figure4-lobo-explained")
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--handoff", required=True, type=Path)
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--handoff", type=Path)
+    source.add_argument("--figures-from", type=Path, help="WP9 directory containing paired-scores.csv and per-benchmark.csv")
+    p.add_argument("--lobo", default=LOBO, type=Path)
     p.add_argument("--output", required=True, type=Path)
     args = p.parse_args()
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
+    if args.figures_from:
+        render_figures(pd.read_csv(args.figures_from / "paired-scores.csv"),
+                       pd.read_csv(args.figures_from / "per-benchmark.csv"), args.lobo, out)
+        return
     tables, breakdowns, audits = [], [], {}
     for path in sorted((args.handoff / "scores").glob("wp[568]-*.parquet")):
         score = pd.read_parquet(path)
@@ -118,15 +190,7 @@ def main():
     pred, audit = prediction_metrics(args.handoff / "preds/wp5-competition-test",
                                     pd.read_parquet(args.handoff / "scores/wp5-competition-test.parquet"))
     pred.to_csv(out / "competition-test-auc-calibration.csv", index=False)
-    build(summary.loc[summary.run.eq("wp5-competition-test")], "competition", [("OOD test", "test")],
-          [("Fixed", "jeffreys"), ("Validation tuned", "bb-tuned"), ("Training fitted", "bb-eb")],
-          out / "figure1-prior-source")
-    build(summary.loc[summary.run.isin(["wp6-competition-id", "wp6-competition-test"])], "competition",
-          [("ID", "id"), ("OOD test", "test")],
-          [("Offline fitted values kept", "offline-kept"), ("Online Rasch, fitted prior", "rasch-fitted")],
-          out / "figure2-offline-online")
-    per_benchmark_plot(per_benchmark.loc[per_benchmark.run.isin(["wp5-competition-val", "wp5-competition-test"])],
-                       out / "figure3-benchmark-breakdown")
+    render_figures(summary, per_benchmark, args.lobo, out)
     (out / "audit.json").write_text(json.dumps({"predictions": audit, "score_hashes": audits}, indent=2))
     print(json.dumps(audit, indent=2))
 
