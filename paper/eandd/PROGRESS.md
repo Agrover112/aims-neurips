@@ -128,3 +128,23 @@ nine times better than any prior-only model. On unseen benchmarks the extra is g
 
 Pending: the leave-one-benchmark-out job (`lobo_prior.py`, run `wp10-lobo-v1`), which tests the training-range claim on
 all 11 training benchmarks.
+
+## WP10 (2026-11-06): leave-one-benchmark-out for fitted priors (`lobo_prior.py`, run `wp10-lobo-v1`)
+For each of the 11 training benchmarks: fit the Beta-Binomial empirical-Bayes prior (my refit reproduces Person-B's full-data
+values exactly when benchmarks are weighted equally: 0.5216, 3.676) and the offline Rasch hyperparameters on the other 10
+benchmarks (every row of the held-out benchmark removed), then score that benchmark's held-out-subject tasks. Files:
+`paper/eandd/data/wp10-lobo-v1.csv`, `wp10-lobo-explained.csv`. Brier ALC difference to Jeffreys, competition-shaped,
+one task per draw:
+
+- **Helps** (task-bootstrap CI below 0): `hallusionbench` -0.0151, `bridging_gap` -0.0142, `helm_afr` -0.0139,
+  `afrimedqa` -0.0121, `afrieval` -0.0111. **Hurts with a CI above 0: none.** The other six have CIs that include 0
+  (3-20 tasks each): `cruxeval` -0.0055, `brace` -0.0042, `agi_elo` +0.0004, `appworld` +0.0026, `alignment_faking`
+  +0.0043, `harmbench` +0.0070.
+- Macro mean over the 11 benchmarks: Beta-Binomial prior -0.0056, Rasch prior -0.0046. So the average gain is modest.
+- **The "outside the training range" explanation was too narrow**: `appworld` is outside the range and does not gain, but
+  `alignment_faking` and `harmbench` lose while inside it. What separates them is how far the benchmark's task accuracies
+  sit from the prior mean (0.52): Spearman correlation between the gain and mean |task accuracy - 0.52| is **0.93**
+  (n = 11), against 0.01 for the benchmark's mean accuracy. Shrinking toward 0.52 helps tasks near 0.52 and hurts tasks
+  far from it. This is exploratory (computed after seeing the results, with the evaluation labels), so it is an
+  explanation, not a predictor. The test benchmarks (task accuracy 0.54-0.68) sit near the prior mean, which is why they
+  look good; `bird_sql` (0.12) is far, which is why validation looks bad.
