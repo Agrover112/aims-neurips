@@ -148,3 +148,10 @@ one task per draw:
   far from it. This is exploratory (computed after seeing the results, with the evaluation labels), so it is an
   explanation, not a predictor. The test benchmarks (task accuracy 0.54-0.68) sit near the prior mean, which is why they
   look good; `bird_sql` (0.12) is far, which is why validation looks bad.
+
+## Handover to Person-B for WP9 (2026-11-06)
+Uploaded to the shared workspace: `aims-neurips-data:/results/eandd-analysis/person-a-v1/` (125 MB; `MANIFEST.md` inside).
+Pull with `MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /results/eandd-analysis/person-a-v1 <local dir>`.
+Contains: all `scores/` (wp3, wp5, wp6, wp8, wp10), `runs/`, the frozen draws, per-prediction files for the main run
+(`preds/wp5-competition-test`, for AUC and calibration), and the offline hyperparameters. Not included: other preds
+(multi-pair test is 194 MB), subject-level offline fits, the input datasets. Owner approved this transfer on 2026-11-06.
