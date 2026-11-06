@@ -1,0 +1,34 @@
+\label{sec:item-difficulty-transfer}
+We ask whether item features recover the ordering of observed item
+difficulty. The target is the mean binary correctness per item, centered
+within benchmark for fitting. We compare a ridge probe of item embeddings,
+a probe using log character count, and a sampled random score. The ID
+diagnostic holds out items within the 11 training benchmarks. The other
+two columns evaluate entire unseen benchmarks. All methods use matched
+items and sampled pairs. Pairwise accuracy excludes observed ties and
+gives half credit for predicted ties. Results are averaged across benchmarks.
+
+\begin{table}[t]
+\centering
+\caption{Item-difficulty transfer (WP7). Cells report within-benchmark
+Spearman correlation and pairwise accuracy, respectively.}
+\label{tab:item-difficulty}
+\begin{tabular}{lccc}
+\toprule
+Feature & ID (11) & Validation (3) & Test (3)\\
+\midrule
+Embedding & $0.400$ / $0.649$ & $0.196$ / $0.570$ & $-0.020$ / $0.494$\\
+Log character count & $0.107$ / $0.539$ & $0.058$ / $0.525$ & $0.061$ / $0.521$\\
+Random score & $-0.003$ / $0.499$ & $-0.024$ / $0.490$ & $0.076$ / $0.529$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Embeddings show a clear signal on known benchmarks. The historical figure
+of about $0.09$ Spearman ($0.53$ pairwise) pools validation and test across
+all six unseen benchmarks. On the three test benchmarks alone, neither
+feature beats the matched sampled random control on either metric.
+This is a descriptive result: the sampled control can fluctuate around
+chance, and three benchmarks cannot establish that the features have no
+transfer value.
+

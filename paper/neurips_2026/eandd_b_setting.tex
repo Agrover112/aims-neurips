@@ -1,0 +1,22 @@
+\label{sec:setting-online}
+We run the online simulation on recorded binary responses from the filtered public data, using disjoint
+benchmark sets for training, validation, and test (11, 3, and 3 benchmarks).
+Prior fitting uses training data; validation is used for selecting settings.
+The competition-shaped draws sample one subject per benchmark in each draw,
+so a predictor cannot borrow labels from other subjects on that benchmark in
+the same draw. This is a public-data simulation of the competition protocol.
+
+For each subject--benchmark pair we freeze a split of distinct items into
+acquisition and evaluation pools, assigning the extra item to acquisition
+when the count is odd. A frozen random acquisition order supplies nested
+prefixes of 0, 1, 3, 7, 15, and 31 labels. At each budget the predictor
+conditions on the allowed prefix and predicts the same evaluation items.
+Evaluation outcomes are used only to score those predictions. We average
+Brier scores over query items, then average repeated appearances within each
+task and give tasks equal weight. Brier ALC combines the six budgets with
+weights $(0.1,0.2,0.2,0.2,0.2,0.1)$. Paired intervals resample whole tasks
+with their matched predictions. As a separate in-distribution (ID) control,
+we hold out subjects within training benchmarks and retain questions covered
+by the fit subjects. The offline comparator can reuse fitted benchmark rates
+and item difficulties where available; its online update changes ability.
+

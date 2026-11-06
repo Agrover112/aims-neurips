@@ -1,0 +1,196 @@
+\documentclass{article}
+
+\PassOptionsToPackage{numbers, compress}{natbib}
+\usepackage[eandd, final]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+
+\newcommand{\minus}{\ensuremath{-}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\figdir}{figures/eandd}
+
+\title{What Offline Fitting Buys Under Benchmark Shift: Predicting LLM Item Outcomes from a Few Labels}
+
+\author{%
+  Agrover112 \\
+  \texttt{https://github.com/Agrover112/aims-neurips} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Predicting how a language model answers each item of a new benchmark from a few labelled answers is useful only if what is learned from past benchmarks carries over. We test what carries over with one controlled design: the same models, tasks and label order, changing only where the prior comes from (fixed in advance, tuned on validation, or fitted on training benchmarks), in an online simulation of the competition protocol with three unseen test benchmarks. On benchmarks seen in training, keeping offline estimates of item difficulty gains $0.085$ Brier ALC over a Jeffreys Beta-Binomial baseline, nine times the gain of any prior alone. On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation. Across the 11 training benchmarks held out one at a time, the gain tracks how far a benchmark's accuracy lies from the prior mean (Spearman $0.93$). Gains concentrate at zero to three labels. Item embeddings and length recover no item difficulty on the unseen test benchmarks beyond a random control. A well-fitted Beta-Binomial beats the Rasch models on test, so label sharing across subjects adds nothing to a good prior. We release the simulation, the frozen draws and every saved score.
+\end{abstract}
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Evaluating language models on every item of every benchmark is expensive, so a predictor that infers a model's per-item results from a handful of labelled answers is attractive. The natural recipe is to learn from past benchmarks how items behave and carry that to a new benchmark. Whether it carries is an empirical question, and the answer matters because new benchmarks and new models keep arriving. Learned predictors are known to fail on unfamiliar models while estimators anchored to the observed labels survive~\citep{zhang2025benchmark}, and amortized item-response models learn item difficulty from item text~\citep{truong2025amortized}. We ask what, among the things one can fit offline, actually transfers to an unseen benchmark.
+
+We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one subject (a model under given evaluation settings) answering one benchmark, labels are bought one at a time, and predictions are scored by Brier ALC at 0, 1, 3, 7, 15 and 31 labels. Our contributions:
+\begin{itemize}
+  \item \textbf{A controlled comparison.} Beta-Binomial, Rasch and kernel Rasch predictors share tasks, labels and order; only the \emph{prior source} changes (Section~\ref{sec:models}).
+  \item \textbf{A positive control.} Offline fitting must win on benchmarks it has seen; it does, by a wide margin, and the margin vanishes on unseen benchmarks (Section~\ref{sec:results}).
+  \item \textbf{When a transferred prior helps.} A prior fitted on training benchmarks helps on benchmarks whose accuracy is near the prior mean and hurts far from it, shown by leave-one-benchmark-out over the 11 training benchmarks.
+  \item \textbf{Open materials.} The frozen draws, saved scores and code to rerun every table and figure.
+\end{itemize}
+
+%==============================================================================
+\section{Setting and online simulation}\label{sec:setting}
+%==============================================================================
+\input{eandd_b_setting}
+
+%==============================================================================
+\section{Models and prior sources}\label{sec:models}
+%==============================================================================
+
+\paragraph{Beta-Binomial.} A task's accuracy $\pi$ has a Beta prior with mean $m$ and strength $s$ (so $\alpha = ms$, $\beta = (1-m)s$). After $n$ revealed labels with $h$ correct, the posterior is $\mathrm{Beta}(\alpha+h,\beta+n-h)$ and the prediction, the same for every item of the task, is its mean
+\begin{equation}\label{eq:bb}
+\hat p=\frac{ms+h}{s+n}.
+\end{equation}
+The Jeffreys prior is $m=0.5$, $s=1$~\citep{jeffreys1946}. This is the exact Bayesian sequential update; nothing is learned.
+
+\paragraph{Rasch.} The probability that subject $s$ answers item $i$ of benchmark $b$ correctly is
+\begin{equation}\label{eq:rasch}
+\operatorname{logit}p=\mu_b+\theta_s-b_i,\qquad \mu_b\sim\mathcal N(m_0,\tau_b^2),\;\theta_s\sim\mathcal N(0,\tau_s^2),\;b_i\sim\mathcal N(0,\tau_i^2),
+\end{equation}
+with benchmark rate $\mu_b$, subject ability $\theta_s$ and item difficulty $b_i$~\citep{rasch1960}. At every budget we refit the maximum a posteriori (MAP) estimate from scratch on all labels revealed so far in the draw; an unlabelled item gets $b_i=0$. \emph{Kernel Rasch} replaces the independent item prior by $\mathbf b\sim\mathcal N(\mathbf 0,K)$ with $K_{ij}=\tau_i^2[(1-\rho)\delta_{ij}+\rho\exp((\cos(x_i,x_j)-1)/T)]$ over BGE-M3 item embeddings $x_i$~\citep{chen2024bge}, so similar items share difficulty. With one subject per benchmark, as in the competition-shaped draws, the joint fit equals independent per-task fits (maximum difference $10^{-14}$ in our check), so Rasch there differs from the Beta-Binomial only in its prior.
+
+\paragraph{Prior sources.} Each model is run with three sources of its prior parameters.
+\begin{itemize}
+  \item \textbf{Fixed in advance:} nothing learned. Beta-Binomial Jeffreys; Rasch $m_0=0$ and all widths $1$; kernel Rasch additionally $\rho=0.5$, $T=0.1$.
+  \item \textbf{Tuned on validation:} the best setting on the validation benchmarks from a grid (Beta-Binomial: mean $0.4$, strength $1$; Rasch and kernel Rasch: the widths and kernel settings selected there).
+  \item \textbf{Fitted on training:} the 11 training benchmarks only. The Beta-Binomial prior maximises the Beta-Binomial marginal likelihood of the training tasks, weighting benchmarks equally (mean $0.522$, strength $3.68$). The Rasch priors come from a joint MAP fit to $4.34$ million training responses (4,809 subjects, 109,987 items) with empirical-Bayes hyperparameters averaged per benchmark so that the benchmark with most subjects does not dominate: $m_0=0.175$, $\tau_b=0.75$, $\tau_s=1.38$, $\tau_i=1.49$. Only these numbers transfer; the fitted $\mu_b$, $\theta_s$ and $b_i$ belong to training benchmarks, subjects and items.
+\end{itemize}
+
+\paragraph{Offline model that keeps its fitted values.} For the ID control, the offline Rasch keeps its fitted $\mu_b$ and $b_i$ for a benchmark and items it has seen and updates only the subject ability $\theta_s$ online (a one-dimensional MAP on the task's own labels). For an unseen benchmark or item it falls back to $m_0$ and $0$, i.e.\ to the fitted prior alone.
+
+%==============================================================================
+\section{Results}\label{sec:results}
+%==============================================================================
+
+All differences are Brier ALC minus the Jeffreys baseline (negative is better), with paired 95\% bootstrap intervals over tasks.
+
+\subsection{The source of the prior}
+
+\begin{table}[t]
+  \caption{\textbf{A prior fitted on training helps on the test benchmarks and hurts on the validation benchmarks; a fixed prior with strong shrinkage does nearly as well on test.} Brier ALC difference to Jeffreys, competition-shaped draws. Test: 3 unseen benchmarks, 45 tasks. Validation: 3 unseen benchmarks, 80 tasks. ID: held-out subjects on the 11 training benchmarks, 114 tasks, where the training-fitted Beta-Binomial prior is refit without those subjects.}\label{tab:prior-source}
+  \centering\scriptsize\setlength{\tabcolsep}{2.5pt}
+  \input{eandd_table1}
+\end{table}
+
+Table~\ref{tab:prior-source} compares the nine combinations. On test, a Beta-Binomial with a prior fitted on training is the best predictor ($-0.0138$ [$-0.0158$, $-0.0116$]), four times the gain of the validation-tuned Rasch, and better than any Rasch model (fitted Rasch minus fitted Beta-Binomial $+0.0019$ [$+0.0007$, $+0.0031$]). The validation-tuned Beta-Binomial prior is \emph{worse} than Jeffreys on test ($+0.0055$) though it is the best Beta-Binomial on validation. Every comparison between prior sources changes sign between test and validation (Appendix~\ref{app:paired}); fresh draws change no result by more than $0.0007$ (Appendix~\ref{app:robust}).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics{\figdir/figure1-prior-source.pdf}
+  \caption{\textbf{The prior's source matters at zero to three labels and has faded by 31.} Brier score (a) and its difference to Jeffreys (b) per label budget on the three unseen test benchmarks, competition-shaped draws, for the Beta-Binomial with a fixed (Jeffreys, solid), validation-tuned (dashed) and training-fitted (dotted) prior. Jeffreys jumps to $0.75$ or $0.25$ after one answer, so the gap is largest at one label; at 31 labels the three differ by less than $0.001$.}\label{fig:prior-source}
+\end{figure}
+
+\subsection{Offline fitting pays off where its fitted values apply}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics{\figdir/figure2-offline-online.pdf}
+  \caption{\textbf{Offline estimates win on familiar benchmarks and have no edge on unfamiliar ones.} Brier score per label budget for the offline Rasch keeping its fitted benchmark rates and item difficulties and updating only ability (solid), against the online Rasch with the same fitted prior (dashed). Left: ID, held-out subjects on the 11 training benchmarks. Right: OOD test benchmarks, where the offline model has no fitted values and falls back to the prior.}\label{fig:offline-online}
+\end{figure}
+
+On the ID panel the offline model that keeps its fitted values scores $-0.0852$ [$-0.0955$, $-0.0747$] against $-0.0090$ for the fitted Beta-Binomial prior and $-0.0081$ for the fitted Rasch prior (Figure~\ref{fig:offline-online}); its item difficulties alone, at budget zero, reach a within-task AUC of $0.836$. On the unseen test benchmarks it equals the fitted prior ($-0.0115$ against $-0.0119$): nothing it knows about particular items or benchmark rates is available. This is the positive control the design requires, and it separates two things that are easy to conflate: item-level estimates transfer only to the items they were fitted on, while the prior's spreads carry over to new benchmarks.
+
+\subsection{When does a fitted prior help?}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics{\figdir/figure3-benchmark-breakdown.pdf}
+  \caption{\textbf{The training-fitted prior helps on all three test benchmarks and on one validation benchmark, and hurts on the hardest.} Brier ALC difference between the training-fitted Beta-Binomial and Jeffreys for each unseen benchmark, with 95\% intervals over tasks. The validation benchmark \code{bird\_sql} has task accuracy $0.12$, far below every training benchmark.}\label{fig:benchmarks}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics{\figdir/figure4-lobo-explained.pdf}
+  \caption{\textbf{A fitted prior helps when a benchmark's accuracy is near the prior mean.} Each point is one of the 11 training benchmarks held out in turn (the prior refit without any of its rows), scored on its held-out-subject tasks; the horizontal axis is how far its task accuracies lie from the prior mean $0.52$ and the vertical axis is the fitted-minus-Jeffreys gain (negative favours the fitted prior), with 95\% intervals over tasks. Spearman correlation $0.93$. The distance uses observed outcomes and explains the pattern; it is not available before labels arrive.}\label{fig:lobo}
+\end{figure}
+
+Figure~\ref{fig:benchmarks} shows the test and validation benchmarks separately: all three test benchmarks agree ($-0.013$ to $-0.015$), and on validation \code{ai2d\_test} agrees while \code{bird\_sql} goes the other way ($+0.025$). Holding out each training benchmark in turn (Figure~\ref{fig:lobo}, Appendix~\ref{app:lobo}) the fitted prior significantly helps on 5 of 11, significantly hurts on none, and the macro mean gain is $-0.0056$. What separates the benchmarks is not whether they lie inside the range of training benchmark rates (\code{alignment\_faking} and \code{harmbench} lose while inside it) but how far their task accuracies sit from the prior mean: the Spearman correlation between the gain and that distance is $0.93$ over the 11 benchmarks, against $0.01$ for the benchmark's mean accuracy. Shrinking toward $0.52$ helps tasks near $0.52$ and hurts tasks far from it. The three test benchmarks (mean accuracy $0.54$--$0.68$) sit near the prior mean, which is why test looks good. We found this pattern after seeing the results, so it is an explanation and not a predictor.
+
+Under the fitted priors, the simplest Rasch model is also the best on test and the worst on validation: with benchmark rate only the gain is $-0.0172$ on test and $+0.0211$ on validation (Appendix~\ref{app:ladder}). The subject-ability term is what lets a benchmark far from the prior move away from it, at a cost in variance when the benchmark is near it. The kernel adds nothing on test.
+
+%==============================================================================
+\section{Item-difficulty transfer}\label{sec:item-difficulty-transfer}
+%==============================================================================
+\input{eandd_b_itemdiff}
+
+%==============================================================================
+\section{Limitations}\label{sec:limitations}
+%==============================================================================
+\input{eandd_b_limits}
+
+Further limits of our own. The test benchmarks are close to the prior mean, so the size of the test gain depends on this split; with a different draw of three benchmarks the sign could differ, as it does on validation. Test scores were inspected repeatedly while building the models, so the test analyses are exploratory: all selection used validation, but test was not read once. The kernel settings were chosen on validation and not on the ID panel. We did not rerun the subject-metadata prior in this design, and we dropped reasoning-trace features, which are not available at test time.
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+
+What transfers from offline fitting to an unseen benchmark is a shrinkage prior, not item-level estimates. Offline fitting is worth a very large gain where its fitted values apply and none where they do not. The prior helps when the new benchmark's accuracy is near the prior mean and hurts when far from it, so the same fitted prior looked good on test and bad on validation. A well-fitted Beta-Binomial is the strongest estimator in our test; label sharing across subjects added nothing to it.
+
+%==============================================================================
+\section*{Disclosure and rerun instructions}
+%==============================================================================
+\input{eandd_b_disclosure}
+
+{\small
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+\bibitem[Brier(1950)]{brier1950} G.~W. Brier. Verification of forecasts expressed in terms of probability. \emph{Monthly Weather Review}, 78(1), 1950.
+\bibitem[Chen et~al.(2024)]{chen2024bge} J.~Chen, S.~Xiao, P.~Zhang, K.~Luo, D.~Lian, Z.~Liu. {BGE} {M3}-Embedding: Multi-lingual, multi-functionality, multi-granularity text embeddings through self-knowledge distillation. arXiv:2402.03216, 2024.
+\bibitem[Jeffreys(1946)]{jeffreys1946} H.~Jeffreys. An invariant form for the prior probability in estimation problems. \emph{Proc.\ Royal Society A}, 186, 1946.
+\bibitem[Rasch(1960)]{rasch1960} G.~Rasch. \emph{Probabilistic Models for Some Intelligence and Attainment Tests}. Danish Institute for Educational Research, 1960.
+\bibitem[Truong et~al.(2025)]{truong2025amortized} S.~T. Truong, Y.~Tu, P.~Liang, B.~Li, S.~Koyejo. Reliable and efficient amortized model-based evaluation. In \emph{ICML}, PMLR 267, 2025.
+\bibitem[Zhang et~al.(2025)]{zhang2025benchmark} G.~Zhang, F.~E. Dorner, M.~Hardt. How benchmark prediction from fewer data misses the mark. arXiv:2506.07673, 2025.
+\end{thebibliography}
+}
+
+\appendix
+
+\section{Rasch terms under the fitted priors}\label{app:ladder}
+\begin{table}[h]
+  \caption{Brier ALC difference to Jeffreys for Rasch with terms switched off (prior width set near zero), under the training-fitted priors. Competition-shaped draws on test and validation, and multi-pair draws on test.}
+  \centering\small
+  \input{eandd_ladder}
+\end{table}
+
+\section{Paired comparisons between prior sources}\label{app:paired}
+\begin{table}[h]
+  \caption{Paired Brier ALC differences between prior sources, with 95\% intervals over tasks. Each comparison changes sign between test and validation.}
+  \centering\small
+  \input{eandd_paired}
+\end{table}
+
+\section{Draw-seed robustness}\label{app:robust}
+\begin{table}[h]
+  \caption{Brier ALC difference to Jeffreys on three fresh sets of 150 competition-shaped draws per role (seeds 20261201--03); results on the frozen draws are in Table~\ref{tab:prior-source}.}
+  \centering\small
+  \input{eandd_robust}
+\end{table}
+
+\section{Leave-one-benchmark-out for the fitted prior}\label{app:lobo}
+\begin{table}[h]
+  \caption{Fitted Beta-Binomial prior (refit without the held-out benchmark) minus Jeffreys, on each training benchmark's held-out-subject tasks, with the mean distance of its task accuracies from the prior mean $0.52$.}
+  \centering\small
+  \input{eandd_lobo}
+\end{table}
+
+\end{document}

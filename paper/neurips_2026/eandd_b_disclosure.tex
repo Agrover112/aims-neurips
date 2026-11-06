@@ -1,0 +1,21 @@
+\label{sec:disclosure-rerun}
+\textbf{Training data.} All fitted quantities (the offline Rasch fit, the Beta-Binomial
+empirical-Bayes prior, the item probes) use only the responses of the 11 training benchmarks in
+the competition's measurement database after the filtering described in Section~\ref{sec:setting-online};
+no other response data is used. \textbf{Pretrained models.} Item text is embedded with the frozen
+BGE-M3 model; nothing else is pretrained or fine-tuned. \textbf{LLM coding assistants.} Claude Code
+(Anthropic) assisted with writing code, analysis scripts and drafting text; every reported number was
+produced by running the code in the repository, and the authors checked the numbers.
+
+The shared handoff contains frozen draws, scores, and competition-shaped
+test predictions. The GitHub analysis branch contains online-simulation and analysis
+code, aggregate results, and figure PDFs. Keep private response and
+prediction files in the authorized shared storage. The command
+\texttt{python organized/testing/eandd/wp9.py} with
+\texttt{--handoff} pointing to the local handoff and \texttt{--output}
+pointing to a fresh directory rebuilds the figures and checks the saved
+Brier scores against the saved predictions. The analysis README identifies
+the handoff location and documents how to render figures from aggregate CSVs
+alone. The WP7 item results are in
+\texttt{paper/eandd/data/wp7-summary.csv}. Record the analysis commit and
+retain the frozen draws for any rerun.

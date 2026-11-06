@@ -229,3 +229,11 @@ Jeffreys from 31 labels, the validation-tuned prior from 3 labels; the fitted Be
   fitted-prior matrix.
 - **Not "test read once":** test scores were inspected repeatedly while building the ladders and models. Selection was on
   validation only, but the test analyses are exploratory and the paper must say so.
+
+## The paper source is now in git (2026-11-06, owner's instruction)
+`paper/neurips_2026/` is excluded locally through `.git/info/exclude` (kept out of the public repository). The owner asked
+for the E&D paper to be pushed anyway; the repository is private. Force-added: `paper/neurips_2026/eandd.tex`, the generated
+`eandd_*.tex` inputs, `figures/eandd/`, the template `neurips_2026.sty`, and the compiled drafts in `paper/eandd-drafts/`.
+Rebuild with `paper/build-eandd.sh "note"` (regenerates the tables from the CSVs, compiles, saves the next numbered PDF;
+needs `.tools/tectonic/tectonic`, see `docs/collaboration-setup.md`). Before making the repository public, remove these files
+from the history or move the paper to a private repository.
