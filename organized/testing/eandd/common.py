@@ -35,14 +35,16 @@ SUMMARY = ROOT / "paper" / "eandd" / "data"     # small CSVs, committed
 BUDGETS = [0, 1, 3, 7, 15, 31]
 WEIGHTS = {0: 0.1, 1: 0.2, 3: 0.2, 7: 0.2, 15: 0.2, 31: 0.1}
 SHAPES = ("single-pair", "multi-pair", "competition")
-ROLES = ("validation", "test")
-ORDERS_PER_TASK = {"validation": 3, "test": 10}
+ROLES = ("validation", "test", "id")
+ORDERS_PER_TASK = {"validation": 3, "test": 10, "id": 10}
+ID_PANEL = DATA / "id"        # Person-B's ID panel: id/panel/{items,candidate_orders}.parquet, tasks.parquet, heldout_subjects.parquet
+SPLIT_OF_ROLE = {"id": "train"}   # the ID panel's benchmark_split value
 DRAW_COLUMNS = ["shape", "role", "draw", "task_id", "order_seed"]
 
 
 def one_per_benchmark(role: str, n: int, rng, items: pd.DataFrame, orders: pd.DataFrame) -> pd.DataFrame:
     """Competition-shaped draws: exactly one subject per benchmark. Same recipe as codabench_shape_replay."""
-    tasks = items[items.benchmark_split == role].drop_duplicates("task_id")
+    tasks = items[items.benchmark_split == SPLIT_OF_ROLE.get(role, role)].drop_duplicates("task_id")
     seeds = sorted(orders.order_seed.unique())[:ORDERS_PER_TASK[role]]
     by_bench = {b: g.task_id.tolist() for b, g in tasks.groupby("benchmark_id")}
     rows = [(d, str(rng.choice(ts)), int(rng.choice(seeds))) for d in range(n) for ts in by_bench.values()]
@@ -74,8 +76,16 @@ def build_draws() -> pd.DataFrame:
     return d
 
 
+def build_id_draws(n: int = 150) -> pd.DataFrame:
+    """ID draws: one held-out subject per training benchmark, same recipe as the competition-shaped draws."""
+    items = pd.read_parquet(ID_PANEL / "panel" / "items.parquet")
+    orders = pd.read_parquet(ID_PANEL / "panel" / "candidate_orders.parquet")
+    rng = np.random.default_rng(20261106)
+    return one_per_benchmark("id", n, rng, items, orders)[DRAW_COLUMNS]
+
+
 def load_draws(shape: str, role: str) -> dict:
-    d = pd.read_parquet(DATA / "draws.parquet")
+    d = pd.read_parquet(DATA / ("draws-id.parquet" if role == "id" else "draws.parquet"))
     d = d[(d["shape"] == shape) & (d.role == role)]
     return {int(i): list(zip(g.task_id, g.order_seed.astype(int))) for i, g in d.groupby("draw")}
 
@@ -108,6 +118,9 @@ def save_run(run: str, config: dict, started: float, scores: pd.DataFrame | None
 
 
 def main() -> int:
+    if (ID_PANEL / "panel" / "items.parquet").exists() and not (DATA / "draws-id.parquet").exists():
+        build_id_draws().to_parquet(DATA / "draws-id.parquet", index=False)
+        print("wrote", DATA / "draws-id.parquet")
     path = DATA / "draws.parquet"
     if path.exists():
         print(f"{path} exists; draws are frozen")

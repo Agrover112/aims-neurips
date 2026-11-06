@@ -122,7 +122,8 @@ def main() -> int:
     preds_dir = None if a.no_preds else c.DATA / "preds" / a.run
     if preds_dir:
         preds_dir.mkdir(parents=True, exist_ok=False)
-    scores = run(c.load_draws(a.shape, a.role), configs, a.workers, preds_dir).assign(shape=a.shape, role=a.role)
+    cache = c.ID_PANEL if a.role == "id" else c.CACHE     # the replay reads <cache>/panel/{items,candidate_orders}.parquet
+    scores = run(c.load_draws(a.shape, a.role), configs, a.workers, preds_dir, cache=cache).assign(shape=a.shape, role=a.role)
     c.save_run(a.run, {"shape": a.shape, "role": a.role, "models": configs, "workers": a.workers}, started, scores=scores)
     print(alc_table(scores).round(4).to_string(index=False))
     print(f"runtime {time.time() - started:.0f}s")

@@ -47,3 +47,29 @@ Not on GitHub, so Person-A hands them over separately:
   embeddings). These are large and were never meant for git.
 - `paper/neurips_2026/` and `paper/versions/`: the paper source and compiled drafts, excluded locally through
   `.git/info/exclude`.
+
+## Received from Person-B (2026-11-06)
+- ID panel (114 tasks on the 11 training benchmarks, 10 orders each), held-out subject list, tasks table, Beta-Binomial
+  priors: checked, all consistent with the source responses (0 label mismatches, every task subject on the held-out list).
+- Placed at `~/aims-replay-cache/paper-eandd/id/`; new role `id` and frozen `draws-id.parquet` (150 draws, one subject
+  per training benchmark). `run_replay.py --role id` uses them. First ID run of the online models (competition-shaped,
+  not yet the offline Rasch): Jeffreys 0.2357, re-tuned Rasch -0.0024, old-priors Rasch -0.0007, kernel Rasch 0.0000.
+- **Beta-Binomial grid** (WP2): prior mean {0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.8} x strength {0.25, 0.5, 1, 2, 4,
+  8, 16, 32, 64}. Validation picked Beta(0.4, 0.6) for all three shapes: interior on both axes, **not a grid edge**. It is
+  Jeffreys' strength with the mean moved to 0.4, which `bird_sql` (accuracy 0.12) pulls on validation; test benchmarks sit
+  at 0.54-0.68, so expect it to hurt on test. The empirical-Bayes prior (0.52, strength 3.7) is worse than Jeffreys on
+  validation.
+- **WP7 probes** (Modal `aims-neurips-data:/results/eandd-analysis/wp7-v1/`; rank correlation / pairwise accuracy):
+
+| Features | ID (11 benchmarks) | OOD validation (3) | OOD test (3) |
+|---|---|---|---|
+| Item embedding | 0.400 / 0.649 | 0.196 / 0.570 | -0.020 / 0.494 |
+| Item length | 0.107 / 0.539 | 0.058 / 0.525 | 0.061 / 0.521 |
+| Random control | -0.003 / 0.499 | -0.024 / 0.490 | 0.076 / 0.529 |
+
+  The earlier six-benchmark number reproduces (0.0879 / 0.5317). On test, neither feature beats the random control, so
+  the OOD 0.088 in the existing paper is carried by the validation benchmarks, and the control's 0.076 shows how noisy a
+  three-benchmark rank correlation is. The existing paper's "0.09, above chance" reading is not safe.
+- `split-audit.json` shows the data filter in force: at least 15 responders per item, 80 items per subject, 10 tasks per
+  benchmark (6,481 subjects, 123,035 items). Earlier project notes say the standard is 30 responders; check which is intended.
+- Not copied: the older files from arshiaswe (blocked pending explicit approval).
