@@ -1,0 +1,9 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,validation,kernel-old,0.16669,-0.00186,-0.00437,0.0005
+multi-pair,validation,ladder-plus-item,0.16736,-0.00119,-0.00342,0.00093
+multi-pair,validation,ladder-plus-ability,0.16749,-0.00106,-0.0031,0.00093
+multi-pair,validation,jeffreys,0.16855,0.0,0.0,0.0
+multi-pair,validation,rasch-retuned,0.16871,0.00016,-0.00306,0.00316
+multi-pair,validation,ladder-rate-only,0.17148,0.00293,-0.00093,0.00693
+multi-pair,validation,ladder-no-ability,0.17157,0.00302,-0.00109,0.007
+multi-pair,validation,ladder-no-rate,0.18154,0.01299,0.00572,0.02017

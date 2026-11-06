@@ -1,0 +1,5 @@
+shape,role,model,alc,diff,lo,hi
+competition,test,rasch-retuned,0.24674,-0.0032,-0.00353,-0.00288
+competition,test,kernel-old,0.24754,-0.0024,-0.00273,-0.00208
+competition,test,rasch-old,0.24887,-0.00107,-0.00132,-0.00082
+competition,test,jeffreys,0.24994,0.0,0.0,0.0

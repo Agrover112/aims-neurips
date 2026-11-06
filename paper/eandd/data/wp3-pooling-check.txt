@@ -1,0 +1,4 @@
+competition  rasch-old   joint vs alone: max |dp| 1.09e-14  mean 2.36e-16  (600 task-budget cells)
+competition  kernel-old  joint vs alone: max |dp| 2.63e-14  mean 6.25e-16  (600 task-budget cells)
+multi-pair   rasch-old   joint vs alone: max |dp| 2.47e-01  mean 6.76e-02  (845 task-budget cells)
+multi-pair   kernel-old  joint vs alone: max |dp| 3.31e-01  mean 1.02e-01  (845 task-budget cells)

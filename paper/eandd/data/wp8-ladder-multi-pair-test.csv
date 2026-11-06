@@ -1,0 +1,8 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,test,ladder-no-rate,0.23491,-0.01476,-0.0175,-0.01195
+multi-pair,test,kernel-old,0.24481,-0.00486,-0.006,-0.00375
+multi-pair,test,ladder-no-ability,0.24588,-0.00379,-0.00569,-0.00189
+multi-pair,test,ladder-plus-item,0.24614,-0.00353,-0.00453,-0.00254
+multi-pair,test,ladder-rate-only,0.24715,-0.00252,-0.0043,-0.00074
+multi-pair,test,ladder-plus-ability,0.24768,-0.00199,-0.00291,-0.00111
+multi-pair,test,jeffreys,0.24967,0.0,0.0,0.0
