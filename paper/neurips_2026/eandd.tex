@@ -14,6 +14,7 @@
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{multirow}
+\usepackage{float}
 
 \newcommand{\minus}{\ensuremath{-}}
 \newcommand{\code}[1]{\texttt{#1}}
@@ -47,6 +48,12 @@ We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one 
   \item \textbf{When a transferred prior helps.} A prior fitted on training benchmarks helps on benchmarks whose accuracy is near the prior mean and hurts far from it, shown by leave-one-benchmark-out over the 11 training benchmarks.
   \item \textbf{Open materials.} The frozen draws, saved scores and code to rerun every table and figure.
 \end{itemize}
+
+\paragraph{Related work.}
+Empirical Bayes estimates a prior from related observations; classical shrinkage and small-area estimation show how pooling can stabilize noisy group estimates~\citep{robbins1956,efron1973,rao2015}.
+Prediction-powered inference also combines predictions with observed labels, but targets uncertainty about population quantities rather than sequential item-level prediction~\citep{angelopoulos2023}.
+IRT extensions model item--respondent interactions in a latent space or separate language effects from item content~\citep{jeon2021,lior2026}.
+Amortized IRT predicts item parameters from text~\citep{truong2025amortized}; our held-out benchmark design asks whether item-level signals and transferred priors remain useful on a new benchmark.
 
 %==============================================================================
 \section{Setting and online simulation}\label{sec:setting}
@@ -120,8 +127,8 @@ On the ID panel the offline model that keeps its fitted values scores $-0.0852$ 
 
 \begin{figure}[t]
   \centering
-  \includegraphics{\figdir/figure4-lobo-explained.pdf}
-  \caption{\textbf{A fitted prior helps when a benchmark's accuracy is near the prior mean.} Each point is one of the 11 training benchmarks held out in turn (the prior refit without any of its rows), scored on its held-out-subject tasks; the horizontal axis is how far its task accuracies lie from the prior mean $0.52$ and the vertical axis is the fitted-minus-Jeffreys gain (negative favours the fitted prior), with 95\% intervals over tasks. Spearman correlation $0.93$. The distance uses observed outcomes and explains the pattern; it is not available before labels arrive.}\label{fig:lobo}
+  \includegraphics{\figdir/figure4-benchmark-explanation-17.pdf}
+  \caption{\textbf{A fitted prior helps when a benchmark's accuracy is near the prior mean.} Each point is one of 17 benchmarks. For each of the 11 training benchmarks, the prior was refit without any of that benchmark's rows and scored on held-out subjects. The six validation and test benchmarks use the original training-only prior. The horizontal axis uses task accuracy on the evaluation items; the vertical axis shows fitted minus Jeffreys Brier ALC, with 95\% task-bootstrap intervals. This is an explanatory analysis using observed outcomes.}\label{fig:lobo}
 \end{figure}
 
 Figure~\ref{fig:benchmarks} shows the test and validation benchmarks separately: all three test benchmarks agree ($-0.013$ to $-0.015$), and on validation \code{ai2d\_test} agrees while \code{bird\_sql} goes the other way ($+0.025$). Holding out each training benchmark in turn (Figure~\ref{fig:lobo}, Appendix~\ref{app:lobo}) the fitted prior significantly helps on 5 of 11, significantly hurts on none, and the macro mean gain is $-0.0056$. What separates the benchmarks is not whether they lie inside the range of training benchmark rates (\code{alignment\_faking} and \code{harmbench} lose while inside it) but how far their task accuracies sit from the prior mean: the Spearman correlation between the gain and that distance is $0.93$ over the 11 benchmarks, against $0.01$ for the benchmark's mean accuracy. Shrinking toward $0.52$ helps tasks near $0.52$ and hurts tasks far from it. The three test benchmarks (mean accuracy $0.54$--$0.68$) sit near the prior mean, which is why test looks good. We found this pattern after seeing the results, so it is an explanation and not a predictor.
@@ -153,7 +160,13 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 
 {\small
 \bibliographystyle{plainnat}
-\begin{thebibliography}{9}
+\begin{thebibliography}{99}
+\bibitem[Robbins(1956)]{robbins1956} H.~Robbins. An empirical Bayes approach to statistics. In \emph{Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability}, 1:157--163, 1956.
+\bibitem[Efron and Morris(1973)]{efron1973} B.~Efron and C.~Morris. Stein's estimation rule and its competitors---an empirical Bayes approach. \emph{Journal of the American Statistical Association}, 68(341):117--130, 1973.
+\bibitem[Rao and Molina(2015)]{rao2015} J.~N.~K. Rao and I.~Molina. \emph{Small Area Estimation}. Wiley, 2nd edition, 2015.
+\bibitem[Angelopoulos et~al.(2023)]{angelopoulos2023} A.~N. Angelopoulos, S.~Bates, C.~Fannjiang, M.~I. Jordan, and T.~Zrnic. Prediction-powered inference. \emph{Science}, 382(6671):669--674, 2023.
+\bibitem[Jeon et~al.(2021)]{jeon2021} M.~Jeon, I.~H. Jin, M.~Schweinberger, and S.~Baugh. Mapping unobserved item--respondent interactions: A latent space item response model with interaction map. \emph{Psychometrika}, 86(2):378--403, 2021.
+\bibitem[Lior et~al.(2026)]{lior2026} G.~Lior, T.~Frostig, G.~Stanovsky, and M.~Eyal. Extending item response theory for efficient and meaningful multilingual evaluation. arXiv:2606.15643, 2026.
 \bibitem[Brier(1950)]{brier1950} G.~W. Brier. Verification of forecasts expressed in terms of probability. \emph{Monthly Weather Review}, 78(1), 1950.
 \bibitem[Chen et~al.(2024)]{chen2024bge} J.~Chen, S.~Xiao, P.~Zhang, K.~Luo, D.~Lian, Z.~Liu. {BGE} {M3}-Embedding: Multi-lingual, multi-functionality, multi-granularity text embeddings through self-knowledge distillation. arXiv:2402.03216, 2024.
 \bibitem[Jeffreys(1946)]{jeffreys1946} H.~Jeffreys. An invariant form for the prior probability in estimation problems. \emph{Proc.\ Royal Society A}, 186, 1946.
@@ -166,31 +179,46 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 \appendix
 
 \section{Rasch terms under the fitted priors}\label{app:ladder}
-\begin{table}[h]
+\begin{table}[H]
   \caption{Brier ALC difference to Jeffreys for Rasch with terms switched off (prior width set near zero), under the training-fitted priors. Competition-shaped draws on test and validation, and multi-pair draws on test.}
   \centering\small
   \input{eandd_ladder}
 \end{table}
 
 \section{Paired comparisons between prior sources}\label{app:paired}
-\begin{table}[h]
+\begin{table}[H]
   \caption{Paired Brier ALC differences between prior sources, with 95\% intervals over tasks. Each comparison changes sign between test and validation.}
-  \centering\small
+  \centering\small\setlength{\tabcolsep}{4.5pt}
   \input{eandd_paired}
 \end{table}
 
 \section{Draw-seed robustness}\label{app:robust}
-\begin{table}[h]
+\begin{table}[H]
   \caption{Brier ALC difference to Jeffreys on three fresh sets of 150 competition-shaped draws per role (seeds 20261201--03); results on the frozen draws are in Table~\ref{tab:prior-source}.}
   \centering\small
   \input{eandd_robust}
 \end{table}
 
 \section{Leave-one-benchmark-out for the fitted prior}\label{app:lobo}
-\begin{table}[h]
+\begin{table}[H]
   \caption{Fitted Beta-Binomial prior (refit without the held-out benchmark) minus Jeffreys, on each training benchmark's held-out-subject tasks, with the mean distance of its task accuracies from the prior mean $0.52$.}
   \centering\small
   \input{eandd_lobo}
+\end{table}
+
+\section{Sensitivity to the benchmark split}\label{app:split-sensitivity}
+\input{eandd_split_sensitivity}
+\begin{figure}[H]
+  \centering
+  \includegraphics{\figdir/figure5-split-sensitivity.pdf}
+  \caption{Fitted Beta-Binomial minus Jeffreys over all 680 triples. Each empirical prior is fitted on the 14 benchmarks outside its triple. The vertical line marks the original test benchmark names under this refitting protocol.}
+\end{figure}
+
+\section{Alternative test metrics}\label{app:alternative-metrics}
+\begin{table}[H]
+  \centering\small
+  \caption{Competition-shaped test results under the official budget weights. Lower is better for all columns. ECE uses ten equal-width bins and is averaged over tasks. A constant-per-task predictor does not rank items: its within-task AUC is $0.5$ when both outcomes occur, and Spearman is undefined.}
+  \input{eandd_reviewer_metrics}
 \end{table}
 
 \end{document}
