@@ -277,3 +277,10 @@ selection), 3 pilot labels with d = 0.5 gives worst +0.0132, 17-benchmark macro 
 **Why the harm is hard to remove:** it sits at 0-3 labels, which carry half of the ALC weight (0.1 + 0.2 + 0.2), before any pilot
 exists. A label-based diagnostic can only act from the budget where it has labels. A diagnostic available at budget zero would
 have to come from other subjects' labels on the same benchmark (a benchmark-level pilot): only multi-subject draws have them.
+
+## R2 handover to Person-B (2026-11-07)
+Validation and ID competition-shaped runs rerun with every prediction saved (`r2-competition-val`, `r2-competition-id`; the numbers
+reproduce the earlier runs exactly). Uploaded with the adaptive-prior scores to the shared workspace:
+`aims-neurips-data:/results/eandd-analysis/person-a-v2/` (958 MB; `MANIFEST.md` inside). Pull with
+`MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /results/eandd-analysis/person-a-v2 <local dir>`.
+For Person-B's R10 (log loss, calibration, ALC weight sensitivity) and R11 (figures for E1 and E3).
