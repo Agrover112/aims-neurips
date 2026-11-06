@@ -277,13 +277,13 @@ def split_contrast_page(pdf, frame: pd.DataFrame, meta: dict):
     runs = [("np-470e0bbf02b0032be63c", "ID (random-subject split)", MUTED["indigo"]),
             ("np-a3923b0595e9dd6718ce", "OOD (benchmark holdout)", MUTED["rose"])]
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 3.9))
-    fig.subplots_adjust(left=0.1, right=0.985, top=0.9, bottom=0.42)
+    fig.subplots_adjust(left=0.1, right=0.985, top=0.80, bottom=0.42)
     fig.text(0.018, 0.985, "Validation loss keeps falling ID, but rises OOD",
              fontsize=8.6, fontweight="bold", va="top")
     for rid, label, colour in runs:
         for metric, ls, part in (("nll_tr", "-", "training"), ("nll_va", (0, (4, 2)), "validation")):
             g = frame[(frame.run == rid) & (frame.metric == metric)].sort_values("step")
-            ax.plot(g.step, ema(g.value.to_numpy(), span=40), color=colour, ls=ls, lw=1.2,
+            ax.plot(g.step, ema(g.value.to_numpy(), span=40), color=colour, ls=ls, lw=1.8 if part == "training" else 1.0,
                     label=f"{label}, {part}")
         best = meta[rid]["best_step"]
         g = frame[(frame.run == rid) & (frame.metric == "nll_va")].sort_values("step")
@@ -297,7 +297,15 @@ def split_contrast_page(pdf, frame: pd.DataFrame, meta: dict):
     ax.tick_params(labelsize=6)
     style(ax, grid_axis="both")
     handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="center", ncol=2, fontsize=6.1, frameon=False, bbox_to_anchor=(0.5, 0.285))
+    # Key at the top: colour = split, line style = training (solid, thick) vs validation (dashed, thin), star = selected checkpoint.
+    from matplotlib.lines import Line2D
+    style_keys = [Line2D([], [], color=INK, ls="-", lw=1.8, label="training (solid, thick)"),
+                  Line2D([], [], color=INK, ls=(0, (3, 2)), lw=1.0, label="validation (dashed, thin)"),
+                  Line2D([], [], color=INK, marker="*", ms=8, ls="none", label="selected checkpoint")]
+    split_keys = [Line2D([], [], color=h.get_color(), lw=2) for h in handles[::2]]
+    fig.legend(split_keys + style_keys,
+               [l.rsplit(", ", 1)[0] for l in labels[::2]] + [k.get_label() for k in style_keys],
+               loc="center", ncol=3, fontsize=6.1, frameon=False, bbox_to_anchor=(0.5, 0.915))
     body = ("Figure. Training (solid) and validation (dashed) negative log-likelihood of the same ANP (width 64, "
             "uniform 0-31 context sizes, 100,000 steps) trained on two splits; curves are exponentially smoothed "
             "and stars mark each run's selected checkpoint. ID means the validation benchmarks also appear in training and OOD that they never do. ID, validation holds out subjects but "

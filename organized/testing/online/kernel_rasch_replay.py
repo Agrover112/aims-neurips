@@ -117,6 +117,8 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
     kind, param, rho, tau = cfg[:4]
     # Optional fifth and sixth entries override the benchmark-rate and ability widths.
     tau_b, tau_s = (cfg[4], cfg[5]) if len(cfg) > 4 else (TAU_B, TAU_S)
+    # Optional seventh entry overrides the benchmark-rate prior mean.
+    m0 = cfg[6] if len(cfg) > 6 else M0
     benches = sorted({e[0] for e in evidence})
     subjects = sorted({e[1] for e in evidence})
     items = sorted({(e[0], e[2]) for e in evidence})
@@ -141,7 +143,7 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
         Kinv = np.linalg.inv(K)
         prec[np.ix_(idx, idx)] = Kinv
         inv_blocks[b] = (hs, idx, Kinv)
-    mean = np.concatenate([np.full(nb, M0), np.zeros(ns + ni)])
+    mean = np.concatenate([np.full(nb, m0), np.zeros(ns + ni)])
     v = mean.copy()
     for _ in range(30):
         p = 1 / (1 + np.exp(-(X @ v)))
@@ -153,7 +155,7 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
             break
     out = {}
     for t, (b, s, hashes) in targets_by_task.items():
-        mu = v[bi[b]] if b in bi else M0
+        mu = v[bi[b]] if b in bi else m0
         th = v[si[s]] if s in si else 0.0
         diff = np.zeros(len(hashes))
         if b in inv_blocks:
