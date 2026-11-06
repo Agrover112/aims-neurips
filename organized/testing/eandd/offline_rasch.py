@@ -46,7 +46,7 @@ def index(r: pd.DataFrame):
     return b, s, i, bu, su, iu, sb, ib
 
 
-def fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=None, maxiter=400):
+def fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=None, maxiter=400, gtol=1e-5, ftol=2.2e-9):
     sign = 2.0 * y - 1.0
 
     def f(x):
@@ -64,7 +64,7 @@ def fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=None, maxiter=400):
         return loss + pen, np.concatenate([gmu, gth, gbi])
 
     x = np.concatenate([np.full(nb, m0), np.zeros(ns + ni)]) if x0 is None else x0
-    res = minimize(f, x, jac=True, method="L-BFGS-B", options={"maxiter": maxiter, "maxcor": 20})
+    res = minimize(f, x, jac=True, method="L-BFGS-B", options={"maxiter": maxiter, "maxcor": 20, "gtol": gtol, "ftol": ftol})
     return res.x, res
 
 
@@ -82,6 +82,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
     ap.add_argument("--rounds", type=int, default=6)
+    ap.add_argument("--maxiter", type=int, default=400, help="L-BFGS iteration limit per round")
+    ap.add_argument("--gtol", type=float, default=1e-5, help="stop when the largest gradient entry is below this")
+    ap.add_argument("--tol", type=float, default=0.01, help="stop the empirical-Bayes rounds when every hyperparameter moves less than this")
+    ap.add_argument("--configs-out", type=Path, default=CONFIGS)
     ap.add_argument("--heldout", type=Path, default=c.ID_PANEL / "heldout_subjects.parquet")
     a = ap.parse_args()
     t0 = time.time()
@@ -93,21 +97,23 @@ def main() -> int:
     m0, tb, ts, ti = float(np.log(0.512 / 0.488)), 2.0, 1.0, 1.0
     x, history = None, []
     for rnd in range(a.rounds):
-        x, res = fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=x)
+        x, res = fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=x, maxiter=a.maxiter, gtol=a.gtol)
         mu, th, bi = x[:nb], x[nb:nb + ns], x[nb + ns:]
+        gmax = float(np.abs(res.jac).max())
         vb, vs, vi = post_var(x, b, s, i, nb, ns, ni, tb, ts, ti)
         # Empirical Bayes: moment updates with the posterior-variance correction, averaged per benchmark.
         m0n = float(mu.mean())
         tbn = float(np.sqrt(max(np.var(mu) + vb.mean(), 1e-4)))
         tsn = float(np.sqrt(np.mean([np.mean(th[sb == k] ** 2 + vs[sb == k]) for k in range(nb)])))
         tin = float(np.sqrt(np.mean([np.mean(bi[ib == k] ** 2 + vi[ib == k]) for k in range(nb)])))
-        history.append((rnd, m0, tb, ts, ti, float(res.fun), int(res.nit)))
-        print(f"round {rnd}: m0 {m0:+.3f} tau_b {tb:.3f} tau_s {ts:.3f} tau_i {ti:.3f}  (iters {res.nit}, {time.time() - t0:.0f}s)", flush=True)
-        done = max(abs(m0n - m0), abs(tbn - tb), abs(tsn - ts), abs(tin - ti)) < 0.01
+        history.append((rnd, m0, tb, ts, ti, float(res.fun), int(res.nit), gmax, bool(res.success), str(res.message)[:60]))
+        print(f"round {rnd}: m0 {m0:+.4f} tau_b {tb:.4f} tau_s {ts:.4f} tau_i {ti:.4f}  (iters {res.nit}, max|grad| {gmax:.2e}, converged {res.success}, {time.time() - t0:.0f}s)", flush=True)
+        done = max(abs(m0n - m0), abs(tbn - tb), abs(tsn - ts), abs(tin - ti)) < a.tol
         m0, tb, ts, ti = m0n, tbn, tsn, tin
         if done:
             break
-    x, _ = fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=x)
+    x, res = fit(b, s, i, y, nb, ns, ni, m0, tb, ts, ti, x0=x, maxiter=a.maxiter, gtol=a.gtol)
+    print(f"final fit: iters {res.nit}, max|grad| {float(np.abs(res.jac).max()):.2e}, converged {res.success}", flush=True)
     mu, th, bi = x[:nb], x[nb:nb + ns], x[nb + ns:]
     fits = pd.concat([
         pd.DataFrame({"kind": "mu", "key": bu, "value": mu}),
@@ -115,8 +121,8 @@ def main() -> int:
         pd.DataFrame({"kind": "b", "key": iu, "value": bi}),
         pd.DataFrame({"kind": "hyper", "key": ["m0", "tau_b", "tau_s", "tau_i"], "value": [m0, tb, ts, ti]})], ignore_index=True)
     cfg = {"rasch-fitted": ["rasch", None, 0.0, ti, tb, ts, m0], "kernel-fitted": ["kernel", 0.2, 0.8, ti, tb, ts, m0]}
-    CONFIGS.parent.mkdir(parents=True, exist_ok=True)
-    CONFIGS.write_text(json.dumps(cfg, indent=1))
+    a.configs_out.parent.mkdir(parents=True, exist_ok=True)
+    a.configs_out.write_text(json.dumps(cfg, indent=1))
     c.save_run(a.run, {"rounds": history, "hyper": dict(m0=m0, tau_b=tb, tau_s=ts, tau_i=ti), "n_rows": len(r),
                        "heldout_file": str(a.heldout), "averaging": "per-benchmark mean of subject and item moments"},
                t0, fits=fits)
