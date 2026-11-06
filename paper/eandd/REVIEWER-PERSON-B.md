@@ -28,19 +28,29 @@ original 11-point figure. Rasch on 40 triples waits for Person A's R6.
 
 ## R9--R14
 
-- R9 uses the WP7 item population, matched sampled pairs and random control,
-  with model settings selected by holding out groups of training benchmarks.
-  Rasch targets must reproduce the stored WP4b fit or come from its artifact.
+- R9 ran on the matched WP7 items and pairs, with settings selected in
+  training-benchmark folds. The pass-rate MLP passed the planned pooled
+  rank criterion (Spearman 0.090, 5/6 positive, random 0.026); its Ridge
+  counterpart did not. The MLP using Rasch targets also passed on the local
+  refit (0.112, 6/6 positive); its Ridge counterpart did not. On the three
+  test benchmarks alone, Spearman was 0.109 for the pass-rate MLP, 0.104
+  for the Rasch-target MLP, and 0.076 for the sampled random control.
+  These are rank metrics, not downstream Brier gains. The Rasch results
+  are provisional: the local refit matched the original response and
+  item counts but used an item scale of 1.507 versus 1.491 in the stored
+  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`.
 - R10 test metrics are complete on the existing prediction handoff. Official
   log-loss ALC is 0.6656 for the fitted Beta-Binomial versus 0.7045 for Jeffreys;
   ten-bin task ECE ALC is 0.1113 versus 0.1426. The CSVs also contain uniform
   and late-only weights, rankable-task counts, and reliability bins. Add
-  validation and ID from the R2 predictions before drawing cross-role conclusions.
-- R11 needs adaptive-prior and pilot diagnostic outputs from R3/R4.
+  validation and ID from the newly announced R2 prediction handoff before
+  drawing cross-role conclusions.
+- R11 figures remain to be built from Person A's newly merged R3/R4 outputs.
 - R12 adds related work with references verified against the author copies,
   proceedings, or publisher records.
 - R13 is optional. R14's split-specific limitations, Figure 4 caption and
-  disclosure are updated; the item-difficulty paragraph waits for R9.
+  disclosure are updated; the item-difficulty paragraph and table have not
+  yet been updated with the new R9 results.
 
 Run `split_sensitivity.py --handoff <person-a-v1> --responses <canonical parquet>
 --output <new directory>`, then `reviewer_figures.py <that directory>`.

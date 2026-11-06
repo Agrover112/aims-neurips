@@ -1,0 +1,58 @@
+{
+  "selection": {
+    "pass_rate_ridge": {
+      "alpha": 100.0,
+      "fit_items": 8462,
+      "wp7_sample": 8462
+    },
+    "pass_rate_mlp": {
+      "alpha": 0.001,
+      "fit_items": 8462,
+      "wp7_sample": 8462
+    },
+    "rasch_easiness_ridge": {
+      "alpha": 0.1,
+      "fit_items": 8462,
+      "wp7_sample": 8462
+    },
+    "rasch_easiness_mlp": {
+      "alpha": 0.001,
+      "fit_items": 8462,
+      "wp7_sample": 8462
+    }
+  },
+  "criterion": [
+    {
+      "arm": "pass_rate_mlp",
+      "macro_rho": 0.08996748897906365,
+      "random_rho": 0.02580515874578194,
+      "gap": 0.0641623302332817,
+      "positive": 5,
+      "passes": true
+    },
+    {
+      "arm": "pass_rate_ridge",
+      "macro_rho": 0.06519507769569222,
+      "random_rho": 0.02580515874578194,
+      "gap": 0.03938991894991027,
+      "positive": 4,
+      "passes": false
+    },
+    {
+      "arm": "rasch_easiness_mlp",
+      "macro_rho": 0.11209663794909915,
+      "random_rho": 0.02580515874578194,
+      "gap": 0.0862914792033172,
+      "positive": 6,
+      "passes": true
+    },
+    {
+      "arm": "rasch_easiness_ridge",
+      "macro_rho": 0.04755494355654836,
+      "random_rho": 0.02580515874578194,
+      "gap": 0.021749784810766417,
+      "positive": 4,
+      "passes": false
+    }
+  ]
+}
