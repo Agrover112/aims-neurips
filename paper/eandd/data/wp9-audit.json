@@ -1,0 +1,21 @@
+{
+  "predictions": {
+    "prediction_files": 150,
+    "score_groups": 27000,
+    "max_brier_reconstruction_error": 2.604455878740808e-08
+  },
+  "score_hashes": {
+    "wp5-competition-id": "14a5bfea2cc499fa5f328201a616ee0cc789cd3cf69d8cb02645201c4fbb2d53",
+    "wp5-competition-test": "53f4e0f56d50d8779693d6df88c7eb1b7f8bf655935725502a41fb975a9fd1c3",
+    "wp5-competition-val": "71675d96554dc0899fb931ccb7567274a7a0427bdbf297a46f0af23a1ede405e",
+    "wp5-multi-pair-test": "46e447164ba582c8c7b1fe71d2ecca9305c1daaae6c45bf5238c48ee376ed058",
+    "wp5-multi-pair-val": "00fa0d00d0531e0721dcff463d6d7936735150cbe156f44b8e0d263849811c64",
+    "wp6-competition-id": "9bbe0434d224d47247152235e573c5debbd8d84ffbde416928a0faa6bca44adb",
+    "wp6-competition-test": "7c9d90bd237968231ea856eff166381347610a66819636e4562391f8972550aa",
+    "wp6-competition-val": "6cf6580a09732e619a8ee775816a6543c74927282d453288c3a114df84dcb732",
+    "wp8-ladder-competition-test": "394415f29bbacfac0c0c66ad9deba1b0f6beeb1a3881e98a97c6aef134622479",
+    "wp8-ladder-competition-val": "c563db027cd50053a3f5e6f3ec3830ccd6d465bf156152b2af14ad1b6fd09d87",
+    "wp8-ladder-multi-pair-test": "6a4ccd3dff5b30446b52d9644b605a6b754a676f902e3917d27da30660ba0452",
+    "wp8-ladder-multi-pair-val": "7d95b40cfe434db5435e7195fe19629f843e6c5fee8d2692a0af4b9cabc7641f"
+  }
+}

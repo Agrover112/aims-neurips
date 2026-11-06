@@ -1,5 +1,18 @@
 # Person B handoff
 
+## Workspace for new paper runs
+
+Use the shared `aims-neurips` workspace for new E&D paper experiments. Pass
+`--profile aims-neurips` explicitly on every Modal launch; do not rely on the
+active profile. Save new artifacts to the shared `aims-neurips-data` volume
+under `/results/eandd-analysis/`. WP7 already finished there; its summary is
+`/results/eandd-analysis/wp7-v1/summary.csv`.
+
+The ID and OOD handoff artifacts described below were produced earlier in
+`arshiaswe` and have not been copied to the shared workspace. A new shared run
+that needs those exact files must wait until they are available there; do not
+silently fall back to running it in `arshiaswe`.
+
 The ID panel is in the user's Modal volume `aims-neurips-data`, under
 `/results/eandd-analysis/id-v1/panel-cap20/`, and in the workspace at
 `../eandd-data/id-v1/panel-cap20/`. The stand-alone split is in the sibling
@@ -49,3 +62,26 @@ existing local `aims-tabpfn-lora/reports/reference-feature-power50-20261104-v1/`
 report and completed JSON. It measures **Brier ALC** from a 50-token reference
 feature experiment (24 training tasks, 390 validation tasks), not the paper's
 OOD item-difficulty Spearman or pairwise accuracy. Do not use it as Table 2 data.
+
+## WP9: rebuild from the Person A handoff
+
+Download `/results/eandd-analysis/person-a-v1/` from the shared
+`aims-neurips` workspace into a private local directory. Then run:
+
+```text
+python organized/testing/eandd/wp9.py --handoff <person-a-v1> --output <new-output-directory>
+```
+
+This reads saved scores and main-run predictions, checks the replay keys
+against the frozen draws, and verifies Brier from the prediction files. It
+produces the nine-cell Table 1, matched task-bootstrap summaries, within-task
+AUC and 10-bin calibration error, and three native-width vector figures.
+Per-budget figures use the same equal-task averaging as the ALC table. No
+model is fitted or replayed. Only the competition-shaped test predictions
+were supplied, so AUC/calibration are limited to that run. AUC averages only
+tasks with both outcomes in their query set.
+
+On the handoff from 45afc54, the 150 prediction shards reproduced 27,000
+Brier scores with maximum absolute error 2.61e-8. The three Beta prior curves
+are within 0.001 Brier at 31 labels on the competition test set. This is a
+descriptive threshold, not a test of statistical equivalence.
