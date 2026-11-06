@@ -1,0 +1,11 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,validation,kernel-old,0.16669,-0.00186,-0.00441,0.00059
+multi-pair,validation,bb-tuned,0.16689,-0.00166,-0.00431,0.00096
+multi-pair,validation,rasch-old,0.16736,-0.00119,-0.00332,0.00098
+multi-pair,validation,jeffreys,0.16855,0.0,0.0,0.0
+multi-pair,validation,rasch-retuned,0.16871,0.00016,-0.00306,0.00329
+multi-pair,validation,kernel-fixed,0.1697,0.00115,-0.00254,0.00462
+multi-pair,validation,rasch-fixed,0.16992,0.00137,-0.00203,0.00486
+multi-pair,validation,kernel-fitted,0.17095,0.0024,-0.00162,0.00635
+multi-pair,validation,rasch-fitted,0.17292,0.00437,0.00027,0.00868
+multi-pair,validation,bb-eb,0.17757,0.00902,0.00332,0.01497

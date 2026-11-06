@@ -1,0 +1,11 @@
+shape,role,model,alc,diff,lo,hi
+competition,test,bb-eb,0.23616,-0.01378,-0.01585,-0.01163
+competition,test,rasch-fitted,0.23805,-0.01189,-0.01327,-0.01056
+competition,test,kernel-fitted,0.23815,-0.01178,-0.01312,-0.01048
+competition,test,kernel-fixed,0.23945,-0.01049,-0.01213,-0.00881
+competition,test,rasch-fixed,0.23973,-0.01021,-0.01182,-0.00847
+competition,test,rasch-retuned,0.24674,-0.0032,-0.00353,-0.00288
+competition,test,kernel-old,0.24754,-0.0024,-0.00272,-0.00207
+competition,test,rasch-old,0.24887,-0.00107,-0.00131,-0.00082
+competition,test,jeffreys,0.24994,0.0,0.0,0.0
+competition,test,bb-tuned,0.25545,0.00551,0.00379,0.0072

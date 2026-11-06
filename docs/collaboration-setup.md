@@ -106,6 +106,16 @@ Handoffs: send Person-A the held-out subject list and ID panel (WP4a) first, sin
 Beta-Binomial priors (WP2). Until Person-A's real `scores/` and `preds/` arrive, build the analysis on the files from
 step 3 (same columns).
 
+### 4b. Sharing results through Modal (agreed route)
+Person-B writes results to the shared **`aims-neurips`** workspace, volume `aims-neurips-data`, under
+`/results/eandd-analysis/<run>/` (for example `wp7-v1/`). Person-A pulls the small files with:
+```bash
+MODAL_PROFILE=aims-neurips modal volume ls  aims-neurips-data /results/eandd-analysis
+MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /results/eandd-analysis/wp7-v1/summary.csv received_files/
+```
+Listing and downloading small files costs no credit. Moving subject lists, replay panels or per-draw scores into a
+collaborator-owned workspace needs explicit approval from the owner first (an automatic review blocked one such transfer).
+
 ### 5. What is not available to you
 The paper source (`paper/neurips_2026/`, kept out of the repository on purpose) and the compiled drafts: ask
 Person-A through a private channel. The leaderboard token and any API keys stay with their owners.
