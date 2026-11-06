@@ -110,6 +110,47 @@ step 3 (same columns).
 The paper source (`paper/neurips_2026/`, kept out of the repository on purpose) and the compiled drafts: ask
 Person-A through a private channel. The leaderboard token and any API keys stay with their owners.
 
+### 6. Person-B handoff status
+
+**Reproduction passed.** On the frozen competition-shaped test draws, the rebuilt
+panel gave Jeffreys ALC **0.2499**. The paired ALC differences to Jeffreys were
+**−0.0032** (retuned Rasch), **−0.0024** (kernel Rasch), and **−0.0011**
+(old Rasch). See [the check summary](../paper/eandd/data/wp2-paired-check.csv).
+The check ran on CPU in the user's `arshiaswe` workspace. The wrapper is
+[`modal_b_check.py`](../organized/testing/eandd/modal_b_check.py). It checks the
+rebuilt panel against the frozen task IDs and stops before validation tuning if
+the reproduction gate fails.
+
+**WP4a → WP4b: ID holdout ready.** There are 1,204 held-out subjects and 4,809
+fit subjects with no overlap. The ID replay panel has 114 tasks across all
+11 training benchmarks, capped at 20 tasks per benchmark. Person-A should
+exclude every held-out subject ID from every offline ID fit. The panel contains
+only held-out subjects; fit on the training responses, using the fit list.
+See the [ID manifest](../paper/eandd/data/id-panel-manifest.json) for the seed,
+source checksum, and counts.
+
+| Artifact | Path relative to `/results/eandd-analysis/` on the user's Modal volume |
+|---|---|
+| Held-out and fit lists | `id-v1/subjects/heldout_subjects.parquet`, `id-v1/subjects/fit_subjects.parquet` |
+| ID panel | `id-v1/panel-cap20/` (`tasks.parquet`, `items.parquet`, `candidate_orders.parquet`, `manifest.json`) |
+| Verified OOD replay panel | `ood-cache-v1/panel/` |
+
+The ID artifacts are also under `eandd-data/id-v1/` in the user's local workspace.
+Share the Parquet files privately and compare the response source checksum
+before fitting on a separate copy. Keep the frozen draws unchanged.
+
+**WP2 → WP5: OOD priors ready.** The validation grid selected **Beta(0.4, 0.6)**
+for competition, multi-pair, and single-pair shapes. The training-only
+empirical prior is **Beta(1.9169628087, 1.7585465875)**. Neither new prior has
+been scored on test. The empirical fit includes subjects excluded from the
+separate ID control, so do not reuse it for that control. Use
+[the exact prior settings](../paper/eandd/data/wp2-priors.json) and
+[the validation grid](../paper/eandd/data/wp2-validation-grid.csv).
+
+Next: Person-A can fit the offline ID model and use the frozen priors for the
+Table 1 replay. Person-B's paper figures await the final score and prediction
+artifacts. The original leaderboard ZIP's prior is still unverified.
+
 ## Removing access
 
 Remove a departing collaborator separately from GitHub, the Modal workspace, and the W&B team or restricted project. Rotate a token only if it was exposed or shared. Removing an account does not remove credentials copied from another person, which is another reason not to share tokens.
