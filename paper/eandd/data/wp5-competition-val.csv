@@ -1,0 +1,11 @@
+shape,role,model,alc,diff,lo,hi
+competition,validation,bb-tuned,0.17234,-0.00149,-0.00398,0.00098
+competition,validation,kernel-old,0.17351,-0.00032,-0.00104,0.00042
+competition,validation,jeffreys,0.17383,0.0,0.0,0.0
+competition,validation,rasch-retuned,0.1742,0.00038,-0.00059,0.00136
+competition,validation,rasch-old,0.17422,0.00039,-7e-05,0.00086
+competition,validation,kernel-fixed,0.1767,0.00287,-0.00077,0.00652
+competition,validation,rasch-fixed,0.17689,0.00307,-0.00052,0.00662
+competition,validation,kernel-fitted,0.17737,0.00355,-0.00067,0.00756
+competition,validation,rasch-fitted,0.17901,0.00519,0.00077,0.00971
+competition,validation,bb-eb,0.18172,0.0079,0.00239,0.01364

@@ -1,0 +1,16 @@
+kind,key,value
+mu,alignment_faking,-0.99721
+mu,brace,0.72945
+mu,afrieval,1.16727
+mu,hallusionbench,0.3342
+mu,bridging_gap,0.0849
+mu,harmbench,0.44381
+mu,appworld,-1.35122
+mu,cruxeval,-0.28731
+mu,afrimedqa,0.61332
+mu,agi_elo,1.01189
+mu,helm_afr,0.1757
+hyper,m0,0.17497
+hyper,tau_b,0.75134
+hyper,tau_s,1.37588
+hyper,tau_i,1.49131

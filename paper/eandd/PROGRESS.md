@@ -73,3 +73,41 @@ Not on GitHub, so Person-A hands them over separately:
 - `split-audit.json` shows the data filter in force: at least 15 responders per item, 80 items per subject, 10 tasks per
   benchmark (6,481 subjects, 123,035 items). Earlier project notes say the standard is 30 responders; check which is intended.
 - Not copied: the older files from arshiaswe (blocked pending explicit approval).
+
+## WP4b and WP5 (2026-11-06): offline fit and the prior-source matrix
+Offline Rasch (`organized/testing/eandd/offline_rasch.py`, run `wp4b-offline-rasch-v1`): 4.34 M training responses
+(11 benchmarks, 4,809 subjects, 109,987 items; Person-B's 1,204 held-out subjects removed), joint MAP with empirical-Bayes
+hyperparameters averaged per benchmark. **266 s on this machine, so no Modal credit was needed.** Fitted:
+m0 = +0.175, tau_b = 0.751, tau_s = 1.376, tau_i = 1.491 (we had been using m0 = 0.049, 2.0, 1.0, 1.0, tuned on
+validation). Benchmark rate logits range from -1.35 (appworld) to +1.17 (afrieval). Positive control: at budget 0, the
+offline fit alone (theta = 0) scores Brier 0.190 on the held-out ID items against 0.25 for a constant, and the
+within-task AUC of its item difficulties is 0.836.
+
+Table 1 matrix, Brier ALC difference to Jeffreys (95% CI, paired over tasks), competition-shaped draws:
+
+| Prior source | Model | Test | Validation | ID (held-out subjects) |
+|---|---|---|---|---|
+| Fixed in advance | Beta-Binomial (Jeffreys) | reference | reference | reference |
+| Fixed in advance | Rasch (m0 = 0, widths 1) | -0.0102 | +0.0031 (n.s.) | -0.0073 |
+| Tuned on validation | Beta-Binomial (mean 0.4, strength 1) | +0.0055 | -0.0015 (n.s.) | +0.0041 |
+| Tuned on validation | Rasch (re-tuned) | -0.0032 | +0.0004 | -0.0024 |
+| Fitted on training | Beta-Binomial (empirical Bayes: mean 0.522, strength 3.68) | **-0.0138** | **+0.0079** | -0.0091 |
+| Fitted on training | Rasch | -0.0119 | +0.0052 | -0.0081 |
+| Fitted on training | Kernel Rasch | -0.0118 | +0.0035 (n.s.) | -0.0063 |
+
+Files: `paper/eandd/data/wp5-*.csv` (summaries, per benchmark, per budget).
+
+### What this says (my reading; pre-set criteria below)
+1. **The Jeffreys baseline was too weak, and the old Rasch gain was mostly shrinkage.** A Beta-Binomial with a prior
+   fitted on training (mean 0.52, strength 3.7) is better on test than every Rasch model and four times the old gain
+   (-0.0138 vs -0.0032). The gap is at 0-3 labels: Jeffreys has Brier 0.2837 at one label on test, the fitted prior
+   0.2460. At 31 labels every model is within 0.001.
+2. **A training-fitted prior wins on test and loses on validation, and one benchmark causes the flip.** Test: all three
+   benchmarks agree (-0.011 to -0.015). Validation: `ai2d_test` agrees (-0.011), `bird_sql` goes the other way
+   (+0.025 for the Beta-Binomial prior). `bird_sql` accuracy is 0.12, below the lowest training benchmark (appworld, 0.26
+   in the data, fitted rate 0.21). On the ID panel the fitted prior wins on 9 of 11 benchmarks.
+3. **Pre-set criteria:** "fitted priors significantly win OOD" is met on test, so the thesis "offline does not transfer"
+   fails as stated; the supported statement is "an offline prior transfers when the new benchmark's base rate is inside the
+   training range, and fails outside it (`bird_sql`)". One benchmark outside the range is thin evidence.
+4. **Not yet run:** WP6 (offline keeps its fitted mu_b and b_i, fits theta only online) on the ID panel, the real positive
+   control for the item-difficulty part. And a held-out-benchmark check for the range claim.

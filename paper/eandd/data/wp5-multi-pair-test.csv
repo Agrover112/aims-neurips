@@ -1,0 +1,11 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,test,bb-eb,0.23567,-0.014,-0.01608,-0.01194
+multi-pair,test,kernel-fitted,0.23718,-0.01249,-0.01397,-0.01101
+multi-pair,test,rasch-fitted,0.23726,-0.0124,-0.01393,-0.01093
+multi-pair,test,kernel-fixed,0.23814,-0.01153,-0.01315,-0.00996
+multi-pair,test,rasch-fixed,0.23853,-0.01113,-0.01273,-0.00948
+multi-pair,test,rasch-retuned,0.24461,-0.00506,-0.00643,-0.0036
+multi-pair,test,kernel-old,0.24481,-0.00486,-0.00595,-0.00375
+multi-pair,test,rasch-old,0.24614,-0.00353,-0.00458,-0.00256
+multi-pair,test,jeffreys,0.24967,0.0,0.0,0.0
+multi-pair,test,bb-tuned,0.25512,0.00545,0.00367,0.0072
