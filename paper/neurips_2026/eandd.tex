@@ -214,10 +214,10 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \caption{Fitted Beta-Binomial minus Jeffreys over all 680 triples. Each empirical prior is fitted on the 14 benchmarks outside its triple. The vertical line marks the original test benchmark names under this refitting protocol.}
 \end{figure}
 
-\section{Alternative test metrics}\label{app:alternative-metrics}
+\section{Alternative evaluation metrics}\label{app:alternative-metrics}
 \begin{table}[H]
   \centering\small
-  \caption{Competition-shaped test results under the official budget weights. Lower is better for all columns. ECE uses ten equal-width bins and is averaged over tasks. A constant-per-task predictor does not rank items: its within-task AUC is $0.5$ when both outcomes occur, and Spearman is undefined.}
+  \caption{Competition-shaped replay. Brier, log loss, and ten-bin task ECE are averaged using the official budget weights; lower is better. AUC uses within-task item rankings at 31 labels, where higher is better. Dashes indicate no informative ranking; a constant prediction ties all items. Per-budget AUC and alternative weights are reported in the accompanying CSVs.}
   \input{eandd_reviewer_metrics}
 \end{table}
 

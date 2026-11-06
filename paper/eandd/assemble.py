@@ -143,13 +143,21 @@ p05, p95 = d.quantile([.05, .95])
 )
 
 metric = pd.read_csv(DATA / "wp13-metric-alc.csv")
-metric = metric.loc[metric.weighting.eq("official") & metric.run.eq("wp5-competition-test")].set_index("model")
-names = {"jeffreys": "Beta-Binomial (Jeffreys)", "bb-tuned": "Beta-Binomial (tuned)",
-         "bb-eb": "Beta-Binomial (fitted)", "rasch-fixed": "Rasch (fixed)",
-         "rasch-retuned": "Rasch (tuned)", "rasch-fitted": "Rasch (fitted)",
-         "kernel-fixed": "Kernel Rasch (fixed)", "kernel-old": "Kernel Rasch (tuned)",
-         "kernel-fitted": "Kernel Rasch (fitted)"}
-(OUT / "eandd_reviewer_metrics.tex").write_text("\n".join(
-    f"{label} & {metric.loc[model, 'brier']:.4f} & {metric.loc[model, 'log_loss']:.4f} & "
-    f"{metric.loc[model, 'ece10']:.4f} \\\\" for model, label in names.items()) + "\n")
-wrap("eandd_reviewer_metrics.tex", "lrrr", "Model & Brier ALC & Log loss ALC & ECE ALC")
+metric = metric.loc[metric.weighting.eq("official")].set_index(["run", "model"])
+rank = pd.read_csv(DATA / "wp13-metrics.csv").query("budget == 31").set_index(["run", "model"])
+names = {"jeffreys": "Jeffreys", "bb-eb": "Fitted Beta-Binomial", "bb-eb-clean": "Fitted Beta-Binomial",
+         "rasch-fitted": "Fitted Rasch",
+         "kernel-fitted": "Fitted kernel Rasch", "offline-kept": "Offline Rasch"}
+lines = []
+for run, role in [("wp5-competition-test", "Test"), ("r2-competition-val", "Validation"),
+                  ("r2-competition-id", "ID")]:
+    for model, label in names.items():
+        key = (run, model)
+        if key not in metric.index:
+            continue
+        r = metric.loc[key]
+        auc = rank.loc[key, "auc"]
+        auc_text = f"{auc:.3f}" if pd.notna(auc) else "--"
+        lines.append(f"{role} & {label} & {r.brier:.4f} & {r.log_loss:.4f} & {r.ece10:.4f} & {auc_text} \\\\")
+(OUT / "eandd_reviewer_metrics.tex").write_text("\n".join(lines) + "\n")
+wrap("eandd_reviewer_metrics.tex", "llrrrr", "Split & Model & Brier & Log loss & ECE & AUC at 31")

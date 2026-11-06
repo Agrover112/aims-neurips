@@ -49,12 +49,16 @@ refit above.
   <panel/items.parquet>` with the canonical responses and BGE cache
   to write one `benchmark_id,content_hash,difficulty` parquet per
   passing Rasch arm. The exported sign is Rasch difficulty, not easiness.
-- R10 test metrics are complete on the existing prediction handoff. Official
+- R10 is complete for test, validation and ID. Official
   log-loss ALC is 0.6656 for the fitted Beta-Binomial versus 0.7045 for Jeffreys;
   ten-bin task ECE ALC is 0.1113 versus 0.1426. The CSVs also contain uniform
-  and late-only weights, rankable-task counts, and reliability bins. Add
-  validation and ID from the newly announced R2 prediction handoff before
-  drawing cross-role conclusions.
+  and late-only weights, per-budget AUC and Spearman for rankable tasks,
+  rankable-task counts, and reliability bins. The validation result reverses:
+  fitted versus Jeffreys log-loss ALC is 0.5404 versus 0.5159, and ECE ALC
+  is 0.1677 versus 0.1405. The ID offline Rasch reaches 0.836 within-task
+  AUC at 31 labels. All 270 uploaded R2 shards were scored and their Brier
+  values checked against the saved scores. See `data/wp13-metrics.csv`,
+  `data/wp13-metric-alc.csv`, and the generated paper appendix table.
 - R11 figures are `data/figure-r11-adaptive-harm.pdf` (17 benchmarks,
   fitted prior and three adaptive variants) and `data/figure-r11-pilot-auc.pdf`
   (three and seven pilot labels; pooled and benchmark-macro AUC).
