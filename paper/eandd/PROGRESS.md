@@ -284,3 +284,22 @@ reproduce the earlier runs exactly). Uploaded with the adaptive-prior scores to 
 `aims-neurips-data:/results/eandd-analysis/person-a-v2/` (958 MB; `MANIFEST.md` inside). Pull with
 `MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /results/eandd-analysis/person-a-v2 <local dir>`.
 For Person-B's R10 (log loss, calibration, ALC weight sensitivity) and R11 (figures for E1 and E3).
+
+## R6 exact split-sensitivity fits (2026-11-07), for Person-B's R8
+`split_fits.py`, run `r6-split-fits-v1` (75 minutes, local): 40 random triples of the 17 benchmarks, 31 distinct sets of excluded
+*training* benchmarks (validation and test benchmarks are never in the fit); each set fitted once (Beta prior and Rasch
+hyperparameters), every benchmark in the set (ID-panel tasks) and the 6 validation/test benchmarks scored. Files:
+`r6-split-fits-v1-per-benchmark.csv` (gain over Jeffreys per fit and benchmark), `r6-split-fits-v1-hyperparameters.csv`,
+`r6-triple-gains.csv`, `paper/eandd/configs/r6-triples.json`. Person-B composes any triple's gain as the mean over its three
+benchmarks of the gain from the fit that excludes the triple's training benchmarks.
+
+Quick read (40 triples; Person-B's R8 does the full analysis):
+| | Mean gain | Median | 5th-95th percentile | Harmful |
+|---|---|---|---|---|
+| Beta prior fitted without the triple | -0.0051 | -0.0072 | [-0.0128, +0.0067] | 20% |
+| Rasch prior fitted without the triple | -0.0041 | -0.0057 | [-0.0095, +0.0037] | 22% |
+| our test triple (no training benchmark excluded) | -0.0136 (Beta), -0.0119 (Rasch) | | | |
+
+This agrees with the earlier approximation from leave-one-out gains (mean -0.0050, harmful in 18%): the exact refits do not
+change the picture. The fitted hyperparameters vary little across the 31 fits (Beta mean 0.49-0.57, strength 3.0-4.7;
+Rasch tau_b 0.59-0.88), so the spread across splits comes from which benchmarks are held out, not from unstable fits.
