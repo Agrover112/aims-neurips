@@ -37,10 +37,12 @@ values from WP2.
 
 ## Handover: what is on GitHub and what is not
 On GitHub: `Final-plan.md`, this file, `organized/testing/eandd/` (`common.py`, `run_replay.py`, `check_pooling.py`),
-`paper/eandd/configs/`, `paper/eandd/data/*.csv` (summary CSVs: reproduction, ladder, pooling check; small).
+`paper/eandd/configs/`, `paper/eandd/data/*.csv` (summary CSVs: reproduction, ladder, pooling check; small),
+`paper/eandd/data/draws.parquet` (the frozen draws, 13 KB: task ids and order seeds only; copy it to
+`~/aims-replay-cache/paper-eandd/draws.parquet`, or set `AIMS_EANDD_DATA`, so `common.load_draws` finds it).
 
 Not on GitHub, so Person-A hands them over separately:
-- `draws.parquet`, the saved scores and predictions (`~/aims-replay-cache/paper-eandd/`; `preds/` is about 117 MB), and the
+- The saved scores and predictions (`~/aims-replay-cache/paper-eandd/`; `preds/` is about 117 MB; rerunnable in about 17 s per run), and the
   three input datasets (`~/aims-noitem-run/filtered-responses.parquet`, `~/aims-replay-cache/panel/`, the BGE-M3
   embeddings). These are large and were never meant for git.
 - `paper/neurips_2026/` and `paper/versions/`: the paper source and compiled drafts, excluded locally through
