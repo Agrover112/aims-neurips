@@ -28,6 +28,7 @@ import pyarrow.parquet as pq
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "online"))
 import common as c  # noqa: E402
+import priors as pr  # noqa: E402
 import kernel_rasch_replay as k  # noqa: E402
 
 M0 = k.M0
@@ -101,7 +102,14 @@ def score_draw(args) -> list:
         evidence = [(meta.loc[t, "benchmark_id"], meta.loc[t, "subject_uid"], h, y)
                     for t, s in pairs for h, y in acquired[(t, s)][:budget]]
         for name, cfg in configs.items():
-            if cfg[0] == "offline":
+            if cfg[0] in ("mixture", "switch"):
+                preds = {}
+                for t, s in pairs:
+                    ys = [y for _, y in acquired[(t, s)][:budget]]
+                    h, n = float(sum(ys)), float(len(ys))
+                    p = pr.mixture_predict(cfg[1], h, n) if cfg[0] == "mixture" else pr.switch_predict(cfg[1], cfg[2], cfg[3], cfg[4], h, n)
+                    preds[t] = np.full(len(ev[t][1]), p)
+            elif cfg[0] == "offline":
                 preds = {t: offline_predict(cfg[1], meta.loc[t, "benchmark_id"], ev[t][0], acquired[(t, s)][:budget])
                          for t, s in pairs}
             elif cfg[0] == "beta":

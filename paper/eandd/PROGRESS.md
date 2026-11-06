@@ -237,3 +237,50 @@ for the E&D paper to be pushed anyway; the repository is private. Force-added: `
 Rebuild with `paper/build-eandd.sh "note"` (regenerates the tables from the CSVs, compiles, saves the next numbered PDF;
 needs `.tools/tectonic/tectonic`, see `docs/collaboration-setup.md`). Before making the repository public, remove these files
 from the history or move the paper to a private repository.
+
+## Reviewer-updates plan, Person-A packages R1, R3, R4 (2026-11-07)
+Scripts: `convergence_check.py`, `offline_rasch.py` (new `--maxiter --gtol --tol --configs-out`), `priors.py`,
+`adaptive_prior.py`, `pilot_diagnostic.py`, `split_fits.py` (R6, still running when this was written). Files: `paper/eandd/data/r1-*`,
+`r3-*`, `r4-*`.
+
+**R1, convergence (E6): done, results unchanged.**
+- Online Newton solver: 0 of 6,000 fits hit the 30-step limit, at most 7 steps, last step 0.0 (`r1-newton-convergence.csv`).
+- Offline fit: the first fit stopped at the 400-iteration limit in three rounds. Refit with a real stopping rule (5 rounds,
+  533 s) the hyperparameters move by +0.9% (m0), -0.1% (tau_b), +0.7% (tau_s), +1.2% (tau_i; just above the 1% bar), the
+  benchmark rates by at most 0.011 logit, and no ALC result changes by more than 0.00007 (bar 0.0005; all four settings in
+  `r1-tight-vs-earlier.csv`). Table 1 stands.
+
+**R3, adaptive priors (E1): negative result against the criteria fixed in advance.** Gain over Jeffreys (negative is better);
+17 benchmarks = 11 leave-one-out + 6 validation/test (`r3-adaptive-17-benchmarks.csv`):
+
+| Model | Worst benchmark | Macro | Test | Verdict |
+|---|---|---|---|---|
+| fitted Beta prior (reference) | +0.0248 | -0.0050 | -0.0138 | - |
+| Beta mixture, 2 or 3 components (EM) | +0.0269 | -0.0054 | -0.0163 | more gain, harm not reduced |
+| average over strength at the fitted mean | +0.0122 | -0.0045 | -0.0110 | misses harm bar by 0.0002, test bar by 0.0008 |
+| average over mean and strength (nothing learned) | +0.0034 | -0.0037 | -0.0063 | harm removed, gain halved |
+| switch to Jeffreys on a far pilot, 3 labels (d = 0.1, chosen on validation) | +0.0136 | -0.0027 | -0.0078 | fails |
+| the same with 7 pilot labels | +0.0202 | -0.0042 | -0.0114 | fails |
+
+Criteria were: worst harm at most +0.0120, macro within 0.0010 of -0.0050, test within 0.0020 of -0.0138. No adaptive prior
+meets all three. They move along a trade-off between gain and worst-case harm; none dominates the fitted prior. The EM mixtures
+(2 and 3 components give the same predictions) have the best macro gain and the worst worst-case. Validation chose the smallest
+switch threshold on the grid (d = 0.1), so that rule inherits the validation split's bias.
+
+**R4, pilot diagnostic (E3).** From the first labels of the same order, distance of the pilot accuracy from the prior mean
+predicts "the fitted prior hurts this task": pooled AUC **0.732 from 7 labels** (meets the 0.70 bar), 0.610 from 3 labels; the mean
+per-benchmark AUC is only 0.636 (0.523 at 3 labels), so most of the signal is between benchmarks. Tasks with a 7-label pilot
+distance above 0.4 are hurt 67% of the time (mean gain +0.0174); all closer bins gain on average (`r4-pilot-auc.csv`,
+`r4-gain-by-pilot-distance-k7.csv`). As a switch rule with the threshold chosen on the 11 training benchmarks, the best
+setting is never to switch (d = infinity): macro on the 6 unseen benchmarks -0.0037, worst +0.0252. Post hoc (not a valid
+selection), 3 pilot labels with d = 0.5 gives worst +0.0132, 17-benchmark macro -0.0047, test -0.0122 (`r4-switch-sweep.csv`).
+**Why the harm is hard to remove:** it sits at 0-3 labels, which carry half of the ALC weight (0.1 + 0.2 + 0.2), before any pilot
+exists. A label-based diagnostic can only act from the budget where it has labels. A diagnostic available at budget zero would
+have to come from other subjects' labels on the same benchmark (a benchmark-level pilot): only multi-subject draws have them.
+
+## R2 handover to Person-B (2026-11-07)
+Validation and ID competition-shaped runs rerun with every prediction saved (`r2-competition-val`, `r2-competition-id`; the numbers
+reproduce the earlier runs exactly). Uploaded with the adaptive-prior scores to the shared workspace:
+`aims-neurips-data:/results/eandd-analysis/person-a-v2/` (958 MB; `MANIFEST.md` inside). Pull with
+`MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /results/eandd-analysis/person-a-v2 <local dir>`.
+For Person-B's R10 (log loss, calibration, ALC weight sensitivity) and R11 (figures for E1 and E3).

@@ -55,6 +55,7 @@ TAU_B, TAU_S = 2.0, 1.0
 
 # Filled once per worker process by _init.
 G: dict = {}
+LAST_NEWTON = {"steps": 0, "max_step": 0.0, "converged": True}   # set by fit_predict, read by convergence checks
 
 
 def _init(cache: str, embeddings: str, n_clusters: tuple) -> None:
@@ -145,13 +146,16 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
         inv_blocks[b] = (hs, idx, Kinv)
     mean = np.concatenate([np.full(nb, m0), np.zeros(ns + ni)])
     v = mean.copy()
-    for _ in range(30):
+    LAST_NEWTON["converged"] = False
+    for it in range(30):
         p = 1 / (1 + np.exp(-(X @ v)))
         grad = X.T @ (p - y) + prec @ (v - mean)
         hess = (X * (p * (1 - p))[:, None]).T @ X + prec
         step = np.linalg.solve(hess, grad)
         v -= step
+        LAST_NEWTON["steps"], LAST_NEWTON["max_step"] = it + 1, float(np.abs(step).max())
         if np.abs(step).max() < 1e-6:
+            LAST_NEWTON["converged"] = True
             break
     out = {}
     for t, (b, s, hashes) in targets_by_task.items():
