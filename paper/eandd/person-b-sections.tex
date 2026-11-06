@@ -1,11 +1,11 @@
 % Person B handoff. Include in the private eandd.tex or paste each section in its place.
-% Requires only the standard LaTeX table and math commands.
+% Requires the booktabs package (\toprule, \midrule, \bottomrule).
 \section{Setting and online simulation}
 \label{sec:setting-online}
-We replay binary responses from the filtered public data, using disjoint
+We run the online simulation on recorded binary responses from the filtered public data, using disjoint
 benchmark sets for training, validation, and test (11, 3, and 3 benchmarks).
 Prior fitting uses training data; validation is used for selecting settings.
-The competition-shaped replay samples one subject per benchmark in each draw,
+The competition-shaped draws sample one subject per benchmark in each draw,
 so a predictor cannot borrow labels from other subjects on that benchmark in
 the same draw. This is a public-data simulation of the competition protocol.
 
@@ -40,13 +40,13 @@ gives half credit for predicted ties. Results are averaged across benchmarks.
 Spearman correlation and pairwise accuracy, respectively.}
 \label{tab:item-difficulty}
 \begin{tabular}{lccc}
-\hline
+\toprule
 Feature & ID (11) & Validation (3) & Test (3)\\
-\hline
+\midrule
 Embedding & $0.400$ / $0.649$ & $0.196$ / $0.570$ & $-0.020$ / $0.494$\\
 Log character count & $0.107$ / $0.539$ & $0.058$ / $0.525$ & $0.061$ / $0.521$\\
 Random score & $-0.003$ / $0.499$ & $-0.024$ / $0.490$ & $0.076$ / $0.529$\\
-\hline
+\bottomrule
 \end{tabular}
 \end{table}
 
@@ -60,7 +60,7 @@ transfer value.
 
 \section{Limitations}
 \label{sec:limitations}
-The filtered public replay covers only three test benchmarks. Multiple draws
+The filtered public data covers only three test benchmarks in the online simulation. Multiple draws
 and acquisition orders measure variation within this population; they do not
 supply independent tests of transfer to new benchmarks. Task bootstrap
 intervals likewise do not capture uncertainty from sampling new benchmarks.
@@ -74,8 +74,16 @@ prior before observing a new benchmark.
 
 \section{Disclosure and rerun instructions}
 \label{sec:disclosure-rerun}
+\textbf{Training data.} All fitted quantities (the offline Rasch fit, the Beta-Binomial
+empirical-Bayes prior, the item probes) use only the responses of the 11 training benchmarks in
+the competition's measurement database after the filtering described in Section~\ref{sec:setting-online};
+no other response data is used. \textbf{Pretrained models.} Item text is embedded with the frozen
+BGE-M3 model; nothing else is pretrained or fine-tuned. \textbf{LLM coding assistants.} Claude Code
+(Anthropic) assisted with writing code, analysis scripts and drafting text; every reported number was
+produced by running the code in the repository, and the authors checked the numbers.
+
 The shared handoff contains frozen draws, scores, and competition-shaped
-test predictions. The GitHub analysis branch contains replay and analysis
+test predictions. The GitHub analysis branch contains online-simulation and analysis
 code, aggregate results, and figure PDFs. Keep private response and
 prediction files in the authorized shared storage. The command
 \texttt{python organized/testing/eandd/wp9.py} with
