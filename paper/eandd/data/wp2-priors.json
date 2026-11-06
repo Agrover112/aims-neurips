@@ -1,0 +1,44 @@
+{
+  "empirical_bayes": {
+    "mean": 0.5215502402736348,
+    "strength": 3.6755093962176275
+  },
+  "shapes": {
+    "competition": {
+      "tuned": {
+        "mean": 0.4,
+        "strength": 1
+      },
+      "tuned_validation_alc": 0.17234340597010595,
+      "jeffreys_validation_alc": 0.1738288204892528,
+      "empirical_bayes_validation_alc": 0.18172055433688394
+    },
+    "multi-pair": {
+      "tuned": {
+        "mean": 0.4,
+        "strength": 1
+      },
+      "tuned_validation_alc": 0.16688620359493592,
+      "jeffreys_validation_alc": 0.16854881722918127,
+      "empirical_bayes_validation_alc": 0.1775691723362693
+    },
+    "single-pair": {
+      "tuned": {
+        "mean": 0.4,
+        "strength": 1
+      },
+      "tuned_validation_alc": 0.17013478600516055,
+      "jeffreys_validation_alc": 0.17174930068532349,
+      "empirical_bayes_validation_alc": 0.1801928333889577
+    }
+  },
+  "averaging": "equal task means; average repeated appearances within task",
+  "train_rows": 5359699,
+  "test_read": false,
+  "input_bytes": {
+    "/data/datasets/full/tabpfn-lora-benchmark-pca64-s20261018-v1/filtered.parquet": 182976284,
+    "/data/results/eandd-analysis/ood-cache-v1/paper-eandd/draws.parquet": 13574,
+    "/data/results/eandd-analysis/ood-cache-v1/panel/items.parquet": 1147085,
+    "/data/results/eandd-analysis/ood-cache-v1/panel/candidate_orders.parquet": 3008758
+  }
+}
