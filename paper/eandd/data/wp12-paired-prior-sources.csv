@@ -1,0 +1,16 @@
+role,model_a,model_b,a_minus_b,lo,hi,tasks
+test,rasch-fitted,rasch-fixed,-0.00168,-0.00281,-0.00048,45
+test,kernel-fitted,rasch-fitted,0.00011,-0.00017,0.00038,45
+test,rasch-fitted,bb-eb,0.00188,0.00066,0.00308,45
+test,bb-eb,jeffreys,-0.01378,-0.01582,-0.01162,45
+test,rasch-fitted,jeffreys,-0.01189,-0.01326,-0.01056,45
+test,bb-tuned,jeffreys,0.00551,0.00378,0.00723,45
+validation,rasch-fitted,rasch-fixed,0.00212,0.00059,0.00363,80
+validation,kernel-fitted,rasch-fitted,-0.00164,-0.00208,-0.00118,80
+validation,rasch-fitted,bb-eb,-0.00271,-0.00412,-0.00122,80
+validation,bb-eb,jeffreys,0.0079,0.00231,0.01376,80
+validation,rasch-fitted,jeffreys,0.00519,0.00069,0.00972,80
+validation,bb-tuned,jeffreys,-0.00149,-0.00396,0.00101,80
+id,rasch-fitted,bb-eb,0.00088,-6e-05,0.00177,114
+id,bb-eb,jeffreys,-0.00898,-0.01162,-0.0062,114
+id,rasch-fitted,jeffreys,-0.00811,-0.01008,-0.00592,114

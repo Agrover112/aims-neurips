@@ -188,3 +188,44 @@ leave-one-benchmark-out result. The kernel adds nothing in either role. Multi-pa
 simulation" (the file names in `code` may keep it); (2) the disclosure section lacks the LLM coding-assistant statement
 and the training-data and pretrained-model statements the competition requires; (3) `\hline` tables vs booktabs (minor).
 Table 2 values match `wp7-summary.csv`.
+
+## Robustness and paired checks (2026-11-06)
+Scripts: `organized/testing/eandd/robustness.py`, `paired_checks.py`. Files: `paper/eandd/data/wp12-*.csv`.
+
+**Draw-seed robustness** (3 fresh sets of 150 competition-shaped draws per role, seeds 20261201-03; the frozen draws are
+untouched). Every model's ALC difference to Jeffreys moves by at most 0.0007 across seeds, and the signs and order are the
+same as on the frozen draws. Test: fitted Beta-Binomial -0.0137 / -0.0144 / -0.0139, fitted Rasch -0.0120 / -0.0124 /
+-0.0123, validation-tuned Beta-Binomial +0.0059 to +0.0063. Validation: fitted Beta-Binomial +0.0078 to +0.0089. The draws
+do not drive any result.
+
+**Paired intervals between prior sources** (competition-shaped, tasks as the resampling unit; ID uses the clean prior):
+
+| Comparison (a minus b) | Test | Validation | ID |
+|---|---|---|---|
+| Rasch fitted - Rasch fixed | -0.0017 [-0.0028, -0.0005] | +0.0021 [+0.0006, +0.0036] | - |
+| Kernel fitted - Rasch fitted | +0.0001 (n.s.) | -0.0016 [-0.0021, -0.0012] | - |
+| Rasch fitted - Beta-Binomial fitted | +0.0019 [+0.0007, +0.0031] | -0.0027 [-0.0041, -0.0012] | +0.0009 (n.s.) |
+
+Every comparison between prior sources flips sign between test and validation; this is the same benchmark-distance effect.
+The kernel only helps (significantly, -0.0016) on validation.
+
+**Label budget after which the prior sources stop differing** (test, difference to Jeffreys; CI excludes zero = differs):
+
+| Model | 0 | 1 | 3 | 7 | 15 | 31 |
+|---|---|---|---|---|---|---|
+| Beta-Binomial fitted | -0.0047 | -0.0359 | -0.0179 | -0.0093 | -0.0029 | -0.0009 (still differs) |
+| Rasch fitted | -0.0085 | -0.0325 | -0.0146 | -0.0064 | -0.0016 | -0.0002 (n.s.) |
+| Beta-Binomial validation-tuned | +0.0339 | +0.0082 | +0.0017 (n.s.) | n.s. | n.s. | n.s. |
+
+The gap peaks at one label (Jeffreys jumps to 0.75 or 0.25 after one answer). The fitted Rasch is indistinguishable from
+Jeffreys from 31 labels, the validation-tuned prior from 3 labels; the fitted Beta-Binomial still differs by 0.0009 at 31.
+
+## Skipped on purpose (state in Limitations)
+- **Item features as a prior mean for Rasch:** the item probes show no transfer on test (neither the embedding nor length
+  beats a random control), so the prior mean would carry nothing; not run.
+- **Trace entropy and trace embeddings, subject-FLOPS, PCA, trace-length ablation:** traces are unavailable at test time
+  and were dropped; FLOPS is not in the subject record; PCA adds nothing to a probe that already shows no transfer.
+- **Subject-metadata prior:** tested earlier in the old framework (provider and date priors lost on test); not rerun with the
+  fitted-prior matrix.
+- **Not "test read once":** test scores were inspected repeatedly while building the ladders and models. Selection was on
+  validation only, but the test analyses are exploratory and the paper must say so.
