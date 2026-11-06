@@ -1,0 +1,15 @@
+{
+  "mean": 0.5215502402736348,
+  "strength": 3.6755093962176275,
+  "alpha": 1.9169628087253061,
+  "beta": 1.7585465874923214,
+  "source": "/data/datasets/full/tabpfn-lora-benchmark-pca64-s20261018-v1/filtered.parquet",
+  "source_sha256": "1913f96ea7a2bcbbdd748e2c78999286f073faf22a0932cf3f5be253f694c56f",
+  "source_bytes": 182976284,
+  "train_rows": 5359699,
+  "training_benchmarks": 11,
+  "task_weighting": "equal benchmarks; equal tasks within benchmark",
+  "test_read": false,
+  "runtime_seconds": 5.33671253,
+  "scope": "OOD replay only; includes subjects held out of the separate ID control"
+}

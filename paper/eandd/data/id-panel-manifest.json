@@ -1,0 +1,39 @@
+{
+  "seed": 20261106,
+  "response_sha256": "1913f96ea7a2bcbbdd748e2c78999286f073faf22a0932cf3f5be253f694c56f",
+  "input_bytes": 182976284,
+  "cap_per_benchmark": 20,
+  "heldout_by_benchmark": {
+    "afrieval": 180,
+    "afrimedqa": 6,
+    "agi_elo": 4,
+    "alignment_faking": 856,
+    "appworld": 4,
+    "brace": 6,
+    "bridging_gap": 83,
+    "cruxeval": 5,
+    "hallusionbench": 51,
+    "harmbench": 6,
+    "helm_afr": 3
+  },
+  "fit_by_benchmark": {
+    "afrieval": 718,
+    "afrimedqa": 25,
+    "agi_elo": 16,
+    "alignment_faking": 3422,
+    "appworld": 14,
+    "brace": 22,
+    "bridging_gap": 334,
+    "cruxeval": 21,
+    "hallusionbench": 202,
+    "harmbench": 23,
+    "helm_afr": 12
+  },
+  "rows": {
+    "heldout_subjects": 1204,
+    "fit_subjects": 4809,
+    "tasks": 114,
+    "items": 295150,
+    "candidate_orders": 1476010
+  }
+}
