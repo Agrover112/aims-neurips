@@ -26,5 +26,9 @@
   "beta",
   1.9171407999999999,
   1.7583592
+ ],
+ "offline-kept": [
+  "offline",
+  "wp4b-offline-rasch-v1"
  ]
 }

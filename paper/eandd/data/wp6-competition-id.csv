@@ -1,0 +1,5 @@
+shape,role,model,alc,diff,lo,hi
+competition,id,offline-kept,0.15057,-0.08518,-0.09561,-0.07457
+competition,id,bb-eb,0.22666,-0.00909,-0.0117,-0.00624
+competition,id,rasch-fitted,0.22764,-0.00811,-0.0101,-0.00591
+competition,id,jeffreys,0.23574,0.0,0.0,0.0

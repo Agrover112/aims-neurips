@@ -111,3 +111,20 @@ Files: `paper/eandd/data/wp5-*.csv` (summaries, per benchmark, per budget).
    training range, and fails outside it (`bird_sql`)". One benchmark outside the range is thin evidence.
 4. **Not yet run:** WP6 (offline keeps its fitted mu_b and b_i, fits theta only online) on the ID panel, the real positive
    control for the item-difficulty part. And a held-out-benchmark check for the range claim.
+
+## WP6 (2026-11-06): the offline model that keeps its fitted values
+`run_replay.py` model `offline-kept`: benchmark rate and item difficulties from the offline fit, only the subject ability
+fit online on the task's own labels (one-dimensional MAP). Benchmarks or items the offline fit never saw fall back to
+m0 and 0. Brier ALC difference to Jeffreys, competition-shaped draws (CSVs `paper/eandd/data/wp6-*.csv`):
+
+| Setting | Offline, fitted values kept | Offline prior only (Rasch) | Beta-Binomial, prior fitted on training |
+|---|---|---|---|
+| ID (held-out subjects, benchmark seen) | **-0.0852** [-0.0956, -0.0746] | -0.0081 | -0.0091 |
+| Test (unseen benchmarks) | -0.0115 | -0.0119 | -0.0138 |
+| Validation (unseen benchmarks) | +0.0047 | +0.0052 | +0.0079 |
+
+Positive control passes: where the benchmark and its items were seen in training, keeping the fitted values is about
+nine times better than any prior-only model. On unseen benchmarks the extra is gone (it falls back to the prior).
+
+Pending: the leave-one-benchmark-out job (`lobo_prior.py`, run `wp10-lobo-v1`), which tests the training-range claim on
+all 11 training benchmarks.

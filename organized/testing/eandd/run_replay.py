@@ -43,6 +43,40 @@ MODELS = {
 }
 
 
+_OFFLINE: dict = {}
+
+
+def _offline(run: str) -> dict:
+    """Fitted values of an offline Rasch run: benchmark rates, item difficulties keyed (benchmark, content_hash)."""
+    if run not in _OFFLINE:
+        f = pd.read_parquet(c.DATA / "fits" / f"{run}.parquet")
+        h = dict(zip(f[f.kind == "hyper"].key, f[f.kind == "hyper"].value))
+        mu = dict(zip(f[f.kind == "mu"].key, f[f.kind == "mu"].value))
+        bi = dict(zip(f[f.kind == "b"].key, f[f.kind == "b"].value))
+        items = k.G["items"].drop_duplicates(["benchmark_id", "content_hash"])
+        b = {(bm, ch): bi[u] for bm, ch, u in zip(items.benchmark_id, items.content_hash, items.item_uid) if u in bi}
+        _OFFLINE[run] = {"h": h, "mu": mu, "b": b}
+    return _OFFLINE[run]
+
+
+def offline_predict(run: str, bench: str, hashes, own: list, theta_prior: float | None = None) -> np.ndarray:
+    """Offline Rasch with fitted mu_b and b_i kept; only theta is fit online (1-d MAP on the task's own labels).
+    A benchmark or item the offline fit never saw falls back to m0 and 0."""
+    o = _offline(run)
+    tau_s = o["h"]["tau_s"] if theta_prior is None else theta_prior
+    mu = o["mu"].get(bench, o["h"]["m0"])
+    offs = lambda hs: np.array([mu - o["b"].get((bench, h), 0.0) for h in hs])
+    theta = 0.0
+    if own:
+        off = offs([h for h, _ in own]); y = np.array([y for _, y in own], float)
+        for _ in range(20):
+            p = 1 / (1 + np.exp(-(off + theta)))
+            g = (p - y).sum() + theta / tau_s ** 2
+            hess = (p * (1 - p)).sum() + 1 / tau_s ** 2
+            theta -= g / hess
+    return 1 / (1 + np.exp(-(offs(hashes) + theta)))
+
+
 def _write_preds(path: Path, rows: list) -> None:
     table = pa.table({
         "model": pa.array([r[0] for r in rows for _ in r[5]]).dictionary_encode(),
@@ -67,7 +101,10 @@ def score_draw(args) -> list:
         evidence = [(meta.loc[t, "benchmark_id"], meta.loc[t, "subject_uid"], h, y)
                     for t, s in pairs for h, y in acquired[(t, s)][:budget]]
         for name, cfg in configs.items():
-            if cfg[0] == "beta":
+            if cfg[0] == "offline":
+                preds = {t: offline_predict(cfg[1], meta.loc[t, "benchmark_id"], ev[t][0], acquired[(t, s)][:budget])
+                         for t, s in pairs}
+            elif cfg[0] == "beta":
                 preds = {}
                 for t, s in pairs:
                     own = [y for _, y in acquired[(t, s)][:budget]]

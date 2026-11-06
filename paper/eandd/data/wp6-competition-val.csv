@@ -1,0 +1,5 @@
+shape,role,model,alc,diff,lo,hi
+competition,validation,jeffreys,0.17383,0.0,0.0,0.0
+competition,validation,offline-kept,0.17848,0.00466,0.0005,0.00886
+competition,validation,rasch-fitted,0.17901,0.00519,0.00061,0.00954
+competition,validation,bb-eb,0.18172,0.0079,0.00239,0.01364
