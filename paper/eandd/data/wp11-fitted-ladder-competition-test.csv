@@ -1,0 +1,8 @@
+shape,role,model,alc,diff,lo,hi
+competition,test,fl-no-ability,0.2325,-0.01743,-0.02082,-0.01389
+competition,test,fl-rate-only,0.2327,-0.01724,-0.02018,-0.01422
+competition,test,fl-no-rate,0.23597,-0.01396,-0.01571,-0.01221
+competition,test,fl-plus-item,0.23805,-0.01189,-0.01331,-0.01057
+competition,test,fl-kernel,0.23815,-0.01178,-0.01308,-0.01053
+competition,test,fl-plus-ability,0.24099,-0.00895,-0.00996,-0.00797
+competition,test,jeffreys,0.24994,0.0,0.0,0.0

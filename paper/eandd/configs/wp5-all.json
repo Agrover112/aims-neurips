@@ -30,5 +30,10 @@
  "offline-kept": [
   "offline",
   "wp4b-offline-rasch-v1"
+ ],
+ "bb-eb-clean": [
+  "beta",
+  1.8919044505271203,
+  1.75824888442619
  ]
 }

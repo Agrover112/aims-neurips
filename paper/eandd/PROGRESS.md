@@ -155,3 +155,36 @@ Pull with `MODAL_PROFILE=aims-neurips modal volume get aims-neurips-data /result
 Contains: all `scores/` (wp3, wp5, wp6, wp8, wp10), `runs/`, the frozen draws, per-prediction files for the main run
 (`preds/wp5-competition-test`, for AUC and calibration), and the offline hyperparameters. Not included: other preds
 (multi-pair test is 194 MB), subject-level offline fits, the input datasets. Owner approved this transfer on 2026-11-06.
+
+## Merge of Person-B's branch and follow-ups (2026-11-06)
+`eandd-analysis` (3adb0ff, d4a9762) merged by fast-forward; `common.py` and `run_replay.py` are identical to main. Their
+figures and tables are in `paper/eandd/data/` (`figure1..4`, `wp9-*`, `wp7-*`, `wp2-*`), their sections in
+`paper/eandd/person-b-sections.tex`. Table 1, the 27,000-score reconstruction check and WP7 all agree with my numbers.
+
+**ID leak found by Person-B's README, checked and fixed.** The empirical-Bayes Beta prior used in the ID row of Table 1 was
+fitted on all training tasks, including the held-out subjects. Refit without them (mean 0.5183, strength 3.650 instead of
+0.5216, 3.676) the ID gain is -0.0090 instead of -0.0091: no change in conclusion. Use `bb-eb-clean` for the ID cell
+(`wp5b-competition-id-clean.csv`). The LOBO folds were not affected (the whole held-out benchmark is excluded).
+
+**Rasch-terms ladder under the fitted priors** (`wp11-fitted-ladder-*.csv`; the first ladder used the old priors).
+Brier ALC difference to Jeffreys, competition-shaped:
+
+| Model (fitted priors) | Test | Validation |
+|---|---|---|
+| benchmark rate only | -0.0172 | +0.0211 |
+| + subject ability | -0.0089 | +0.0029 (n.s.) |
+| + item difficulty (= Rasch) | -0.0119 | +0.0052 |
+| + kernel | -0.0118 | +0.0035 (n.s.) |
+| without ability (rate + item) | -0.0174 | +0.0282 |
+| without benchmark rate (ability + item) | -0.0140 | +0.0078 |
+
+Reading: on test the simplest model is best (rate only, -0.0172, better than the fitted Beta-Binomial's -0.0138) and each
+added term costs; on validation it is the worst (+0.0211) and the ability term is what rescues it (+0.0029), because it
+lets a far-from-prior benchmark (`bird_sql`) move away from the prior. So the subject-ability term is insurance against a
+benchmark far from the prior and costs variance when the benchmark is near it: the same bias-variance story as the
+leave-one-benchmark-out result. The kernel adds nothing in either role. Multi-pair test gives the same ordering.
+
+**Review of `person-b-sections.tex` (Person-B to fix):** (1) the word "replay" appears 7 times; our term is "online
+simulation" (the file names in `code` may keep it); (2) the disclosure section lacks the LLM coding-assistant statement
+and the training-data and pretrained-model statements the competition requires; (3) `\hline` tables vs booktabs (minor).
+Table 2 values match `wp7-summary.csv`.

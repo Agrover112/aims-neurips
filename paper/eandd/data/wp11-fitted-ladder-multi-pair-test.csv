@@ -1,0 +1,8 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,test,fl-no-ability,0.23382,-0.01584,-0.01964,-0.01189
+multi-pair,test,fl-rate-only,0.23434,-0.01532,-0.01859,-0.01182
+multi-pair,test,fl-no-rate,0.2353,-0.01437,-0.01618,-0.01257
+multi-pair,test,fl-kernel,0.23718,-0.01249,-0.01396,-0.01107
+multi-pair,test,fl-plus-item,0.23726,-0.0124,-0.01394,-0.01098
+multi-pair,test,fl-plus-ability,0.24045,-0.00922,-0.01033,-0.00814
+multi-pair,test,jeffreys,0.24967,0.0,0.0,0.0

@@ -1,0 +1,8 @@
+shape,role,model,alc,diff,lo,hi
+multi-pair,validation,jeffreys,0.16855,0.0,0.0,0.0
+multi-pair,validation,fl-plus-ability,0.17077,0.00222,-0.00078,0.00518
+multi-pair,validation,fl-kernel,0.17095,0.0024,-0.00137,0.00627
+multi-pair,validation,fl-plus-item,0.17292,0.00437,-3e-05,0.00874
+multi-pair,validation,fl-no-rate,0.17748,0.00893,0.00308,0.0149
+multi-pair,validation,fl-rate-only,0.18773,0.01918,0.01021,0.02798
+multi-pair,validation,fl-no-ability,0.19402,0.02547,0.01531,0.03616
