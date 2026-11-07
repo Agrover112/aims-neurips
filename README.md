@@ -1,10 +1,10 @@
 <h1 align="center">What Offline Fitting Buys Under Benchmark Shift</h1>
 <p align="center"><em>Predicting LLM Item Outcomes from a Few Labels</em></p>
 <p align="center">Arshia Teymourtash · Ankit Grover<br>KTH Royal Institute of Technology, Stockholm</p>
-<p align="center">NeurIPS, The Predictive AI Evaluation Competition at NeurIPS 2026</p>
+<p align="center">40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026</p>
 
 <p align="center">
-<a href="paper/eandd-drafts/eandd-v86.pdf"><b>Paper (PDF)</b></a> ·
+<a href="paper/eandd-drafts/eandd-v87.pdf"><b>Paper (PDF)</b></a> ·
 <a href="paper/neurips_2026/eandd.tex">LaTeX source</a> ·
 <a href="dist/submission.zip">Final Codabench entry <code>1005155</code></a> ·
 <a href="paper/eandd/PROGRESS.md">Results log</a>
