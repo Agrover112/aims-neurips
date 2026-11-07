@@ -8,17 +8,23 @@
     "pass_rate_mlp": {
       "alpha": 0.001,
       "fit_items": 8462,
-      "wp7_sample": 8462
+      "wp7_sample": 8462,
+      "epochs": 90,
+      "training_loss": 0.008536143618674281,
+      "hit_epoch_limit": false
     },
     "rasch_easiness_ridge": {
-      "alpha": 0.1,
+      "alpha": 0.01,
       "fit_items": 8462,
       "wp7_sample": 8462
     },
     "rasch_easiness_mlp": {
-      "alpha": 0.001,
+      "alpha": 0.01,
       "fit_items": 8462,
-      "wp7_sample": 8462
+      "wp7_sample": 8462,
+      "epochs": 100,
+      "training_loss": 0.1742795854348903,
+      "hit_epoch_limit": true
     }
   },
   "criterion": [
@@ -40,19 +46,27 @@
     },
     {
       "arm": "rasch_easiness_mlp",
-      "macro_rho": 0.11209663794909915,
+      "macro_rho": 0.1026484792118061,
       "random_rho": 0.02580515874578194,
-      "gap": 0.0862914792033172,
-      "positive": 6,
+      "gap": 0.07684332046602416,
+      "positive": 5,
       "passes": true
     },
     {
       "arm": "rasch_easiness_ridge",
-      "macro_rho": 0.04755494355654836,
+      "macro_rho": 0.047332044333091024,
       "random_rho": 0.02580515874578194,
-      "gap": 0.021749784810766417,
+      "gap": 0.021526885587309082,
       "positive": 4,
       "passes": false
     }
-  ]
+  ],
+  "provenance": {
+    "rasch_fit": "..\\eandd-data\\person-a-v3\\wp4b-offline-rasch-v1-trimmed.parquet",
+    "rasch_fit_sha256": "aec4b6951131edaaf94ec3bbc7be3ab65f070df5b4fc5eb252d22e1ccd97136a",
+    "embedding_cache_sha256": "6429d25abc93d1ce4ec4a37664332e43b2f10adcffafa389c00cfc33ec5eb273",
+    "panel": "..\\eandd-data\\person-a-v3\\panel\\items.parquet",
+    "selection": "Five GroupKFold splits over the 11 training benchmarks only; no validation/test selection",
+    "original_fit_confirmed": true
+  }
 }

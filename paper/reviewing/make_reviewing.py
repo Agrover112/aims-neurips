@@ -39,7 +39,7 @@ PRE = r"""\usepackage{float}
 s = sub(s, "\\usepackage{float}\n", PRE)
 BANNER = r"""\maketitle
 \begin{tcolorbox}[colback=white,colframe=black,boxrule=0.5pt,arc=0pt,left=3pt,right=3pt,top=2pt,bottom=2pt]
-\small\textbf{REVIEW COPY, not a paper version.} \textbf{Light red} = existing text I would delete or rewrite, or (marked [S1 was] to [S20 was]) the old wording of an edit already made. \textbf{Light green} = text or an analysis I would add, or (marked [S1 now] to [S20 now]) the new wording of an edit already made. Numbers in brackets refer to the list \emph{What I would change and why}; [S1] to [S20] to the list of edits already made. Both lists are at the end.
+\small\textbf{REVIEW COPY, not a paper version.} \textbf{Light red} = existing text I would delete or rewrite, or (marked [S1 was] to [S21 was]) the old wording of an edit already made. \textbf{Light green} = text or an analysis I would add, or (marked [S1 now] to [S21 now]) the new wording of an edit already made. Numbers in brackets refer to the list \emph{What I would change and why}; [S1] to [S21] to the list of edits already made. Both lists are at the end.
 \end{tcolorbox}
 """
 s = sub(s, "\\maketitle\n", BANNER)
@@ -122,6 +122,7 @@ END = r"""
 \item[\textbf{S19}] \textbf{Research questions and headings.} The Results subsections are statements of what each shows (no separate list of research questions: the Introduction keeps its one governing question and the contribution bullets). Table headers read ID, OOD validation, OOD test (Table 1 reordered to match; Table 2 caption gives the benchmark counts).
 \item[\textbf{F1, F3, F4, F5}] \textbf{Figure labels: done by Person-B (commit 2bea768).} The axis labels and legends inside Figures 1, 3, 4 and 5 still use the old wording (``difference to Jeffreys'', ``Fitted minus Jeffreys'', ``Test'', ``Validation''). They are drawn by Person-B's plot scripts, so Person-B must regenerate them with $\Delta_{a-b}$ labels and OOD legends; shown as red boxes at each figure.
 \item[\textbf{S20}] \textbf{Tables.} All tables follow NeurIPS style (booktabs, captions above, no vertical rules). Table 1 and Tables 3, 4 and 8 bold the best value per column with a note in the caption; Table 1 shows the reference as ``0 (reference)''; Table 2 has grouped columns (Spearman, Pairwise under ID, OOD validation, OOD test) with the random score as a baseline row; Table 4 separates the added terms from the ablations; Table 7 has a mean row; Table 8 has a rule between splits and the split label on the first row of each block.
+\item[\textbf{S21}] \textbf{Person-B's update incorporated.} Original-fit probe numbers (Rasch-target test Spearman $0.059$, below the random control's $0.076$), Table 2 rebuilt from the confirmed CSVs, and the R5 wording softened: the validation-selected scale improves Brier ALC by only about $0.0004$ on each split. The abstract, the contribution bullet, the Section 5.4 heading and the conclusion now say this instead of ``no scale helps''.
 \item[\textbf{S5}] \textbf{Wording.} Section 2 is titled \emph{Data and evaluation protocol} (was \emph{Setting and online simulation}); ``panel'' became ``ID control set'' and ``response data''; ``replay'' became ``online simulation''.
 \end{enumerate}
 \end{document}"""

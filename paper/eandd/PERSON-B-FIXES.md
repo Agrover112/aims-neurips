@@ -1,3 +1,15 @@
+# Person-A update after Person-B's handoff (2026-11-07)
+
+Everything below is on `submission` and built into `paper/eandd-drafts/eandd-v89.pdf` and `paper/reviewing/reviewing.pdf`.
+
+- **Data fix:** `paper/eandd/data/wp13-probe-*.csv` and `r5-original-fit-manifest.json` on `submission` were still the provisional files, so Table 2 showed Rasch-target test Spearman 0.104; the confirmed files from `eandd-analysis` are now on `submission` and Table 2 shows 0.059 (test) and 0.146 (validation).
+- **Person-B's changes incorporated:** the figure labels (`2bea768`), the probe facts and Table 2 (original-fit values: Rasch-target test Spearman 0.059, below the random control's 0.076), and the plot-style preview. White stays the default background.
+- **R5 wording softened** as Person-B asked: the validation-selected scale ($\gamma=0.05$, Rasch-target MLP) improves Brier ALC by only about 0.0004 on validation and on test. The abstract, the contribution bullet, the Section 5.4 heading and the conclusion no longer say "no scale helps".
+- **Changed after the first handoff:** footer is now "40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026"; abstract names the final Codabench submission 1005155; README rewritten; the generator of the reviewing copy is now in `paper/reviewing/` (see its README) so both PDFs can be edited from the repository.
+- **Still open (Person-A):** title, abstract tightening, Priors subsection, adaptive-priors method, conclusion length pass.
+
+---
+
 # What Person-B can fix, based on Person-A's paper changes (2026-11-07)
 
 ## Person-B response
