@@ -45,9 +45,6 @@ s = sub(s, "\\maketitle\n", BANNER)
 # ---- planned changes ----
 a1 = "On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation."
 n1 = " Averaged over all 17 benchmarks it gains $0.005$, and over all 680 choices of three held-out benchmarks it gains $0.004$ and hurts in $17.5\\%$ of them, so our test split is a favourable one."
-s = sub(s, "Under the fitted priors, the simplest Rasch model is also the best on test",
-        note("12", r"The first-principles version of the explanation: for a task of true accuracy $p$ the expected Brier excess of the posterior mean is $\frac{(\alpha-p(\alpha+\beta))^2+n\,p(1-p)}{(\alpha+\beta+n)^2}$, so the gain over Jeffreys is an exact function of $p$ and of the budget; compare the predicted gain per benchmark with the observed one instead of citing a post hoc correlation.")
-        + "Under the fitted priors, the simplest Rasch model is also the best on test")
 figfix = {}
 for fn, (tag, txt) in figfix.items():
     key = "\\includegraphics{\\figdir/" + fn + "}"
