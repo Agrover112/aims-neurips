@@ -61,3 +61,11 @@ We are thinking of changing the plot background so the figures read better, for 
 
 ## 4. Still open (shown red in the reviewing copy)
 Title, abstract, Priors subsection, adaptive-priors method and conclusion (Person-A).
+
+## Request to Person-B: licences for the checklist (question 12)
+The checklist answer for "Licenses for existing assets" can only be Yes once the paper states the licence and terms of use of what it uses. Please verify and record, in the same style as `literature/CITATIONS.md`:
+- the licence or terms of use of each of the 17 benchmark datasets (original release and the response-data release listed in `paper/eandd/BENCHMARK-CITATIONS.md`), or that none is stated;
+- the terms of the competition's response data (we do not redistribute it);
+- BGE-M3 (we believe MIT, please confirm from the model card).
+Person-A will then add a short "Licences and terms" appendix and switch the answer.
+Compute (question 8): confirmed that the probes also ran on CPU only.
