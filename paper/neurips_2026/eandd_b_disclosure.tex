@@ -7,16 +7,3 @@ BGE-M3 model; nothing else is pretrained or fine-tuned. \textbf{LLM coding assis
 (Anthropic) assisted with writing code, analysis scripts and drafting text; every reported number was
 produced by running the code in the repository, and the authors checked the numbers.
 OpenAI Codex assisted with the reviewer analyses, figures, and text revisions.
-
-The shared handoff contains frozen draws, scores, and competition-shaped
-test predictions. The GitHub analysis branch contains online-simulation and analysis
-code, aggregate results, and figure PDFs. Keep private response and
-prediction files in the authorized shared storage. The command
-\texttt{python organized/testing/eandd/wp9.py} with
-\texttt{--handoff} pointing to the local handoff and \texttt{--output}
-pointing to a fresh directory rebuilds the figures and checks the saved
-Brier scores against the saved predictions. The analysis README identifies
-the handoff location and documents how to render figures from aggregate CSVs
-alone. The original item-probe results are in
-\texttt{paper/eandd/data/wp7-summary.csv}; the confirmed neural-probe results are in \texttt{paper/eandd/data/wp13-probe-summary.csv}. Record the analysis commit and
-retain the frozen draws for any rerun.

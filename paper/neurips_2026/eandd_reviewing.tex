@@ -196,10 +196,11 @@ Further limits of our own. Each competition-shaped draw has one subject per benc
 What transfers from offline fitting to an unseen benchmark is a shrinkage prior, not item-level estimates. Where fitted values apply, offline fitting is worth a very large gain ($\D{R\,off}{J}=-0.0852$ on the ID evaluation set); where they do not, it is worth none. The prior's gain is modest and depends on the benchmark: $-0.0050$ on average over the 17 benchmarks and $-0.0037$ over the 680 choices of three held-out benchmarks, with a loss in $17.5\%$ of them. The prior helps when a benchmark's accuracy lies near the prior mean and hurts when it lies far away, which is why the same fitted prior looked good on test and bad on validation. Whether sharing labels across subjects helps remains untested, since each draw has one subject per benchmark. Two attempts to do better did not help: priors that adapt to the first labels did not remove the harm without losing the gain, and the neural probes we trained on item embeddings, which carry a small rank signal for difficulty, improved prediction by only about $0.0004$ Brier ALC as a prior mean.
 
 %==============================================================================
-\section*{Disclosure and rerun instructions}
+\section*{Disclosure}
 %==============================================================================
 \input{eandd_b_disclosure}
 
+\clearpage
 {\small
 \bibliographystyle{plainnat}
 \bibliography{references}
@@ -230,7 +231,7 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 
 \section{The fitted prior on all 17 benchmarks}\label{app:lobo}
 \begin{table}[H]
-  \caption{$\D{BB\,fit}{J}$ for each of the 17 benchmarks. Training benchmarks: the prior is refit without the held-out benchmark and scored on held-out-subject tasks. OOD validation and OOD test benchmarks: the original training-only prior. The last column is the mean distance of a benchmark's task accuracies from the prior mean $0.52$. Each benchmark is cited with its original paper; response-data sources are listed in \code{paper/eandd/BENCHMARK-CITATIONS.md}.}
+  \caption{$\D{BB\,fit}{J}$ for each of the 17 benchmarks. Training benchmarks: the prior is refit without the held-out benchmark and scored on held-out-subject tasks. OOD validation and OOD test benchmarks: the original training-only prior. The last column is the mean distance of a benchmark's task accuracies from the prior mean $0.52$.}
   \centering\small
   \input{eandd_lobo}
 \end{table}
