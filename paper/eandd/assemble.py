@@ -90,7 +90,7 @@ for label, old_feature, new_arm in [
 b = (ROOT / "paper/eandd/person-b-sections.tex").read_text()
 parts = re.split(r"(?=\\section\{)", b)
 names = {"Data and evaluation protocol": "setting", "Probes": "probes", "Item features": "itemfeat", "Limitations": "limits",
-         "Disclosure and rerun instructions": "disclosure"}
+         "Disclosure": "disclosure"}
 for p in parts:
     m = re.match(r"\\section\{(.*?)\}", p)
     if m and m.group(1) in names:
