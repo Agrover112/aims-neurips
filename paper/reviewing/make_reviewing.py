@@ -105,7 +105,6 @@ s = sub(s, "\\input{eandd_b_setting}", "\\input{eandd_rv_setting}")
 s = sub(s, "\\input{eandd_b_itemfeat}", "\\input{eandd_rv_itemfeat}")
 s = sub(s, "\\input{eandd_b_limits}", "\\input{eandd_rv_limits}")
 imp = [
- ("\\section{Conclusion}\n", "A-conclusion", "Conclusion: still to improve. The adaptive-priors sentence is unsupported until the body reports it; rewrite after the headline and the adaptive-priors result are settled, and keep it ranked and short.", "after"),
 ]
 for key, tag, txt, where in imp:
     box = "\\par\\begin{improve}{" + tag + "}" + txt + "\\end{improve}\\par\n"
