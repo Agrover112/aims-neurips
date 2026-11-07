@@ -231,6 +231,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 
 
 \section{Rasch terms under the fitted priors}\label{app:ladder}
+\vspace{-10pt}
 \begin{table}[H]
   \caption{$\Delta_{m-\mathrm{J}}$ for Rasch with terms switched off (prior width $\sigma$ set near zero), under the training-fitted priors. Competition-shaped draws on OOD validation and OOD test. Bold: lowest in each column.}
   \centering\small
@@ -238,6 +239,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 \end{table}
 
 \section{Paired comparisons between prior sources}\label{app:paired}
+\vspace{-10pt}
 \begin{table}[H]
   \caption{Paired $\Delta_{a-b}$ between prior sources, with 95\% intervals over tasks. Each comparison changes sign between OOD test and OOD validation. A dash: not run on ID.}
   \centering\small\setlength{\tabcolsep}{4.5pt}
@@ -245,6 +247,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 \end{table}
 
 \section{Draw-seed robustness}\label{app:robust}
+\vspace{-10pt}
 \begin{table}[H]
   \caption{$\Delta_{m-\mathrm{J}}$ on three fresh sets of 150 competition-shaped draws per role (seeds 20261201--03); results on the frozen draws are in Table~\ref{tab:prior-source}.}
   \centering\small
@@ -252,6 +255,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 \end{table}
 
 \section{The fitted prior on all 17 benchmarks}\label{app:lobo}
+\vspace{-10pt}
 \begin{table}[H]
   \caption{$\D{BB\,fit}{J}$ for each of the 17 benchmarks. Training benchmarks: the prior is refit without the held-out benchmark and scored on held-out-subject tasks. OOD validation and OOD test benchmarks: the original training-only prior. The last column is the mean distance of a benchmark's task accuracies from the prior mean $0.52$.}
   \centering\footnotesize\setlength{\tabcolsep}{3pt}
@@ -262,7 +266,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 \input{eandd_split_sensitivity}
 \begin{figure}[H]
   \centering
-  \includegraphics{\figdir/figure5-split-sensitivity.pdf}
+  \includegraphics[width=0.78\linewidth]{\figdir/figure5-split-sensitivity.pdf}
   \caption{$\D{BB\,fit}{J}$ over all 680 triples. Each empirical prior is fitted on the 14 benchmarks outside its triple. The vertical line marks the original test benchmark names under this refitting protocol.}
 \end{figure}
 

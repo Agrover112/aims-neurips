@@ -4,7 +4,7 @@
 <p align="center">40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026</p>
 
 <p align="center">
-<a href="paper/eandd-drafts/eandd-v150.pdf"><b>Paper (PDF)</b></a> ·
+<a href="paper/eandd-drafts/eandd-v152.pdf"><b>Paper (PDF)</b></a> ·
 <a href="paper/neurips_2026/eandd.tex">LaTeX source</a> ·
 <a href="dist/submission.zip">Final Codabench entry <code>1005155</code></a> ·
 <a href="paper/eandd/PROGRESS.md">Results log</a>
@@ -56,7 +56,7 @@ Offline estimates that keep their fitted item values reach **−0.0852** on the 
 4. **Item content:** neural probes on item embeddings carry a small rank signal for difficulty (benchmark-macro Spearman 0.09 and 0.10 against 0.03 for a random baseline; on the test benchmarks alone the Rasch-target probe is 0.06, below the random control), and using it as the Rasch prior mean improves Brier ALC by only about 0.0004.
 5. **Label sharing across subjects is untested:** each competition-shaped draw has one subject per benchmark.
 
-<p align="center"><img src="docs/img/fig2-benchmark-explanation.png" width="78%" alt="Figure 4: gain against distance from the prior mean over 17 benchmarks"></p>
+<p align="center"><img src="docs/img/fig2-benchmark-explanation.png" width="78%" alt="Figure 2: gain against distance from the prior mean over 17 benchmarks"></p>
 <p align="center"><sub><b>Figure 2.</b> Gain of the fitted prior against how far a benchmark's accuracy lies from the prior mean (17 benchmarks).</sub></p>
 
 ## Limitations
