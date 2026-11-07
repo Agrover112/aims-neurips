@@ -274,10 +274,12 @@ For 40 random triples we also refit the Rasch prior without the triple's trainin
   \input{eandd_reviewer_metrics}
 \end{table}
 
-\section{Solver convergence}\label{app:convergence}
+\section{Solver convergence and compute}\label{app:convergence}
 \paragraph{Online solver.} At every budget the online Rasch fit is a Newton solve with a limit of 30 steps. In 6,300 audited fits, none reached the limit, none needed more than 7 steps, and the last step was below $10^{-6}$ in every one.
 
 \paragraph{Offline fit.} Our first offline fit stopped at its iteration limit of 400 in three of its four rounds. We refit it with a proper stopping rule. The hyperparameters moved by at most $1.2\%$, the benchmark rates by at most $0.011$ on the logit scale, and no Brier ALC changed by more than $0.0001$. The reported results use the first fit, and the refit leaves them unchanged.
+
+\paragraph{Compute.} All experiments ran on CPU only, with no GPU, on one machine with 12 logical cores (AMD Ryzen AI 5 340) and 15 GB of memory. One run of the online simulation takes under a minute, and the offline Rasch fit on the training responses takes under ten minutes. The longest jobs, such as the refits for the sampled choices of held-out benchmarks, ran in the background on the same machine. The item embeddings are a precomputed input.
 
 \section{Probe details}\label{app:probes}
 \paragraph{Scores.} We score a probe on each benchmark $d$ by two numbers and average each over benchmarks. Let $y_j$ be the observed pass rate of item $j$ across recorded subjects and $\hat y_j$ its predicted easiness, so higher values mean easier items. The \emph{Spearman correlation} $\rho_d=\operatorname{corr}\big(\operatorname{rank}(\hat y_j),\operatorname{rank}(y_j)\big)$ compares the two orderings of the items: it is $1$ if the probe orders them perfectly, $0$ if its order is unrelated to the truth, and $-1$ if it is reversed. The \emph{pairwise accuracy} $A_d=\frac{1}{|P_d|}\sum_{(j,k)\in P_d}s_{jk}$ is the share of item pairs the probe orders correctly, where $P_d$ is the set of pairs with $y_j\neq y_k$ (observed ties are excluded), $s_{jk}=1$ if $\hat y_j-\hat y_k$ has the same sign as $y_j-y_k$, $s_{jk}=\tfrac12$ if the probe predicts a tie, and $s_{jk}=0$ otherwise. A random score has $A_d=0.5$ on average.

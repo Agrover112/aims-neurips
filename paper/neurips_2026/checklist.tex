@@ -111,8 +111,8 @@
 
 \item {\bf Experiments compute resources}
     \item[] Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments?
-    \item[] Answer: \answerNo{}
-    \item[] Justification: The released code and configurations identify execution settings, but the paper does not provide a complete per-experiment inventory of hardware, memory, elapsed time, and total development compute. We therefore do not claim complete compute-resource reporting.
+    \item[] Answer: \answerYes{}
+    \item[] Justification: Appendix~\ref{app:convergence} states the compute: all experiments ran on CPU only, with no GPU, on one machine with 12 logical cores and 15 GB of memory. It gives the run time of the online simulation and of the offline fit, and notes that the item embeddings are a precomputed input.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the paper does not include experiments.
