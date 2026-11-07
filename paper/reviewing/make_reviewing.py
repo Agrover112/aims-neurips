@@ -49,8 +49,6 @@ s = sub(s, "\\paragraph{Offline model that keeps its fitted values.}",
         note("5", r"A short subsection on adaptive priors, all closed form: Beta mixtures fitted by EM whose weights update by marginal likelihood on the revealed labels; averaging over the prior parameters $(\alpha,\beta)$; and a switch to Jeffreys when the first $k$ labels sit far from the prior mean, with the threshold chosen on validation only.")
         + note("7", r"Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.")
         + "\\paragraph{Offline model that keeps its fitted values.}")
-r8 = r"On test, a Beta-Binomial with a prior fitted on training is the best predictor ($\D{BB\,fit}{J}=-0.0138$ [$-0.0158$, $-0.0116$]), four times the gain of the validation-tuned Rasch, and better than any Rasch model ($\D{R\,fit}{BB\,fit}=+0.0019$ [$+0.0007$, $+0.0031$])."
-s = sub(s, r8, "\\par\\begin{chg}{8}" + r8 + "\\end{chg}\\par")
 s = sub(s, "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}",
         note("9", r"One sentence and a pointer: log loss and calibration error give the same ordering on test and the same reversal on validation (log loss ALC $0.6656$ against $0.7045$ for Jeffreys on test; $0.5404$ against $0.5159$ on validation), and rank metrics are uninformative by construction for a constant prediction.")
         + "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}")
