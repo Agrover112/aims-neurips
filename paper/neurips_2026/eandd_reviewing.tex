@@ -68,7 +68,7 @@ We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one 
   \item \textbf{A seen-benchmark check.} Offline fitting must win on benchmarks it has seen; it does, by a wide margin, and the margin vanishes on unseen benchmarks (Section~\ref{sec:results}).
   \item \textbf{When a transferred prior helps.} A prior fitted on training benchmarks helps on benchmarks whose accuracy is near the prior mean and hurts far from it, shown on 17 benchmarks, the 11 training ones by leave-one-benchmark-out.
   \item \textbf{Item features.} Neural probes on item embeddings carry a small rank signal for difficulty on unseen benchmarks that improves prediction by only about $0.0004$ Brier ALC as a prior mean (Section~\ref{sec:itemfeat}).
-  \item \par\begin{addnote}{5}A bullet for the negative results the reviewer asked about: adaptive priors (mixtures, strength averaging, a pilot switch rule) did not remove the harm without losing the gain, and the first labels warn only weakly (pooled AUC 0.73, within-benchmark 0.64).\end{addnote}
+  \item \textbf{Adaptive priors.} Priors that adapt to the first labels (mixtures, averaging over the prior's strength, a switch back to Jeffreys) did not remove the harm without losing the gain, and the first labels warn only weakly that the prior will hurt (AUC $0.73$ pooled, $0.64$ within a benchmark).
   \item \textbf{Open materials.} The frozen draws, saved scores and code to rerun every table and figure: \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 \end{itemize}
 
