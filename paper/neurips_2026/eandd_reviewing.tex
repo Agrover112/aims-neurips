@@ -69,6 +69,13 @@ We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one 
   \item \textbf{A controlled comparison.} Models, tasks and label order are fixed and only the source of the prior changes, in an online simulation of the competition protocol (Section~\ref{sec:models}).
   \item \textbf{What transfers.} A learned prior transfers to a new benchmark and item-level estimates do not. The prior helps on benchmarks of typical difficulty and hurts on much easier or harder ones, and item text adds almost nothing beyond it (Section~\ref{sec:results}).
 \end{itemize}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics{\figdir/figure2-offline-online.pdf}
+  \caption{\textbf{Offline estimates win on familiar benchmarks and have no edge on unfamiliar ones.} Brier score per label budget for the offline Rasch keeping its fitted benchmark rates and item difficulties and updating only ability (solid), against the online Rasch with the same fitted prior (dashed). Left: ID, held-out subjects on the 11 training benchmarks. Right: OOD test benchmarks, where the offline model has no fitted values and falls back to the prior.}\label{fig:offline-online}
+\end{figure}
+
 The simulation code, the fixed evaluation samples and every saved score are on \ghlink.
 
 %==============================================================================
@@ -166,12 +173,6 @@ Table~\ref{tab:prior-source} compares the nine combinations. The validation-tune
 
 \subsection{Learned priors transfer to unseen benchmarks; item-level estimates do not}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics{\figdir/figure2-offline-online.pdf}
-  \caption{\textbf{Offline estimates win on familiar benchmarks and have no edge on unfamiliar ones.} Brier score per label budget for the offline Rasch keeping its fitted benchmark rates and item difficulties and updating only ability (solid), against the online Rasch with the same fitted prior (dashed). Left: ID, held-out subjects on the 11 training benchmarks. Right: OOD test benchmarks, where the offline model has no fitted values and falls back to the prior.}\label{fig:offline-online}
-\end{figure}
-
 On the ID evaluation set the offline model that keeps its fitted values scores $\D{R\,off}{J}=-0.0852$ [$-0.0955$, $-0.0747$] against $\D{BB\,fit}{J}=-0.0090$ for the fitted Beta-Binomial prior and $\D{R\,fit}{J}=-0.0081$ for the fitted Rasch prior (Figure~\ref{fig:offline-online}); its item difficulties alone, at budget zero, reach a within-task AUC of $0.836$. On the unseen test benchmarks it equals the fitted prior ($\D{R\,off}{J}=-0.0115$ against $\D{R\,fit}{J}=-0.0119$): nothing it knows about particular items or benchmark rates is available. This is the seen-benchmark check the design requires, and it separates two things that are easy to conflate: item-level estimates transfer only to the items they were fitted on, while the prior's spreads carry over to new benchmarks.
 
 \subsection{Learned priors help benchmarks of typical difficulty and hurt much easier or harder ones}
@@ -264,7 +265,7 @@ These findings concern the models and data we studied. Each of our evaluations r
 \section{The fitted prior on all 17 benchmarks}\label{app:lobo}
 \begin{table}[H]
   \caption{$\D{BB\,fit}{J}$ for each of the 17 benchmarks. Training benchmarks: the prior is refit without the held-out benchmark and scored on held-out-subject tasks. OOD validation and OOD test benchmarks: the original training-only prior. The last column is the mean distance of a benchmark's task accuracies from the prior mean $0.52$.}
-  \centering\small
+  \centering\footnotesize\setlength{\tabcolsep}{3pt}
   \input{eandd_lobo}
 \end{table}
 
