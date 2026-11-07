@@ -7,7 +7,7 @@ Copies Person-B's figures, builds Table 1 from the summary CSVs (nothing is type
 person-b-sections.tex into one file per section so eandd.tex can place each where it belongs.
 """
 from __future__ import annotations
-import re, shutil
+import json, re, shutil
 from pathlib import Path
 import pandas as pd
 
@@ -154,7 +154,8 @@ for m, n in [("bb-eb", "BB\\,fit"), ("rasch-fitted", "R\\,fit"), ("bb-tuned", "B
 (OUT / "eandd_robust.tex").write_text("\n".join(lines) + "\n")
 
 lo = pd.read_csv(DATA / "wp10-lobo-explained.csv").sort_values("bb_eb_diff")
-lobo_lines = [f"\\code{{{r.held_out.replace('_', chr(92) + '_')}}} & {int(r.tasks)} & {fmt(r.bb_eb_diff, r.lo, r.hi)} & {r.mean_abs_acc_minus_0_52:.2f} \\\\"
+CITE = {d["benchmark_id"]: d["bibtex_keys"] for d in json.load(open(ROOT / "paper/eandd/benchmark-citation-map.json"))}
+lobo_lines = [f"\\code{{{r.held_out.replace('_', chr(92) + '_')}}}~\\citep{{{','.join(CITE[r.held_out])}}} & {int(r.tasks)} & {fmt(r.bb_eb_diff, r.lo, r.hi)} & {r.mean_abs_acc_minus_0_52:.2f} \\\\"
               for r in lo.rename(columns={"mean_abs_acc_minus_0.52": "mean_abs_acc_minus_0_52"}).itertuples()]
 lobo_lines.append("\\midrule")
 lobo_lines.append(f"Mean over the 11 benchmarks & {int(lo.tasks.sum())} & {one(lo.bb_eb_diff.mean())} & {lo['mean_abs_acc_minus_0.52'].mean():.2f} \\\\")

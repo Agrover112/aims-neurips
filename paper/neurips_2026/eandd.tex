@@ -181,20 +181,7 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 
 {\small
 \bibliographystyle{plainnat}
-\begin{thebibliography}{99}
-\bibitem[Robbins(1956)]{robbins1956} H.~Robbins. An empirical Bayes approach to statistics. In \emph{Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability}, 1:157--163, 1956.
-\bibitem[Efron and Morris(1973)]{efron1973} B.~Efron and C.~Morris. Stein's estimation rule and its competitors---an empirical Bayes approach. \emph{Journal of the American Statistical Association}, 68(341):117--130, 1973.
-\bibitem[Rao and Molina(2015)]{rao2015} J.~N.~K. Rao and I.~Molina. \emph{Small Area Estimation}. Wiley, 2nd edition, 2015.
-\bibitem[Angelopoulos et~al.(2023)]{angelopoulos2023} A.~N. Angelopoulos, S.~Bates, C.~Fannjiang, M.~I. Jordan, and T.~Zrnic. Prediction-powered inference. \emph{Science}, 382(6671):669--674, 2023.
-\bibitem[Jeon et~al.(2021)]{jeon2021} M.~Jeon, I.~H. Jin, M.~Schweinberger, and S.~Baugh. Mapping unobserved item--respondent interactions: A latent space item response model with interaction map. \emph{Psychometrika}, 86(2):378--403, 2021.
-\bibitem[Lior et~al.(2026)]{lior2026} G.~Lior, T.~Frostig, G.~Stanovsky, and M.~Eyal. Extending item response theory for efficient and meaningful multilingual evaluation. arXiv:2606.15643, 2026.
-\bibitem[Brier(1950)]{brier1950} G.~W. Brier. Verification of forecasts expressed in terms of probability. \emph{Monthly Weather Review}, 78(1), 1950.
-\bibitem[Chen et~al.(2024)]{chen2024bge} J.~Chen, S.~Xiao, P.~Zhang, K.~Luo, D.~Lian, Z.~Liu. {BGE} {M3}-Embedding: Multi-lingual, multi-functionality, multi-granularity text embeddings through self-knowledge distillation. arXiv:2402.03216, 2024.
-\bibitem[Jeffreys(1946)]{jeffreys1946} H.~Jeffreys. An invariant form for the prior probability in estimation problems. \emph{Proc.\ Royal Society A}, 186, 1946.
-\bibitem[Rasch(1960)]{rasch1960} G.~Rasch. \emph{Probabilistic Models for Some Intelligence and Attainment Tests}. Danish Institute for Educational Research, 1960.
-\bibitem[Truong et~al.(2025)]{truong2025amortized} S.~T. Truong, Y.~Tu, P.~Liang, B.~Li, S.~Koyejo. Reliable and efficient amortized model-based evaluation. In \emph{ICML}, PMLR 267, 2025.
-\bibitem[Zhang et~al.(2025)]{zhang2025benchmark} G.~Zhang, F.~E. Dorner, M.~Hardt. How benchmark prediction from fewer data misses the mark. arXiv:2506.07673, 2025.
-\end{thebibliography}
+\bibliography{references}
 }
 
 \appendix
@@ -222,7 +209,7 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 
 \section{Leave-one-benchmark-out for the fitted prior}\label{app:lobo}
 \begin{table}[H]
-  \caption{$\D{BB\,fit}{J}$ with the prior refit without the held-out benchmark, on each training benchmark's held-out-subject tasks, with the mean distance of its task accuracies from the prior mean $0.52$.}
+  \caption{$\D{BB\,fit}{J}$ with the prior refit without the held-out benchmark, on each training benchmark's held-out-subject tasks, with the mean distance of its task accuracies from the prior mean $0.52$. Each benchmark is cited with its original paper; response-data sources are listed in \code{paper/eandd/BENCHMARK-CITATIONS.md}.}
   \centering\small
   \input{eandd_lobo}
 \end{table}
