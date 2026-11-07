@@ -233,7 +233,10 @@ p05, p95 = d.quantile([.05, .95])
     "This refit includes the former validation benchmarks among the 14 eligible fit benchmarks for the original "
     "test triple, so its result differs from the original 11-benchmark fit. The 11 original training benchmarks "
     "are scored on held-out-subject tasks from the existing leave-one-out data. These overlapping triples describe "
-    "split sensitivity within this dataset.\n"
+    "split sensitivity within this dataset. The main text uses the prior fitted on the 11 training benchmarks only. "
+    f"Under that prior the mean macro $\\Delta_{{\\mathrm{{BB\\,fit}}-\\mathrm{{J}}}}$ over the same triples is {one(split.historical_macro_delta.mean())}, "
+    f"the prior hurts on {100*(split.historical_macro_delta > 0).mean():.1f}\\% of them, and the original test benchmarks give "
+    f"{one(split.historical_macro_delta.loc[split.original_test_triple].item())}.\n"
 )
 
 metric = pd.read_csv(DATA / "wp13-metric-alc.csv")
