@@ -256,4 +256,9 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \input{eandd_reviewer_metrics}
 \end{table}
 
+\section{Solver convergence}\label{app:convergence}
+\paragraph{Online solver.} At every budget the online Rasch fit is a Newton solve with a limit of 30 steps. In 6,300 audited fits, none reached the limit, none needed more than 7 steps, and the last step was below $10^{-6}$ in every one.
+
+\paragraph{Offline fit.} Our first offline fit stopped at its iteration limit of 400 in three of its four rounds. We refit it with a proper stopping rule. The hyperparameters moved by at most $1.2\%$, the benchmark rates by at most $0.011$ on the logit scale, and no Brier ALC changed by more than $0.0001$. The reported results use the first fit, and the refit leaves them unchanged.
+
 \end{document}

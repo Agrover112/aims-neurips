@@ -45,9 +45,6 @@ s = sub(s, "\\maketitle\n", BANNER)
 # ---- planned changes ----
 a1 = "On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation."
 n1 = " Averaged over all 17 benchmarks it gains $0.005$, and over all 680 choices of three held-out benchmarks it gains $0.004$ and hurts in $17.5\\%$ of them, so our test split is a favourable one."
-s = sub(s, "\\paragraph{Offline model that keeps its fitted values.}",
-        note("7", r"Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.")
-        + "\\paragraph{Offline model that keeps its fitted values.}")
 s = sub(s, "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}",
         note("9", r"One sentence and a pointer: log loss and calibration error give the same ordering on test and the same reversal on validation (log loss ALC $0.6656$ against $0.7045$ for Jeffreys on test; $0.5404$ against $0.5159$ on validation), and rank metrics are uninformative by construction for a constant prediction.")
         + "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}")
@@ -62,7 +59,7 @@ for fn, (tag, txt) in figfix.items():
     key = "\\includegraphics{\\figdir/" + fn + "}"
     s = sub(s, key, key + "\n\\begin{fixnote}{" + tag + "}" + txt + "\\end{fixnote}")
 s = sub(s, "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}",
-        note("7", r"New appendix tables: the convergence audit; the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).")
+        note("7", r"New appendix tables: the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).")
         + "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}")
 
 END = r"""

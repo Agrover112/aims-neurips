@@ -106,7 +106,6 @@ where $\sigma$ is the logistic function, $\theta_i$ is the subject's ability, an
 \end{equation}
 where $x_j$ are the item embeddings of Section~\ref{sec:setting}, $\rho\in[0,1]$ weights the similarity part $S$ and $T$ is its temperature. At $\rho=0$ the two priors coincide; for $\rho>0$, similar items share difficulty, while items of different benchmarks stay independent. After the refit, a labelled item keeps its fitted deviation, and an unlabelled item $j$ receives the posterior mean given the labelled items $L$ of its benchmark, $\hat\delta_j=\rho\,\sigma_\delta^2\,S_{jL}K_{LL}^{-1}\hat{\boldsymbol\delta}_L$, which is $0$ at $\rho=0$ as in Rasch. With one subject per benchmark, as in the competition-shaped draws, no labels are shared across subjects: the joint fit equals independent per-task fits (maximum difference $10^{-14}$ in our check), so Rasch there differs from the Beta-Binomial only in its prior.
 
-\par\begin{addnote}{7}Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.\end{addnote}\par
 \paragraph{Offline model that keeps its fitted values.} For the ID evaluation, the offline Rasch keeps its fitted $\mu_d$ and $\delta_j$ for a benchmark and items it has seen and updates only the subject ability $\theta_i$ online (a one-dimensional MAP on the task's own labels). For an unseen benchmark or item it falls back to $m_0$ and $0$, i.e.\ to the fitted prior alone.
 
 \subsection{Adaptive priors}\label{sec:adaptive}
@@ -259,7 +258,7 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \input{eandd_lobo}
 \end{table}
 
-\par\begin{addnote}{7}New appendix tables: the convergence audit; the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).\end{addnote}\par
+\par\begin{addnote}{7}New appendix tables: the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).\end{addnote}\par
 \section{Sensitivity to the benchmark split}\label{app:split-sensitivity}
 \input{eandd_split_sensitivity}
 \begin{figure}[H]
@@ -274,6 +273,11 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \caption{Competition-shaped online simulation; models are labelled as in Section~\ref{sec:results}. Brier, log loss, and ten-bin task ECE are averaged using the official budget weights; lower is better. AUC uses within-task item rankings at 31 labels, where higher is better. Dashes indicate no informative ranking; a constant prediction ties all items. Bold: best in each split (lowest loss, highest AUC). Per-budget AUC and alternative weights are reported in the accompanying CSVs.}
   \input{eandd_reviewer_metrics}
 \end{table}
+
+\section{Solver convergence}\label{app:convergence}
+\paragraph{Online solver.} At every budget the online Rasch fit is a Newton solve with a limit of 30 steps. In 6,300 audited fits, none reached the limit, none needed more than 7 steps, and the last step was below $10^{-6}$ in every one.
+
+\paragraph{Offline fit.} Our first offline fit stopped at its iteration limit of 400 in three of its four rounds. We refit it with a proper stopping rule. The hyperparameters moved by at most $1.2\%$, the benchmark rates by at most $0.011$ on the logit scale, and no Brier ALC changed by more than $0.0001$. The reported results use the first fit, and the refit leaves them unchanged.
 
 
 \clearpage
