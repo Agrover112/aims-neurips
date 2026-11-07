@@ -1,16 +1,9 @@
 # What Person-B can fix, based on Person-A's paper changes (2026-11-07)
 
+Figure labels (Delta notation, OOD legends): done by Person-B in 2bea768.
+
 Person-A restructured and reworded `paper/neurips_2026/eandd.tex` and your section file `paper/eandd/person-b-sections.tex`.
 `paper/reviewing/reviewing.pdf` shows what is still open (red = to fix, green = question or planned addition).
-
-## 1. Figures: labels (needs your plot scripts)
-The labels are drawn inside the figure PDFs, so only the plot scripts can change them.
-- **Figure 1 (`figure1-prior-source`)**: panel (b) axis reads "Brier difference to Jeffreys"; should be `Delta_{m-J}`.
-- **Figure 3 (`figure3-benchmark-breakdown`)**: axis "Training-fitted Beta-Binomial minus Jeffreys (Brier ALC)" -> `Delta_{BB fit - J}`; legend "Test", "Validation" -> "OOD test", "OOD validation".
-- **Figure 4 (`figure4-benchmark-explanation-17`)**: axis "Fitted minus Jeffreys (Brier ALC)" -> `Delta_{BB fit - J}`; same legend change.
-- **Figure 5 (`figure5-split-sensitivity`)**: axis "Fitted Beta-Binomial minus Jeffreys (macro Brier ALC)" -> macro `Delta_{BB fit - J}`.
-- Scripts: `wp9.py` (Figures 1-3), `reviewer_figures.py` (Figures 4-5). Figures 4-5 rebuild from committed CSVs; Figures 1-3 need the saved score files (not in git; ask Person-A for the handoff).
-- `Delta_{a-b}` = Brier ALC of model a minus model b, negative favours a. Model labels: J, BB, R, KR, with fix / tune / fit / off.
 
 ## 2. Idea, not decided: plot background
 We are thinking of changing the plot background so the figures read better, for example a light grey panel with white grid lines instead of the plain white panel, still readable in black and white. Try it on one figure, compare it with the current one, and keep whichever reads better. Keep `organized/utils/plotstyle.py` as the single style source.
