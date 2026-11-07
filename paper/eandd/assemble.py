@@ -153,12 +153,20 @@ for m, n in [("bb-eb", "BB\\,fit"), ("rasch-fitted", "R\\,fit"), ("bb-tuned", "B
     lines.append(f"$\\mathrm{{{n}}}$ & {cells[0]} & {cells[1]} \\\\")
 (OUT / "eandd_robust.tex").write_text("\n".join(lines) + "\n")
 
-lo = pd.read_csv(DATA / "wp10-lobo-explained.csv").sort_values("bb_eb_diff")
+from scipy.stats import spearmanr
+ex = pd.read_csv(DATA / "wp13-benchmark-explanation.csv").sort_values("delta")
+DIST = "mean_abs_query_acc_minus_0.52"
+VAL, TEST = {"ai2d_test", "bird_sql", "financebench"}, {"algotune", "cmmlu", "editbench"}
+role = lambda b: "OOD validation" if b in VAL else ("OOD test" if b in TEST else "Training")
 CITE = {d["benchmark_id"]: d["bibtex_keys"] for d in json.load(open(ROOT / "paper/eandd/benchmark-citation-map.json"))}
-lobo_lines = [f"\\code{{{r.held_out.replace('_', chr(92) + '_')}}}~\\citep{{{','.join(CITE[r.held_out])}}} & {int(r.tasks)} & {fmt(r.bb_eb_diff, r.lo, r.hi)} & {r.mean_abs_acc_minus_0_52:.2f} \\\\"
-              for r in lo.rename(columns={"mean_abs_acc_minus_0.52": "mean_abs_acc_minus_0_52"}).itertuples()]
+lobo_lines = [f"\\code{{{r.benchmark.replace('_', chr(92) + '_')}}}~\\citep{{{','.join(CITE[r.benchmark])}}} & {role(r.benchmark)} & {int(r.tasks)} & {fmt(r.delta, r.ci_low, r.ci_high)} & {getattr(r, 'dist'):.2f} \\\\"
+              for r in ex.rename(columns={DIST: "dist"}).itertuples()]
 lobo_lines.append("\\midrule")
-lobo_lines.append(f"Mean over the 11 benchmarks & {int(lo.tasks.sum())} & {one(lo.bb_eb_diff.mean())} & {lo['mean_abs_acc_minus_0.52'].mean():.2f} \\\\")
+tr = ex[ex.benchmark.map(role) == "Training"]
+lobo_lines.append(f"Mean over the 17 benchmarks & & {int(ex.tasks.sum())} & {one(ex.delta.mean())} & {ex[DIST].mean():.2f} \\\\")
+lobo_lines.append(f"Mean over the 11 training benchmarks & & {int(tr.tasks.sum())} & {one(tr.delta.mean())} & {tr[DIST].mean():.2f} \\\\")
+lobo_lines.append("\\midrule")
+lobo_lines.append(f"\\multicolumn{{5}}{{l}}{{Spearman $\\rho$ between gain and distance: ${spearmanr(ex.delta, ex[DIST])[0]:.2f}$ over the 17 benchmarks, ${spearmanr(tr.delta, tr[DIST])[0]:.2f}$ over the 11 training benchmarks.}} \\\\")
 (OUT / "eandd_lobo.tex").write_text("\n".join(lobo_lines) + "\n")
 print("appendix tables written")
 
@@ -174,7 +182,7 @@ wrap("eandd_table1.tex", "lccc", "Model $m$ & ID & OOD validation & OOD test")
 wrap("eandd_ladder.tex", "lcc", "Model $m$ & OOD validation & OOD test")
 wrap("eandd_paired.tex", "lccc", "Comparison & ID & OOD validation & OOD test")
 wrap("eandd_robust.tex", "lcc", "Model $m$ & OOD validation & OOD test")
-wrap("eandd_lobo.tex", "lccc", "Held-out benchmark & Tasks & $\\Delta_{\\mathrm{BB\\,fit}-\\mathrm{J}}$ [95\\% CI] & Mean distance from $0.52$")
+wrap("eandd_lobo.tex", "llccc", "Benchmark & Split & Tasks & $\\Delta_{\\mathrm{BB\\,fit}-\\mathrm{J}}$ [95\\% CI] & Mean distance from $0.52$")
 
 
 # ---- R5: probe difficulty as the Rasch item prior mean (both CSVs committed) ----

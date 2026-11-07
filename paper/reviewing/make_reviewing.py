@@ -63,8 +63,6 @@ figfix = {}
 for fn, (tag, txt) in figfix.items():
     key = "\\includegraphics{\\figdir/" + fn + "}"
     s = sub(s, key, key + "\n\\begin{fixnote}{" + tag + "}" + txt + "\\end{fixnote}")
-s = sub(s, "\\section{Leave-one-benchmark-out for the fitted prior}\\label{app:lobo}",
-        "\\section{Leave-one-benchmark-out for the fitted prior}\\label{app:lobo}\n" + note("16", r"Extend this table to all 17 benchmarks (the figure already shows 17), with the Spearman correlation for 17 ($0.96$) beside the one for the 11 training benchmarks ($0.93$)."))
 s = sub(s, "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}",
         note("7", r"New appendix tables: the convergence audit; the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).")
         + "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}")
