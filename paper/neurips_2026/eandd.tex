@@ -97,6 +97,19 @@ where $x_j$ are the item embeddings of Section~\ref{sec:setting}, $\rho\in[0,1]$
 
 \paragraph{Offline model that keeps its fitted values.} For the ID evaluation, the offline Rasch keeps its fitted $\mu_d$ and $\delta_j$ for a benchmark and items it has seen and updates only the subject ability $\theta_i$ online (a one-dimensional MAP on the task's own labels). For an unseen benchmark or item it falls back to $m_0$ and $0$, i.e.\ to the fitted prior alone.
 
+\subsection{Adaptive priors}\label{sec:adaptive}
+The Beta-Binomial prior stays the same whatever labels arrive. An \emph{adaptive prior} lets the first labels change it. We test three closed-form versions, each refit without any held-out benchmark.
+
+\paragraph{Beta mixture.} The prior is a mixture of $K\in\{2,3\}$ Beta distributions with weights $w_c$, fitted by expectation maximisation on the accuracies of the training tasks. After $k$ of $n$ labels are correct, the weight of each component is updated by how well it explains them, and the prediction is the weighted mean of the components' posterior means,
+\begin{equation}\label{eq:mixture}
+w_c'\propto w_c\,\frac{\mathrm{B}(\alpha_c+k,\ \beta_c+n-k)}{\mathrm{B}(\alpha_c,\ \beta_c)},\qquad \hat p=\sum_c w_c'\,\frac{\alpha_c+k}{\alpha_c+\beta_c+n},
+\end{equation}
+where $\mathrm{B}$ is the Beta function.
+
+\paragraph{Averaging over the prior.} Instead of one $(\alpha,\beta)$, we average the Beta-Binomial prediction over a grid of prior parameters, weighting each by the same factor $\mathrm{B}(\alpha+k,\beta+n-k)/\mathrm{B}(\alpha,\beta)$. We average over the prior's strength $\alpha+\beta$ at the fitted mean, or over its mean and strength together, in which case nothing is learned from training.
+
+\paragraph{Switch to Jeffreys.} Once at least $k_0\in\{3,7\}$ labels are revealed, we predict with the Jeffreys prior if the accuracy so far, $k/n$, lies more than $\eta$ from the fitted prior's mean $\alpha/(\alpha+\beta)$, and with the fitted prior otherwise. We choose $\eta$ on validation.
+
 \subsection{Probes}\label{sec:probes}
 \input{eandd_b_probes}
 
@@ -160,6 +173,19 @@ Under the fitted priors, the simplest Rasch model is also the best on test and t
 
 \subsection{Item content carries a small rank signal and a negligible gain for the prior}\label{sec:itemfeat}
 \input{eandd_b_itemfeat}
+
+\subsection{Priors that adapt to the first labels do not remove the harm}\label{sec:adaptive-results}
+Table~\ref{tab:adaptive} compares the adaptive priors of Section~\ref{sec:adaptive} with the fitted Beta-Binomial prior over the 17 benchmarks. They trade gain for safety and none dominates it. The mixtures give the largest average and test gains but leave the worst benchmark as bad as before. Averaging over the mean and strength nearly removes the worst case but halves the gain. The switch rule falls in between. We had fixed three criteria in advance: a worst benchmark of at most $+0.0120$, a mean within $0.0010$ of the fitted prior's $-0.0050$, and a test gain within $0.0020$ of its $-0.0138$. No adaptive prior meets all three.
+
+\begin{table}[H]
+\centering
+\caption{$\Delta_{m-\mathrm{J}}$ for adaptive priors. Worst benchmark: the largest gain (a loss) over the 17 benchmarks. Mean: over the 17 benchmarks. The training benchmarks are held out one at a time, and the switch threshold is chosen on validation. Mixtures with 2 and 3 components differ by at most $0.0001$ (the table shows 2). Bold: best of the adaptive priors in each column.}
+\label{tab:adaptive}
+\small
+\input{eandd_adaptive}
+\end{table}
+
+Can the first labels warn that the prior will hurt? The distance of the accuracy so far from the prior's mean separates the tasks the prior hurts from the rest, with an area under the ROC curve (AUC) of $0.73$ from seven labels, but only $0.64$ within a benchmark, so most of the signal is between benchmarks. The harm sits at zero to three labels, which carry half of the ALC weight, before any such warning exists.
 
 %==============================================================================
 \section{Limitations}\label{sec:limitations}

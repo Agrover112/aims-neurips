@@ -46,8 +46,7 @@ s = sub(s, "\\maketitle\n", BANNER)
 a1 = "On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation."
 n1 = " Averaged over all 17 benchmarks it gains $0.005$, and over all 680 choices of three held-out benchmarks it gains $0.004$ and hurts in $17.5\\%$ of them, so our test split is a favourable one."
 s = sub(s, "\\paragraph{Offline model that keeps its fitted values.}",
-        note("5", r"A short subsection on adaptive priors, all closed form: Beta mixtures fitted by EM whose weights update by marginal likelihood on the revealed labels; averaging over the prior parameters $(\alpha,\beta)$; and a switch to Jeffreys when the first $k$ labels sit far from the prior mean, with the threshold chosen on validation only.")
-        + note("7", r"Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.")
+        note("7", r"Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.")
         + "\\paragraph{Offline model that keeps its fitted values.}")
 s = sub(s, "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}",
         note("9", r"One sentence and a pointer: log loss and calibration error give the same ordering on test and the same reversal on validation (log loss ALC $0.6656$ against $0.7045$ for Jeffreys on test; $0.5404$ against $0.5159$ on validation), and rank metrics are uninformative by construction for a constant prediction.")
@@ -57,7 +56,6 @@ s = sub(s, "Figure~\\ref{fig:benchmarks} shows the test and validation benchmark
 s = sub(s, "Under the fitted priors, the simplest Rasch model is also the best on test",
         note("11", r"A short subsection, \emph{How sensitive is the test gain to which benchmarks are held out?}, moved from the appendix: over 680 triples the mean gain is $-0.0037$ (prior refit on the other 14 benchmarks) or $-0.0051$ (training benchmarks only), the prior hurts in 17.5\%--20\% of splits, and our test triple gives $-0.0138$ when the prior is fitted on the 11 training benchmarks but $-0.0087$ when it is fitted on the other 14. State which fit set is used.")
         + note("12", r"The first-principles version of the explanation: for a task of true accuracy $p$ the expected Brier excess of the posterior mean is $\frac{(\alpha-p(\alpha+\beta))^2+n\,p(1-p)}{(\alpha+\beta+n)^2}$, so the gain over Jeffreys is an exact function of $p$ and of the budget; compare the predicted gain per benchmark with the observed one instead of citing a post hoc correlation.")
-        + note("5", r"Results of the adaptive priors on the 17 benchmarks (worst harm, macro gain, test gain), and the pilot diagnostic: from 7 labels the distance of the pilot accuracy from the prior mean predicts harm with pooled AUC $0.73$ (within a benchmark $0.64$); the harm sits at 0--3 labels, before any pilot exists.")
         + "Under the fitted priors, the simplest Rasch model is also the best on test")
 figfix = {}
 for fn, (tag, txt) in figfix.items():
@@ -123,7 +121,6 @@ s = sub(s, "\\input{eandd_b_itemfeat}", "\\input{eandd_rv_itemfeat}")
 s = sub(s, "\\input{eandd_b_limits}", "\\input{eandd_rv_limits}")
 imp = [
  ("\\subsection{Priors}", "A-priors", "Priors (Section 4.3): the bullets are dense. Separate prior parameters from prior sources more clearly, consider a small table of the settings per model and source, and state plainly that the fitted kernel Rasch keeps $\\rho$ and $T$ from validation.", "after"),
- ("\\subsection{Priors}", "A-adaptive", "Methodology: adaptive priors are missing. Add the mixture prior, strength averaging and the pilot switch rule as models, with their equations (see NEW [5] above), before the results on them can be reported.", "before"),
  ("\\section{Conclusion}\n", "A-conclusion", "Conclusion: still to improve. The adaptive-priors sentence is unsupported until the body reports it; rewrite after the headline and the adaptive-priors result are settled, and keep it ranked and short.", "after"),
 ]
 for key, tag, txt, where in imp:

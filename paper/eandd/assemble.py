@@ -205,6 +205,22 @@ f = OUT / "eandd_r5.tex"
 f.write_text("\\begin{tabular}{lcccc}\n\\toprule\n & \\multicolumn{2}{c}{Pass-rate MLP} & \\multicolumn{2}{c}{Rasch-target MLP} \\\\\n"
              "Scale $\\gamma$ & OOD validation & OOD test & OOD validation & OOD test \\\\\n\\midrule\n" + f.read_text() + "\\bottomrule\n\\end{tabular}\n")
 
+
+# ---- adaptive priors (R3): worst benchmark, macro mean over 17 benchmarks and test gain, from the committed CSV ----
+ad = pd.read_csv(DATA / "r3-adaptive-17-benchmarks.csv").set_index("model")
+ad_rows = [("Fitted Beta-Binomial (reference)", "bb-eb"), ("Beta mixture, 2 or 3 components", "mix2"),
+           ("Average over strength", "bma-s"), ("Average over mean and strength", "bma-ms"),
+           ("Switch to Jeffreys, 3 labels", "switch-3"), ("Switch to Jeffreys, 7 labels", "switch-7")]
+b_worst = min(ad.loc[m, "worst"] for _, m in ad_rows[1:]); b_macro = min(ad.loc[m, "macro"] for _, m in ad_rows[1:]); b_test = min(ad.loc[m, "test_gain"] for _, m in ad_rows[1:])
+def adcell(x, best):
+    return onebf(x) if abs(x - best) < 1e-12 else one(x)
+ad_lines = []
+for name, m in ad_rows:
+    ad_lines.append(f"{name} & {adcell(ad.loc[m,'worst'], b_worst)} & {adcell(ad.loc[m,'macro'], b_macro)} & {adcell(ad.loc[m,'test_gain'], b_test)} \\\\")
+    if m == "bb-eb":
+        ad_lines.append("\\midrule")
+(OUT / "eandd_adaptive.tex").write_text("\\begin{tabular}{lccc}\n\\toprule\nModel $m$ & Worst benchmark & Mean over 17 benchmarks & OOD test \\\\\n\\midrule\n" + "\n".join(ad_lines) + "\n\\bottomrule\n\\end{tabular}\n")
+
 split = pd.read_csv(DATA / "wp13-split-sensitivity.csv")
 d = split.refit_macro_delta
 orig = d.loc[split.original_test_triple].item()
