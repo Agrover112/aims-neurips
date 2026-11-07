@@ -233,7 +233,7 @@ Further limits of our own. Each competition-shaped draw has one subject per benc
 
 What transfers from offline fitting to an unseen benchmark is a shrinkage prior, not item-level estimates. Where fitted values apply, offline fitting is worth a very large gain, and where they do not, it is worth none. The prior itself helps only modestly and unevenly. It pulls predictions toward a typical accuracy, which helps benchmarks of typical difficulty and hurts much easier or much harder ones, so its benefit depends on which benchmarks a new evaluation contains. Two ways of doing better added little. Priors that adapt to the first labels traded gain for safety without beating the fixed prior, and probes that predict item difficulty from item text carry a small rank signal that barely improved prediction.
 
-These findings concern the models and data we studied. Each of our evaluations reveals answers from one LLM per benchmark, so whether sharing labels across LLMs helps remains open, and a stronger difficulty predictor could change the picture.
+These findings concern the models and data we studied. Each of our evaluations reveals answers from one LLM per benchmark, so whether sharing labels across LLMs helps remains open, and a stronger difficulty predictor could change the picture. It also remains open whether tabular foundation models or meta-learning, which learn to predict from a few labelled examples, can carry across benchmarks information that a fixed prior cannot.
 
 %==============================================================================
 \section*{Disclosure}
