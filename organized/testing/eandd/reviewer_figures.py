@@ -19,7 +19,7 @@ def main():
     ax.hist(x, bins=24, color=CYCLE[0], alpha=.72)
     ax.axvline(0, color=".45", lw=1, ls=":", label="No change")
     ax.axvline(orig, color=CYCLE[1], lw=1.6, label="Original test benchmarks (refit)")
-    ax.set(xlabel="Fitted Beta–Binomial minus Jeffreys (macro Brier ALC)", ylabel="Test triples")
+    ax.set(xlabel=r"macro $\Delta_{\mathrm{BB\,fit}-\mathrm{J}}$", ylabel="Test triples")
     style(ax)
     ax.legend(loc="lower center", bbox_to_anchor=(.5, 1.02), ncol=2)
     ax.text(.98, .91, f"{(x > 0).mean():.1%} of triples worsen", transform=ax.transAxes,
@@ -28,8 +28,8 @@ def main():
     save_figure(fig, args.results / "figure5-split-sensitivity")
 
     d = pd.read_csv(args.results / "wp13-benchmark-explanation.csv")
-    d["source"] = d.benchmark.map(dict.fromkeys(["algotune", "cmmlu", "editbench"], "Test")).fillna(
-        d.benchmark.map(dict.fromkeys(["ai2d_test", "bird_sql", "financebench"], "Validation"))).fillna("LOBO")
+    d["source"] = d.benchmark.map(dict.fromkeys(["algotune", "cmmlu", "editbench"], "OOD test")).fillna(
+        d.benchmark.map(dict.fromkeys(["ai2d_test", "bird_sql", "financebench"], "OOD validation"))).fillna("LOBO")
     x = "mean_abs_query_acc_minus_0.52"
     rho = spearmanr(d[x], d.delta).statistic
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 2.85))
@@ -38,7 +38,7 @@ def main():
         ax.errorbar(grp[x], grp.delta, yerr=[grp.delta-grp.ci_low, grp.ci_high-grp.delta],
                     fmt=["o", "^", "s"][j], color=CYCLE[j], capsize=2, label=src)
     ax.set(xlabel="Mean absolute distance of evaluation accuracy from 0.52",
-           ylabel="Fitted minus Jeffreys (Brier ALC)")
+           ylabel=r"$\Delta_{\mathrm{BB\,fit}-\mathrm{J}}$")
     ax.text(.02, .94, rf"Spearman $\rho={rho:.2f}$", transform=ax.transAxes, va="top")
     style(ax)
     ax.legend(loc="lower center", bbox_to_anchor=(.5, 1.02), ncol=3)
