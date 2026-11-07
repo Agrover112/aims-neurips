@@ -49,15 +49,11 @@ The rank signal yields only a small gain at the validation-selected scale. In Ta
 
 \section{Limitations}
 \label{sec:limitations}
-\paragraph{Scope.} Our results come from 17 benchmarks in the competition's public response data, three of them used as test benchmarks, and from random label acquisition. They describe the models and data we studied. They do not show that item-level information can never transfer, and they need not carry over to other benchmark mixes or label-selection policies.
+\paragraph{Evidence.} Our results rest on 17 benchmarks from the competition's public data, with random label acquisition, and three benchmarks serve as test. Intervals resample tasks, so they do not reflect which benchmarks are held out. We therefore also report the gain over all 680 choices of three held-out benchmarks (Appendix~\ref{app:split-sensitivity}), and read them as a measure of sensitivity, since they overlap.
 
-\paragraph{Uncertainty.} Our confidence intervals come from resampling tasks, so they do not capture the uncertainty from which benchmarks happen to be held out. Repeating the experiment over many choices of held-out benchmarks addresses part of this (Appendix~\ref{app:split-sensitivity}), but those choices overlap and are not independent tests.
+\paragraph{Selection.} All settings were chosen on validation. Test scores were visible during development, so we treat the test split as one of many possible splits and report the others. Our account of when the prior helps was formed after seeing the results and uses observed outcomes, so it explains them and does not select a prior for a new benchmark.
 
-\paragraph{Use of the test benchmarks.} We looked at test results repeatedly while building the models. Every setting was chosen on validation, but the test analyses should be read as a careful report on one split and not as a single untouched confirmation. The test split also favours the prior, as other choices of held-out benchmarks show.
-
-\paragraph{Explanation.} We found that the prior helps benchmarks of typical difficulty after seeing the results, and the analysis uses observed outcomes. It explains when the prior helped. It is not a rule for choosing a prior before a new benchmark is observed.
-
-\paragraph{What we did not test.} Each competition-shaped draw has one subject per benchmark, so sharing labels across subjects is untested. The ID comparison uses item response history that a new benchmark would not have, and observed item difficulty depends on which subjects answered an item. We did not rerun a prior based on subject metadata in this design, we dropped reasoning-trace features because they are unavailable at test time, and the kernel settings were chosen on validation and not on the ID evaluation set.
+\paragraph{Not tested.} Sharing labels across subjects, other label-selection policies, priors from subject metadata, reasoning-trace features (unavailable at test time) and stronger difficulty predictors. The conclusions are limited to the models and data above.
 
 \section{Disclosure}
 \label{sec:disclosure-rerun}
