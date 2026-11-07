@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -91,6 +92,20 @@ def _init(cache: str, embeddings: str, n_clusters: tuple) -> None:
                    for (t, s), g in orders.groupby(["task_id", "order_seed"])}
 
 
+_PM: dict = {}
+
+
+def prior_mean_table(arm: str) -> dict:
+    """R5: predicted item difficulty (positive = harder) from a probe trained on training benchmarks only, centred within
+    each benchmark (the benchmark rate absorbs the benchmark's average). Uses item features only, never outcomes."""
+    if arm not in _PM:
+        d = pd.read_parquet(Path(os.environ.get("AIMS_R5_DIR", Path(__file__).resolve().parents[3] / "received_files" / "r9"))
+                            / f"r5-{arm}-item-difficulties.parquet")
+        d = d.assign(z=d["difficulty"] - d.groupby("benchmark_id")["difficulty"].transform("mean"))
+        _PM[arm] = dict(zip(zip(d.benchmark_id, d.content_hash), d.z))
+    return _PM[arm]
+
+
 def _similarity(kind: str, param, hs: list[str]) -> np.ndarray:
     if kind == "rasch" or len(hs) == 0:
         return np.eye(len(hs))
@@ -120,6 +135,9 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
     tau_b, tau_s = (cfg[4], cfg[5]) if len(cfg) > 4 else (TAU_B, TAU_S)
     # Optional seventh entry overrides the benchmark-rate prior mean.
     m0 = cfg[6] if len(cfg) > 6 else M0
+    # Optional eighth entry (arm, gamma): item prior mean gamma * (centred predicted difficulty); gamma = 0 is the old model.
+    pm = prior_mean_table(cfg[7][0]) if len(cfg) > 7 and cfg[7][1] != 0 else None
+    gamma = cfg[7][1] if pm is not None else 0.0
     benches = sorted({e[0] for e in evidence})
     subjects = sorted({e[1] for e in evidence})
     items = sorted({(e[0], e[2]) for e in evidence})
@@ -145,6 +163,9 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
         prec[np.ix_(idx, idx)] = Kinv
         inv_blocks[b] = (hs, idx, Kinv)
     mean = np.concatenate([np.full(nb, m0), np.zeros(ns + ni)])
+    if pm is not None:
+        for (b, h), q in ii.items():
+            mean[q] = gamma * pm.get((b, h), 0.0)
     v = mean.copy()
     LAST_NEWTON["converged"] = False
     for it in range(30):
@@ -167,7 +188,9 @@ def fit_predict(evidence, targets_by_task, cfg) -> dict:
             bL = v[idx]
             known = {h: v[ii[(b, h)]] for h in hs}
             cross = tau ** 2 * rho * _cross(kind, param, list(hashes), hs)
-            diff = cross @ (Kinv @ bL)
+            mL = mean[idx]
+            mT = np.array([gamma * pm.get((b, h), 0.0) for h in hashes]) if pm is not None else 0.0
+            diff = mT + cross @ (Kinv @ (bL - mL))
             for j, h in enumerate(hashes):
                 if h in known:
                     diff[j] = known[h]

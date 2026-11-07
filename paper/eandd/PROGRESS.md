@@ -303,3 +303,13 @@ Quick read (40 triples; Person-B's R8 does the full analysis):
 This agrees with the earlier approximation from leave-one-out gains (mean -0.0050, harmful in 18%): the exact refits do not
 change the picture. The fitted hyperparameters vary little across the 31 fits (Beta mean 0.49-0.57, strength 3.0-4.7;
 Rasch tau_b 0.59-0.88), so the spread across splits comes from which benchmarks are held out, not from unstable fits.
+
+## R5: probe difficulty as the Rasch item prior mean (2026-11-07)
+Person-B's exports (`person-b-r9-original-v1`; pass-rate MLP and Rasch-target MLP, trained on 8,462 training-benchmark items;
+Spearman 0.090 and 0.103, 5/6 benchmarks positive) used as the prior mean of the item deviation: delta_j ~ N(gamma z_j, sigma_delta^2),
+z_j the predicted difficulty centred within its benchmark (features only). Base: fitted Rasch. gamma chosen on validation only.
+Code: `online/kernel_rasch_replay.py` (cfg[7] = (arm, gamma)), `eandd/r5_prior_mean.py`; runs `r5-prior-mean-v1`, `-signcheck`.
+- Competition-shaped ALC difference to Jeffreys, validation / test. Fitted Rasch (gamma 0): +0.0052 / -0.0119 (reproduces).
+- gamma 0.25 to 1.5: worse on both roles for both arms (pass-rate +0.033 to +0.133 on validation; Rasch-target +0.010 to +0.104).
+- Negative gamma is worse, so the sign is right. Best small gamma (0.05, Rasch-target): +0.0048 / -0.0123, i.e. within 0.0004 of gamma 0.
+- Verdict: the probes pass the rank criterion but do not improve Brier as a prior mean. Null, report as such (answers reviewer Q2).

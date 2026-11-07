@@ -1,0 +1,33 @@
+\label{sec:itemfeat-text}
+\begin{table}[H]
+\centering
+\caption{Item-difficulty transfer: within-benchmark Spearman correlation and pairwise accuracy between predicted and observed item difficulty, averaged across benchmarks. ID: items held out within the 11 training benchmarks; OOD validation and OOD test: three unseen benchmarks each. The MLP probes were not evaluated on ID (--).}
+\label{tab:item-difficulty}
+\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{ID} & \multicolumn{2}{c}{OOD validation} & \multicolumn{2}{c}{OOD test}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Probe & Spearman & Pairwise & Spearman & Pairwise & Spearman & Pairwise\\
+\midrule
+Random score & $-0.003$ & $0.499$ & $-0.024$ & $0.490$ & $0.076$ & $0.529$\\
+\midrule
+Log character count & $0.107$ & $0.539$ & $0.058$ & $0.525$ & $0.061$ & $0.521$\\
+Ridge on embeddings & $0.400$ & $0.649$ & $0.196$ & $0.570$ & $-0.020$ & $0.494$\\
+Pass-rate MLP & -- & -- & $0.071$ & $0.523$ & $0.109$ & $0.539$\\
+Rasch-target MLP & -- & -- & $0.120$ & $0.540$ & $0.104$ & $0.538$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Embeddings show a clear signal on known benchmarks. On the six unseen benchmarks the two MLP probes pass the criterion we fixed in advance, with pooled Spearman $0.090$ and $0.103$ against $0.026$ for a random baseline and a positive correlation on 5 of 6 benchmarks; the ridge probes do not ($0.065$ and $0.047$). On the three test benchmarks alone the margin over the random baseline is small ($0.109$ and $0.104$ against $0.076$) and rests on three benchmarks.
+
+This small signal does not help prediction. Table~\ref{tab:probe-prior} shows that no scale $\gamma$ of Equation~\eqref{eq:probe-prior} helps: every $\gamma\ge0.25$ is worse than $\gamma=0$ on both splits, and the best scale chosen on validation ($\gamma=0.05$, Rasch-target MLP) is within $0.0004$ of $\gamma=0$ on both. This tests these two probes only; a stronger difficulty predictor, for instance one trained through an item response likelihood on more items, could do better.
+
+\begin{table}[H]
+\centering
+\caption{Predicted item difficulty as the prior mean of the Rasch item deviation, Equation~\eqref{eq:probe-prior}. Cells are $\Delta_{m-\mathrm{J}}$ of the fitted Rasch with scale $\gamma$, competition-shaped draws; $\gamma=0$ is the fitted Rasch without a prior mean. Bold: lowest in each column.}
+\label{tab:probe-prior}
+\input{eandd_r5}
+\end{table}
+

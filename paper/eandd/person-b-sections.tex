@@ -1,62 +1,64 @@
 % Person B handoff. Include in the private eandd.tex or paste each section in its place.
 % Requires the booktabs package (\toprule, \midrule, \bottomrule).
-\section{Setting and online simulation}
+\section{Data and evaluation protocol}
 \label{sec:setting-online}
-We run the online simulation on recorded binary responses from the filtered public data, using disjoint
-benchmark sets for training, validation, and test (11, 3, and 3 benchmarks).
-Prior fitting uses training data; validation is used for selecting settings.
-The competition-shaped draws sample one subject per benchmark in each draw,
-so a predictor cannot borrow labels from other subjects on that benchmark in
-the same draw. This is a public-data simulation of the competition protocol.
+\paragraph{Data.} The data are a binary response matrix $Y\in\{0,1\}^{N\times M}$ with $N$ subjects (rows, index $i$) and $M$ items (columns, index $j$): $Y_{ij}=1$ if subject $i$ answers item $j$ correctly. Most entries are missing, since a subject answers only the items of the benchmarks it was evaluated on. Each item $j$ belongs to the dataset $d(j)$ of one of $D=17$ benchmarks, so a benchmark is a block of columns, and a \emph{task} is one row restricted to one block: subject $i$ on benchmark $d$.
 
-For each subject--benchmark pair we freeze a split of distinct items into
-acquisition and evaluation pools, assigning the extra item to acquisition
-when the count is odd. A frozen random acquisition order supplies nested
-prefixes of 0, 1, 3, 7, 15, and 31 labels. At each budget the predictor
-conditions on the allowed prefix and predicts the same evaluation items.
-Evaluation outcomes are used only to score those predictions. We average
-Brier scores over query items, then average repeated appearances within each
-task and give tasks equal weight. Brier ALC combines the six budgets with
-weights $(0.1,0.2,0.2,0.2,0.2,0.1)$. Paired intervals resample whole tasks
-with their matched predictions. As a separate in-distribution (ID) control,
-we hold out subjects within training benchmarks and retain questions covered
-by the fit subjects. The offline comparator can reuse fitted benchmark rates
-and item difficulties where available; its online update changes ability.
+Each item $j$ has an embedding $x_j\in\mathbb R^{1024}$ computed once from its text by the frozen BGE-M3 encoder~\citep{chen2024bge} with a context of 8,192 tokens, and normalised to unit length. We use BGE-M3 because the corpus is multilingual (it includes Chinese, Russian and several African languages) and some items are long, which English-only and 512-token encoders handle poorly.
 
-\section{Item-difficulty transfer}
-\label{sec:item-difficulty-transfer}
-We ask whether item features recover the ordering of observed item
-difficulty. The target is the mean binary correctness per item, centered
-within benchmark for fitting. We compare a ridge probe of item embeddings,
-a probe using log character count, and a sampled random score. The ID
-diagnostic holds out items within the 11 training benchmarks. The other
-two columns evaluate entire unseen benchmarks. All methods use matched
-items and sampled pairs. Pairwise accuracy excludes observed ties and
-gives half credit for predicted ties. Results are averaged across benchmarks.
+\paragraph{Online simulation and splits.} The competition protocol is \emph{online}: for each task, labels are revealed one at a time and the predictor updates from them. Whatever the predictor knows before the first label is \emph{offline}, that is, fitted on the training benchmarks beforehand. Our \emph{online simulation} runs this protocol on recorded responses, with disjoint column blocks for training, validation, and test (11, 3, and 3 benchmarks): priors are fitted offline on training, and validation selects settings. The validation and test benchmarks are \emph{out of distribution} (OOD), since nothing from them is seen during fitting.
 
-\begin{table}[t]
+A \emph{competition-shaped draw} samples one subject per benchmark, so a predictor cannot borrow labels from other subjects on the same benchmark; this simulates the competition protocol on public data. As a separate \emph{in-distribution} (ID) evaluation, we hold out rows (subjects) within the training blocks, so its benchmarks and items have been seen during fitting, and retain the questions covered by the fit subjects. The offline comparator reuses its fitted benchmark rates and item difficulties where available, and its online update changes only the subject ability.
+
+\paragraph{Budgets and scoring.} For each subject--benchmark pair we freeze a split of distinct items into acquisition and evaluation pools, assigning the extra item to acquisition when the count is odd. A frozen random acquisition order supplies nested prefixes of 0, 1, 3, 7, 15, and 31 labels. At each budget the predictor conditions on the allowed prefix and predicts the same evaluation items.
+
+Evaluation outcomes are used only to score those predictions. We average Brier scores over query items, then average repeated appearances within each task and give tasks equal weight. Brier ALC combines the six budgets with weights $(0.1,0.2,0.2,0.2,0.2,0.1)$. Paired intervals resample whole tasks with their matched predictions.
+
+\section{Probes}
+\label{sec:probes-text}
+A probe predicts the difficulty of an item from its features alone, before any label of its benchmark is seen. The target is the mean binary correctness per item, centered within benchmark for fitting. We compare a ridge probe of item embeddings, a probe using log character count, and a sampled random score. We also train two small neural probes (MLPs) on the item embeddings, one on item pass rate and one on the fitted Rasch item difficulty, using 8,462 items from the 11 training benchmarks only.
+
+We score a probe on each benchmark $d$ by two numbers, and average each over benchmarks. Let $y_j$ be the observed difficulty of item $j$ and $\hat y_j$ the probe's prediction. The \emph{Spearman correlation} $\rho_d=\operatorname{corr}\big(\operatorname{rank}(\hat y_j),\operatorname{rank}(y_j)\big)$ compares the two orderings of the items: it is $1$ if the probe orders them perfectly, $0$ if its order is unrelated to the truth, and $-1$ if it is reversed. The \emph{pairwise accuracy} $A_d=\frac{1}{|P_d|}\sum_{(j,k)\in P_d}s_{jk}$ is the share of item pairs the probe orders correctly, where $P_d$ is the set of pairs with $y_j\neq y_k$ (observed ties are excluded), $s_{jk}=1$ if $\hat y_j-\hat y_k$ has the same sign as $y_j-y_k$, $s_{jk}=\tfrac12$ if the probe predicts a tie, and $s_{jk}=0$ otherwise. A random score has $A_d=0.5$ on average. The ID diagnostic holds out items within the 11 training benchmarks; the OOD columns evaluate entire unseen benchmarks. All methods use matched items and sampled pairs.
+
+To test whether a probe helps prediction, we give the item deviations of Rasch a prior mean taken from it,
+\begin{equation}\label{eq:probe-prior}
+\delta_j\sim\mathcal N\big(\gamma\,z_j,\ \sigma_\delta^2\big),
+\end{equation}
+where $z_j$ is the probe's predicted difficulty of item $j$, centred within its benchmark (the benchmark rate $\mu_d$ absorbs the average), and $\gamma$ is a scale; $\gamma=0$ is the fitted Rasch. The probes use item features only, never outcomes.
+
+\section{Item features}
+\label{sec:itemfeat-text}
+\begin{table}[H]
 \centering
-\caption{Item-difficulty transfer (WP7). Cells report within-benchmark
-Spearman correlation and pairwise accuracy, respectively.}
+\caption{Item-difficulty transfer: within-benchmark Spearman correlation and pairwise accuracy between predicted and observed item difficulty, averaged across benchmarks. ID: items held out within the 11 training benchmarks; OOD validation and OOD test: three unseen benchmarks each. The MLP probes were not evaluated on ID (--).}
 \label{tab:item-difficulty}
-\begin{tabular}{lccc}
+\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
 \toprule
-Feature & ID (11) & Validation (3) & Test (3)\\
+ & \multicolumn{2}{c}{ID} & \multicolumn{2}{c}{OOD validation} & \multicolumn{2}{c}{OOD test}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Probe & Spearman & Pairwise & Spearman & Pairwise & Spearman & Pairwise\\
 \midrule
-Embedding & $0.400$ / $0.649$ & $0.196$ / $0.570$ & $-0.020$ / $0.494$\\
-Log character count & $0.107$ / $0.539$ & $0.058$ / $0.525$ & $0.061$ / $0.521$\\
-Random score & $-0.003$ / $0.499$ & $-0.024$ / $0.490$ & $0.076$ / $0.529$\\
+Random score & $-0.003$ & $0.499$ & $-0.024$ & $0.490$ & $0.076$ & $0.529$\\
+\midrule
+Log character count & $0.107$ & $0.539$ & $0.058$ & $0.525$ & $0.061$ & $0.521$\\
+Ridge on embeddings & $0.400$ & $0.649$ & $0.196$ & $0.570$ & $-0.020$ & $0.494$\\
+Pass-rate MLP & -- & -- & $0.071$ & $0.523$ & $0.109$ & $0.539$\\
+Rasch-target MLP & -- & -- & $0.120$ & $0.540$ & $0.104$ & $0.538$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Embeddings show a clear signal on known benchmarks. The historical figure
-of about $0.09$ Spearman ($0.53$ pairwise) pools validation and test across
-all six unseen benchmarks. On the three test benchmarks alone, neither
-feature beats the matched sampled random control on either metric.
-This is a descriptive result: the sampled control can fluctuate around
-chance, and three benchmarks cannot establish that the features have no
-transfer value.
+Embeddings show a clear signal on known benchmarks. On the six unseen benchmarks the two MLP probes pass the criterion we fixed in advance, with pooled Spearman $0.090$ and $0.103$ against $0.026$ for a random baseline and a positive correlation on 5 of 6 benchmarks; the ridge probes do not ($0.065$ and $0.047$). On the three test benchmarks alone the margin over the random baseline is small ($0.109$ and $0.104$ against $0.076$) and rests on three benchmarks.
+
+This small signal does not help prediction. Table~\ref{tab:probe-prior} shows that no scale $\gamma$ of Equation~\eqref{eq:probe-prior} helps: every $\gamma\ge0.25$ is worse than $\gamma=0$ on both splits, and the best scale chosen on validation ($\gamma=0.05$, Rasch-target MLP) is within $0.0004$ of $\gamma=0$ on both. This tests these two probes only; a stronger difficulty predictor, for instance one trained through an item response likelihood on more items, could do better.
+
+\begin{table}[H]
+\centering
+\caption{Predicted item difficulty as the prior mean of the Rasch item deviation, Equation~\eqref{eq:probe-prior}. Cells are $\Delta_{m-\mathrm{J}}$ of the fitted Rasch with scale $\gamma$, competition-shaped draws; $\gamma=0$ is the fitted Rasch without a prior mean. Bold: lowest in each column.}
+\label{tab:probe-prior}
+\input{eandd_r5}
+\end{table}
 
 \section{Limitations}
 \label{sec:limitations}
@@ -64,7 +66,7 @@ The filtered public data covers only three test benchmarks in the online simulat
 and acquisition orders measure variation within this population; they do not
 supply independent tests of transfer to new benchmarks. Task bootstrap
 intervals likewise do not capture uncertainty from sampling new benchmarks.
-Results apply to the eligible response panels and random label acquisition,
+Results apply to the eligible response data and random label acquisition,
 and need not carry over to other benchmark mixes or selection policies.
 The 17-benchmark sensitivity analysis reuses held-out-subject tasks for
 the 11 original training benchmarks. The test triples overlap, so their

@@ -1,12 +1,13 @@
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
-Model & Test & Validation & Multi-pair test \\
+Model $m$ & OOD validation & OOD test \\
 \midrule
-Benchmark rate only & \shortstack[r]{$\minus0.0172$ \\{}[$\minus0.0202$, $\minus0.0142$]} & \shortstack[r]{$+0.0211$ \\{}[$+0.0114$, $+0.0311$]} & \shortstack[r]{$\minus0.0153$ \\{}[$\minus0.0186$, $\minus0.0118$]} \\
-+ subject ability & \shortstack[r]{$\minus0.0089$ \\{}[$\minus0.0100$, $\minus0.0080$]} & \shortstack[r]{$+0.0029$ \\{}[$\minus0.0003$, $+0.0060$]} & \shortstack[r]{$\minus0.0092$ \\{}[$\minus0.0103$, $\minus0.0081$]} \\
-+ item difficulty (Rasch) & \shortstack[r]{$\minus0.0119$ \\{}[$\minus0.0133$, $\minus0.0106$]} & \shortstack[r]{$+0.0052$ \\{}[$+0.0007$, $+0.0098$]} & \shortstack[r]{$\minus0.0124$ \\{}[$\minus0.0139$, $\minus0.0110$]} \\
-+ kernel & \shortstack[r]{$\minus0.0118$ \\{}[$\minus0.0131$, $\minus0.0105$]} & \shortstack[r]{$+0.0036$ \\{}[$\minus0.0006$, $+0.0078$]} & \shortstack[r]{$\minus0.0125$ \\{}[$\minus0.0140$, $\minus0.0111$]} \\
-Rate and item, no ability & \shortstack[r]{$\minus0.0174$ \\{}[$\minus0.0208$, $\minus0.0139$]} & \shortstack[r]{$+0.0282$ \\{}[$+0.0164$, $+0.0401$]} & \shortstack[r]{$\minus0.0158$ \\{}[$\minus0.0196$, $\minus0.0119$]} \\
-Ability and item, no rate & \shortstack[r]{$\minus0.0140$ \\{}[$\minus0.0157$, $\minus0.0122$]} & \shortstack[r]{$+0.0078$ \\{}[$+0.0022$, $+0.0135$]} & \shortstack[r]{$\minus0.0144$ \\{}[$\minus0.0162$, $\minus0.0126$]} \\
+Benchmark rate $\mu_d$ only & \begin{tabular}[c]{@{}r@{}}$+0.0211$ \\{}[$+0.0114$, $+0.0311$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\minus0.0172$ \\{}[$\minus0.0202$, $\minus0.0142$]\end{tabular} \\
++ subject ability $\theta_i$ & \begin{tabular}[c]{@{}r@{}}$\mathbf{+0.0029}$ \\{}[$\minus0.0003$, $+0.0060$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\minus0.0089$ \\{}[$\minus0.0100$, $\minus0.0080$]\end{tabular} \\
++ item deviation $\delta_j$ (Rasch) & \begin{tabular}[c]{@{}r@{}}$+0.0052$ \\{}[$+0.0007$, $+0.0098$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\minus0.0119$ \\{}[$\minus0.0133$, $\minus0.0106$]\end{tabular} \\
++ kernel & \begin{tabular}[c]{@{}r@{}}$+0.0036$ \\{}[$\minus0.0006$, $+0.0078$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\minus0.0118$ \\{}[$\minus0.0131$, $\minus0.0105$]\end{tabular} \\
+\midrule
+$\mu_d$ and $\delta_j$, no $\theta_i$ & \begin{tabular}[c]{@{}r@{}}$+0.0282$ \\{}[$+0.0164$, $+0.0401$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\mathbf{\minus0.0174}$ \\{}[$\minus0.0208$, $\minus0.0139$]\end{tabular} \\
+$\theta_i$ and $\delta_j$, no $\mu_d$ & \begin{tabular}[c]{@{}r@{}}$+0.0078$ \\{}[$+0.0022$, $+0.0135$]\end{tabular} & \begin{tabular}[c]{@{}r@{}}$\minus0.0140$ \\{}[$\minus0.0157$, $\minus0.0122$]\end{tabular} \\
 \bottomrule
 \end{tabular}
