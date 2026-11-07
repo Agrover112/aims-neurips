@@ -1,17 +1,11 @@
 \label{sec:limitations}
-The filtered public data covers only three test benchmarks in the online simulation. Multiple draws
-and acquisition orders measure variation within this population; they do not
-supply independent tests of transfer to new benchmarks. Task bootstrap
-intervals likewise do not capture uncertainty from sampling new benchmarks.
-Results apply to the eligible response data and random label acquisition,
-and need not carry over to other benchmark mixes or selection policies.
-The 17-benchmark sensitivity analysis reuses held-out-subject tasks for
-the 11 original training benchmarks. The test triples overlap, so their
-distribution describes sensitivity within this dataset rather than
-independent estimates of transfer.
-The ID comparison has item response history that is unavailable under
-benchmark cold start. Observed item difficulty also depends on which subjects
-answered the item. The leave-one-benchmark-out association uses realized
-outcomes to explain when the fitted prior helps; it is not a way to select a
-prior before observing a new benchmark.
+\paragraph{Scope.} Our results come from 17 benchmarks in the competition's public response data, three of them used as test benchmarks, and from random label acquisition. They describe the models and data we studied. They do not show that item-level information can never transfer, and they need not carry over to other benchmark mixes or label-selection policies.
+
+\paragraph{Uncertainty.} Our confidence intervals come from resampling tasks, so they do not capture the uncertainty from which benchmarks happen to be held out. Repeating the experiment over many choices of held-out benchmarks addresses part of this (Appendix~\ref{app:split-sensitivity}), but those choices overlap and are not independent tests.
+
+\paragraph{Use of the test benchmarks.} We looked at test results repeatedly while building the models. Every setting was chosen on validation, but the test analyses should be read as a careful report on one split and not as a single untouched confirmation. The test split also favours the prior, as other choices of held-out benchmarks show.
+
+\paragraph{Explanation.} We found that the prior helps benchmarks of typical difficulty after seeing the results, and the analysis uses observed outcomes. It explains when the prior helped. It is not a rule for choosing a prior before a new benchmark is observed.
+
+\paragraph{What we did not test.} Each competition-shaped draw has one subject per benchmark, so sharing labels across subjects is untested. The ID comparison uses item response history that a new benchmark would not have, and observed item difficulty depends on which subjects answered an item. We did not rerun a prior based on subject metadata in this design, we dropped reasoning-trace features because they are unavailable at test time, and the kernel settings were chosen on validation and not on the ID evaluation set.
 
