@@ -4,7 +4,7 @@
 <p align="center">40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026</p>
 
 <p align="center">
-<a href="paper/eandd-drafts/eandd-v123.pdf"><b>Paper (PDF)</b></a> ·
+<a href="paper/eandd-drafts/eandd-v124.pdf"><b>Paper (PDF)</b></a> ·
 <a href="paper/neurips_2026/eandd.tex">LaTeX source</a> ·
 <a href="dist/submission.zip">Final Codabench entry <code>1005155</code></a> ·
 <a href="paper/eandd/PROGRESS.md">Results log</a>
