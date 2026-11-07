@@ -104,12 +104,21 @@ RC = {
 mpl.rcParams.update(RC)
 
 
-def style(ax, grid_axis: str = "y") -> None:
+PANEL_THEMES = {
+    "white": {"facecolor": "white", "grid_color": HAIRLINE, "grid_alpha": .35, "grid_width": .4},
+    "light-grey": {"facecolor": "#F0F0F0", "grid_color": "white", "grid_alpha": 1., "grid_width": .7},
+}
+
+
+def style(ax, grid_axis: str = "y", panel_theme: str = "white") -> None:
     """Drop the top/right frame and lay a hairline grid behind the data."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    theme = PANEL_THEMES[panel_theme]
+    ax.set_facecolor(theme["facecolor"])
     if grid_axis != "none":
-        ax.grid(True, axis=grid_axis, alpha=0.35, lw=0.4, color=HAIRLINE)
+        ax.grid(True, axis=grid_axis, alpha=theme["grid_alpha"],
+                lw=theme["grid_width"], color=theme["grid_color"])
     ax.set_axisbelow(True)
 
 

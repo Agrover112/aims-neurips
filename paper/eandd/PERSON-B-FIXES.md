@@ -1,5 +1,38 @@
 # What Person-B can fix, based on Person-A's paper changes (2026-11-07)
 
+## Person-B response
+
+- Figure labels F1/F3/F4/F5 were fixed on `submission` in `2bea768`.
+- The white/light-grey comparison is in `paper/eandd/style-preview/`.
+  The shared `plotstyle.py` defines both themes; production stays white.
+  The grey variant is a trial, not a global style change.
+- The confirmed benchmark-macro correlations are 0.089967 (pass-rate MLP),
+  0.102648 (Rasch-target MLP) and 0.025805 (sampled random control).
+  These are means of six within-benchmark correlations, not a correlation
+  computed after pooling all items.
+- Table 2 had stale Rasch-target numbers from the provisional local refit.
+  The original-fit values are validation 0.145958 / 0.550439 and test
+  0.059339 / 0.521689 (Spearman / pairwise). The test Rasch-target Spearman
+  is below the random control's 0.075927. The table now comes from the
+  confirmed CSVs via `assemble.py`.
+- Verified 8,462 fitting items from the 11 training benchmarks, the original
+  Rasch fit, five training-benchmark folds, and the 32-unit MLP configuration.
+  The methods now distinguish training supervision, easiness used for rank
+  scoring, and difficulty exported for Rasch.
+- Removed the internal “WP7” label from the disclosure prose. The actual
+  filename `wp7-summary.csv` remains a reproducibility pointer.
+- R5 wording needed softening: the validation-selected scale improves Brier
+  ALC by 0.00039 on validation and 0.00041 on test in the matched replay.
+  A blanket “no scale helps” is false; the body now says the gain is small
+  and does not by itself establish a reliable improvement. Person A should
+  use the same qualification in the abstract and conclusion.
+- A-title, A-abstract, A-priors, A-adaptive and A-conclusion remain Person A's.
+  The main text still needs the final length pass before submission.
+
+The checked source is `person-b-sections.tex`; generated section files and
+the Table 2 input are rebuilt by `assemble.py`. This does not regenerate
+the annotated review copy, whose source is not in the repository.
+
 Person-A restructured and reworded `paper/neurips_2026/eandd.tex` and your section file `paper/eandd/person-b-sections.tex`.
 `paper/reviewing/reviewing.pdf` shows what is still open (red = to fix, green = question or planned addition).
 

@@ -97,7 +97,7 @@ def prior_source_plot(summary, out):
     save_figure(fig, out)
 
 
-def per_benchmark_plot(table, out):
+def per_benchmark_plot(table, out, panel_theme="white"):
     t = table.loc[table.budget.eq("ALC") & table.model.eq("bb-eb") & table.role.isin(["test", "validation"])]
     t = t.sort_values(["role", "benchmark"]).reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 2.5))
@@ -108,7 +108,7 @@ def per_benchmark_plot(table, out):
     ax.set_yticks(t.index, t.benchmark)
     ax.invert_yaxis()
     ax.set_xlabel(r"$\Delta_{\mathrm{BB\,fit}-\mathrm{J}}$")
-    style(ax)
+    style(ax, panel_theme=panel_theme)
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
     fig.subplots_adjust(left=.24, right=.97, top=.83, bottom=.21)

@@ -56,6 +56,37 @@ for gi, (src, ms) in enumerate(rows):
         lines.append(f"\\hspace{{1em}}{name} & {id_cell} & {cell(vals, m, bold=(m == best['val']), second=(m == second['val']))} & {cell(tests, m, bold=(m == best['test']), second=(m == second['test']))} \\\\")
 (OUT / "eandd_table1.tex").write_text("\n".join(lines) + "\n")
 
+# Table 2: generate from the confirmed CSVs, never from a provisional refit.
+probe_old = pd.read_csv(DATA / "wp7-summary.csv").set_index(["setting", "role", "feature"])
+probe_new = pd.read_csv(DATA / "wp13-probe-summary.csv").set_index(["role", "arm"])
+probe_rows = []
+for label, old_feature, new_arm in [
+    ("Random score", "random", "random"),
+    ("Log character count", "length", None),
+    ("Ridge on embeddings", "embedding", None),
+    ("Pass-rate ridge", None, "pass_rate_ridge"),
+    ("Rasch-target ridge", None, "rasch_easiness_ridge"),
+    ("Pass-rate MLP", None, "pass_rate_mlp"),
+    ("Rasch-target MLP", None, "rasch_easiness_mlp"),
+]:
+    cells = []
+    for role in ("train", "validation", "test"):
+        if role == "train" and old_feature is None:
+            cells.extend(["--", "--"])
+            continue
+        if role != "train" and new_arm is not None:
+            result = probe_new.loc[(role, new_arm)]
+        else:
+            result = probe_old.loc[("ID" if role == "train" else "OOD", role, old_feature)]
+        cells.extend(f"${result[metric]:.3f}$" for metric in ("rho", "pairwise_acc"))
+    probe_rows.append(label + " & " + " & ".join(cells) + r" \\")
+(OUT / "eandd_probe_table.tex").write_text(
+    "\\begin{tabular}{lcccccc}\n\\toprule\n"
+    " & \\multicolumn{2}{c}{ID} & \\multicolumn{2}{c}{OOD validation} & \\multicolumn{2}{c}{OOD test}\\\\\n"
+    "\\cmidrule(lr){2-3}\\cmidrule(lr){4-5}\\cmidrule(lr){6-7}\n"
+    "Probe & Spearman & Pairwise & Spearman & Pairwise & Spearman & Pairwise\\\\\n"
+    "\\midrule\n" + "\n".join(probe_rows) + "\n\\bottomrule\n\\end{tabular}\n")
+
 b = (ROOT / "paper/eandd/person-b-sections.tex").read_text()
 parts = re.split(r"(?=\\section\{)", b)
 names = {"Data and evaluation protocol": "setting", "Probes": "probes", "Item features": "itemfeat", "Limitations": "limits",
