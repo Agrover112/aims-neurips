@@ -46,19 +46,32 @@ to its five-decimal rounding.
 - R9 ran on the matched WP7 items and pairs, with settings selected in
   training-benchmark folds. The pass-rate MLP passed the planned pooled
   rank criterion (Spearman 0.090, 5/6 positive, random 0.026); its Ridge
-  counterpart did not. The MLP using Rasch targets also passed on the local
-  refit (0.112, 6/6 positive); its Ridge counterpart did not. On the three
-  test benchmarks alone, Spearman was 0.109 for the pass-rate MLP, 0.104
-  for the Rasch-target MLP, and 0.076 for the sampled random control.
-  These are rank metrics, not downstream Brier gains. The Rasch results
-  are provisional: the local refit matched the original response and
-  item counts but used an item scale of 1.507 versus 1.491 in the stored
-  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`. The original
-  item fit and replay panel are now available in `person-a-v3`. Rerun
-  `reviewer_probes.py --rasch-fit <original-fit> --export --panel
-  <panel/items.parquet>` with the canonical responses and BGE cache
-  to write one `benchmark_id,content_hash,difficulty` parquet per
-  passing Rasch arm. The exported sign is Rasch difficulty, not easiness.
+  counterpart did not. **The Rasch-target MLP is now confirmed on Person A's
+  original trimmed WP4b fit:** Spearman 0.102648, gap to random 0.076843,
+  positive on 5/6 benchmarks. Its Ridge counterpart failed. These final
+  original-fit numbers replace the earlier provisional local-refit result.
+  The updated criterion JSON and per-benchmark scores are in `data/wp13-probe-*`.
+  These are rank metrics, not downstream Brier gains.
+
+  R5 exports are uploaded to shared workspace **aims-neurips**, volume
+  **aims-neurips-data**, at
+  `/results/eandd-analysis/person-b-r9-original-v1/`:
+
+  - `r5-pass_rate_mlp-item-difficulties.parquet`
+  - `r5-rasch_difficulty_mlp-item-difficulties.parquet`
+  - `MANIFEST.md`, `MANIFEST.json`, `wp13-probe-criterion.json`
+  - `probe-training-items.parquet` (exact training-item IDs).
+
+  Each export has exactly 13,048 unique `benchmark_id,content_hash` keys,
+  covering every acquisition and evaluation item in the supplied validation
+  and test panel. Missing and extra keys: zero. **Both columns are Rasch
+  difficulty, positive means harder; subtract from the success logit.**
+  Rasch-target predictions are negated easiness. Pass-rate predictions are
+  converted to logit-scale difficulty using the training baseline; the exact
+  formula is in the manifest. The signed exports also pass the rank criterion.
+  Both probes fit 8,462 WP7 sampled items from the 11 training benchmarks only,
+  with no validation/test fitting or tuning. Uploaded files were verified by
+  SHA-256 against the local checked exports. See `r5-original-fit-MANIFEST.md`.
 - R10 is complete for test, validation and ID. Official
   log-loss ALC is 0.6656 for the fitted Beta-Binomial versus 0.7045 for Jeffreys;
   ten-bin task ECE ALC is 0.1113 versus 0.1426. The CSVs also contain uniform

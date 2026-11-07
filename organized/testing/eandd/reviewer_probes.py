@@ -142,6 +142,10 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
         raise ValueError("Missing WP7 embeddings")
     vec = np.load(embeddings / ("matched_embeddings.npy" if matched else "item_embeddings.npy"), mmap_mode="r")
     x, z = np.asarray(vec[pos[fit]], np.float32), np.asarray(vec[pos[unseen.index]], np.float32)
+    if not np.isfinite(x).all() or not np.isfinite(z).all() or (
+        np.linalg.norm(x, axis=1).min() < .99 or np.linalg.norm(z, axis=1).min() < .99
+    ):
+        raise ValueError("BGE cache has invalid or unpopulated vectors; do not fit")
     groups = t.benchmark_id.to_numpy()[fit]
     targets = {"pass_rate": t.observed.to_numpy()[fit]}
     if rasch_fit:
@@ -194,6 +198,8 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
     summary.to_csv(output / "wp13-probe-summary.csv", index=False)
     provenance = {"rasch_fit": str(rasch_fit),
                   "rasch_fit_sha256": hashlib.sha256(rasch_fit.read_bytes()).hexdigest() if rasch_fit else None,
+                  "embedding_cache_sha256": hashlib.sha256(
+                      (embeddings / ("matched_embeddings.npy" if matched else "item_embeddings.npy")).read_bytes()).hexdigest(),
                   "panel": str(panel),
                   "selection": "Five GroupKFold splits over the 11 training benchmarks only; no validation/test selection"}
     (output / "wp13-probe-criterion.json").write_text(json.dumps(

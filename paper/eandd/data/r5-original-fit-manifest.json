@@ -1,0 +1,61 @@
+{
+  "sign": "Rasch difficulty: positive means harder; enters logit as minus difficulty.",
+  "training": "Both probes used 8462 deterministic WP7 sampled items (at most 800 per benchmark) from the 11 training benchmarks only; no validation or test items or outcomes were used for fitting, scaling, or hyperparameter selection.",
+  "training_item_list": "probe-training-items.parquet",
+  "pass_rate_baseline": 0.547894447002525,
+  "exports": {
+    "pass_rate_mlp": {
+      "file": "r5-pass_rate_mlp-item-difficulties.parquet",
+      "rows": 13048,
+      "transform": "difficulty = logit(training baseline) - logit(clip(training baseline + centered pass-rate prediction, 0.0001, 0.9999))",
+      "sha256": "c5d93216dbeda8e4b66ea2ece7703f0bf84fdc29e06f1fe054ea324e129ac79b",
+      "coverage": {
+        "expected_keys": 13048,
+        "exported_keys": 13048,
+        "missing": 0,
+        "extra": 0
+      },
+      "exported_sign_rank_check": {
+        "macro_rho": 0.09215643493056828,
+        "gap_to_random": 0.06635127618478634,
+        "positive_benchmarks": 5
+      }
+    },
+    "rasch_easiness_mlp": {
+      "file": "r5-rasch_difficulty_mlp-item-difficulties.parquet",
+      "rows": 13048,
+      "transform": "difficulty = - predicted benchmark-centered Rasch easiness",
+      "sha256": "60aa0e4e9cb071f935a66a60df1788113d1440a5f16baa14c8d7b0407504e740",
+      "coverage": {
+        "expected_keys": 13048,
+        "exported_keys": 13048,
+        "missing": 0,
+        "extra": 0
+      },
+      "exported_sign_rank_check": {
+        "macro_rho": 0.10264843703971697,
+        "gap_to_random": 0.07684327829393503,
+        "positive_benchmarks": 5
+      }
+    }
+  },
+  "provenance": {
+    "rasch_fit": "..\\eandd-data\\person-a-v3\\wp4b-offline-rasch-v1-trimmed.parquet",
+    "rasch_fit_sha256": "aec4b6951131edaaf94ec3bbc7be3ab65f070df5b4fc5eb252d22e1ccd97136a",
+    "embedding_cache_sha256": "6429d25abc93d1ce4ec4a37664332e43b2f10adcffafa389c00cfc33ec5eb273",
+    "panel": "..\\eandd-data\\person-a-v3\\panel\\items.parquet",
+    "selection": "Five GroupKFold splits over the 11 training benchmarks only; no validation/test selection"
+  },
+  "verification": {
+    "panel_sha256": "38efcde1123c0dabfa927d5ade8cad93f02bed99807091e6b99632d9691d206b",
+    "responses_sha256": "ec32ef73bfeda9ec8de77016b514bead6f77e6491667242031c30fd2da17b931",
+    "training_items": 8462,
+    "training_benchmarks": 11,
+    "validation_or_test_items_used_for_fit": 0,
+    "python": "3.11.16",
+    "numpy": "2.4.6",
+    "pandas": "2.3.3",
+    "scipy": "1.17.1",
+    "sklearn": "1.9.1"
+  }
+}
