@@ -128,7 +128,6 @@ s = sub(s, "\\input{eandd_b_setting}", "\\input{eandd_rv_setting}")
 s = sub(s, "\\input{eandd_b_itemfeat}", "\\input{eandd_rv_itemfeat}")
 s = sub(s, "\\input{eandd_b_limits}", "\\input{eandd_rv_limits}")
 imp = [
- ("\\begin{abstract}\n", "A-abstract", "Abstract: still long and number-heavy. Tighten it to one claim per sentence, check every number against the tables, and settle the headline (the average over splits) before finalising.", "after"),
  ("\\subsection{Priors}", "A-priors", "Priors (Section 4.3): the bullets are dense. Separate prior parameters from prior sources more clearly, consider a small table of the settings per model and source, and state plainly that the fitted kernel Rasch keeps $\\rho$ and $T$ from validation.", "after"),
  ("\\subsection{Priors}", "A-adaptive", "Methodology: adaptive priors are missing. Add the mixture prior, strength averaging and the pilot switch rule as models, with their equations (see NEW [5] above), before the results on them can be reported.", "before"),
  ("\\section{Conclusion}\n", "A-conclusion", "Conclusion: still to improve. The adaptive-priors sentence is unsupported until the body reports it; rewrite after the headline and the adaptive-priors result are settled, and keep it ranked and short.", "after"),
