@@ -4,7 +4,7 @@
 <p align="center">40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026</p>
 
 <p align="center">
-<a href="paper/eandd-drafts/eandd-v90.pdf"><b>Paper (PDF)</b></a> ·
+<a href="paper/eandd-drafts/eandd-v92.pdf"><b>Paper (PDF)</b></a> ·
 <a href="paper/neurips_2026/eandd.tex">LaTeX source</a> ·
 <a href="dist/submission.zip">Final Codabench entry <code>1005155</code></a> ·
 <a href="paper/eandd/PROGRESS.md">Results log</a>
@@ -52,7 +52,7 @@ Offline estimates that keep their fitted item values reach **−0.0852** on the 
 **Key findings**
 1. **What transfers is a prior, not item-level estimates.** Where fitted values apply, offline fitting is worth a very large gain; on unseen benchmarks it is worth none.
 2. **The prior's gain is modest and uneven:** −0.005 averaged over the 17 benchmarks, −0.004 over all 680 choices of three held-out benchmarks, and a loss in 17.5% of them. The 0.014 test gain is a favourable split.
-3. **When it helps:** a fitted prior benefits benchmarks whose accuracy lies near the prior mean and hurts those far from it (Spearman 0.96 over 17 benchmarks).
+3. **When it helps:** the prior pulls predictions toward a typical accuracy of about 52%, so it helps on benchmarks of typical difficulty and hurts on much easier or much harder ones (Spearman 0.96 between the gain and the distance from 0.52, over 17 benchmarks).
 4. **Item content:** neural probes on item embeddings carry a small rank signal for difficulty (benchmark-macro Spearman 0.09 and 0.10 against 0.03 for a random baseline; on the test benchmarks alone the Rasch-target probe is 0.06, below the random control), and using it as the Rasch prior mean improves Brier ALC by only about 0.0004.
 5. **Label sharing across subjects is untested:** each competition-shaped draw has one subject per benchmark.
 
