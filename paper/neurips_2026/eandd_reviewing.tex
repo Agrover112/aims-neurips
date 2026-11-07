@@ -9,6 +9,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{amsfonts}
 \usepackage{amsmath}
 \usepackage{microtype}
@@ -89,7 +90,11 @@ The simulation code, the fixed evaluation samples and every saved score are on \
 %==============================================================================
 \section{Methodology}\label{sec:models}
 %==============================================================================
+We first define the three predictors, then two ways of improving on them, adaptive priors and item-text probes, and finally the sources of the prior parameters that every predictor needs.
+
 \subsection{Models}
+The three predictors differ in what they model: a task's accuracy (Beta-Binomial), a subject's ability and each item's difficulty (Rasch), and the similarity between items (kernel Rasch).
+
 
 \paragraph{Beta-Binomial.} Let $p$ be a task's accuracy, with a Beta prior $p\sim\mathrm{Beta}(\alpha,\beta)$. After $n$ revealed labels, $k$ of them correct, the posterior is $\mathrm{Beta}(\alpha+k,\beta+n-k)$ and the prediction, the same for every item of the task, is its mean
 \begin{equation}\label{eq:bb}
@@ -111,7 +116,7 @@ where $x_j$ are the item embeddings of Section~\ref{sec:setting}, $\rho\in[0,1]$
 \paragraph{Offline model that keeps its fitted values.} For the ID evaluation, the offline Rasch keeps its fitted $\mu_d$ and $\delta_j$ for a benchmark and items it has seen and updates only the subject ability $\theta_i$ online (a one-dimensional MAP on the task's own labels). For an unseen benchmark or item it falls back to $m_0$ and $0$, i.e.\ to the fitted prior alone.
 
 \subsection{Adaptive priors}\label{sec:adaptive}
-The Beta-Binomial prior stays the same whatever labels arrive. An \emph{adaptive prior} lets the first labels change it. We test three closed-form versions, each refit without any held-out benchmark.
+The predictors above keep their prior fixed whatever labels arrive. An \emph{adaptive prior} lets the first labels change it. We test three closed-form versions, each refit without any held-out benchmark.
 
 \paragraph{Beta mixture.} The prior is a mixture of $K\in\{2,3\}$ Beta distributions with weights $w_c$, fitted by expectation maximisation on the accuracies of the training tasks. After $k$ of $n$ labels are correct, the weight of each component is updated by how well it explains them, and the prediction is the weighted mean of the components' posterior means,
 \begin{equation}\label{eq:mixture}
@@ -126,14 +131,26 @@ where $\mathrm{B}$ is the Beta function.
 \subsection{Probes}\label{sec:probes}
 \input{eandd_b_probes}
 
-\subsection{Priors}\par\begin{improve}{A-priors}Priors (Section 4.3): the bullets are dense. Separate prior parameters from prior sources more clearly, consider a small table of the settings per model and source, and state plainly that the fitted kernel Rasch keeps $\rho$ and $T$ from validation.\end{improve}\par
+\subsection{Priors}
+Every predictor above needs prior parameters, and where they come from is the one thing our comparison changes. We set them from one of three sources. \emph{Fixed in advance} means nothing is learned, so the Beta-Binomial uses Jeffreys and the Rasch models use unit widths. \emph{Tuned on validation} means the best setting on the three validation benchmarks from a grid. \emph{Fitted on training} means estimated from the 11 training benchmarks only. Table~\ref{tab:settings} lists the settings.
 
-Each model has prior parameters: $(\alpha,\beta)$ for the Beta-Binomial; $m_0$ and the widths $\sigma_\mu,\sigma_\theta,\sigma_\delta$ for Rasch; and in addition $\rho$ and $T$ for kernel Rasch. Each is set from one of three sources.
-\begin{itemize}
-  \item \textbf{Fixed in advance:} nothing learned. Beta-Binomial Jeffreys; Rasch $m_0=0$ and all widths $1$; kernel Rasch additionally $\rho=0.5$, $T=0.1$.
-  \item \textbf{Tuned on validation:} the best setting on the validation benchmarks from a grid (Beta-Binomial: $\alpha=0.4$, $\beta=0.6$; Rasch: $m_0=0.048$, $\sigma_\mu=2$, $\sigma_\theta=0.5$, $\sigma_\delta=1$; kernel Rasch: $m_0=0.048$, $\sigma_\mu=2$, $\sigma_\theta=1$, $\sigma_\delta=1.4$, $\rho=0.8$, $T=0.2$; probe prior mean, Section~\ref{sec:probes}: the scale $\gamma$ from a grid).
-  \item \textbf{Fitted on training:} the 11 training benchmarks only. The Beta-Binomial prior maximises the Beta-Binomial marginal likelihood of the training tasks, weighting benchmarks equally ($\alpha=1.92$, $\beta=1.76$: a prior mean of $0.522$ worth $\alpha+\beta=3.68$ labels). The Rasch priors come from a joint MAP fit to $4.34$ million training responses (4,809 subjects, 109,987 items) with empirical-Bayes hyperparameters averaged per benchmark so that the benchmark with most subjects does not dominate: $m_0=0.175$, $\sigma_\mu=0.75$, $\sigma_\theta=1.38$, $\sigma_\delta=1.49$. Kernel Rasch uses the same values and keeps $\rho=0.8$ and $T=0.2$ from the validation tuning, so its kernel is not fitted on training. The probes of Section~\ref{sec:probes} are trained on the training benchmarks' items only. Only these numbers transfer; the fitted $\mu_d$, $\theta_i$ and $\delta_j$ belong to training benchmarks, subjects and items.
-\end{itemize}
+\begin{table}[H]
+\centering
+\caption{Prior parameters by model and source. The prior mean of the Beta-Binomial is $\alpha/(\alpha+\beta)$ and its strength is $\alpha+\beta$. Kernel Rasch keeps $\rho$ and $T$ from validation, so its kernel is not fitted on training.}
+\label{tab:settings}
+\footnotesize\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}p{4.1cm}@{}}
+\toprule
+Model & Fixed in advance & Tuned on validation & Fitted on training\\
+\midrule
+Beta-Binomial & $\alpha=\beta=\tfrac12$ & $\alpha=0.4$, $\beta=0.6$ & $\alpha=1.92$, $\beta=1.76$\\
+Rasch & $m_0=0$, $\sigma_\mu=\sigma_\theta=\sigma_\delta=1$ & $m_0=0.048$, $\sigma_\mu=2$, $\sigma_\theta=0.5$, $\sigma_\delta=1$ & $m_0=0.175$, $\sigma_\mu=0.75$, $\sigma_\theta=1.38$, $\sigma_\delta=1.49$\\
+Kernel Rasch & as Rasch, $\rho=0.5$, $T=0.1$ & $m_0=0.048$, $\sigma_\mu=2$, $\sigma_\theta=1$, $\sigma_\delta=1.4$, $\rho=0.8$, $T=0.2$ & as fitted Rasch, $\rho=0.8$, $T=0.2$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The fitted Beta-Binomial prior maximises the Beta-Binomial marginal likelihood of the training tasks, weighting benchmarks equally. It has a mean of $0.522$ and is worth $\alpha+\beta=3.68$ labels. The fitted Rasch values come from a joint MAP fit to $4.34$ million training responses (4,809 subjects, 109,987 items), with empirical-Bayes hyperparameters averaged per benchmark so that the benchmark with the most subjects does not dominate. The scale $\gamma$ of the probe prior mean (Section~\ref{sec:probes}) is chosen from a grid on validation, and the probes are trained on the training benchmarks' items only. Only these numbers transfer to a new benchmark. The fitted $\mu_d$, $\theta_i$ and $\delta_j$ belong to training benchmarks, subjects and items.
 
 %==============================================================================
 \section{Results}\label{sec:results}
