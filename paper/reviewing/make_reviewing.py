@@ -49,9 +49,6 @@ figfix = {}
 for fn, (tag, txt) in figfix.items():
     key = "\\includegraphics{\\figdir/" + fn + "}"
     s = sub(s, key, key + "\n\\begin{fixnote}{" + tag + "}" + txt + "\\end{fixnote}")
-s = sub(s, "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}",
-        note("7", r"New appendix tables: the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).")
-        + "\\section{Sensitivity to the benchmark split}\\label{app:split-sensitivity}")
 
 END = r"""
 \clearpage

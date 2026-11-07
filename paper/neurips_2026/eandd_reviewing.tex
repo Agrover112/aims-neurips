@@ -275,7 +275,6 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \input{eandd_lobo}
 \end{table}
 
-\par\begin{addnote}{7}New appendix tables: the adaptive-prior results per benchmark; the pilot-diagnostic AUC and the switch-rule sweep; and the per-split distribution for the Rasch prior (40 triples).\end{addnote}\par
 \section{Sensitivity to the benchmark split}\label{app:split-sensitivity}
 \input{eandd_split_sensitivity}
 \begin{figure}[H]
@@ -283,6 +282,16 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
   \includegraphics{\figdir/figure5-split-sensitivity.pdf}
   \caption{$\D{BB\,fit}{J}$ over all 680 triples. Each empirical prior is fitted on the 14 benchmarks outside its triple. The vertical line marks the original test benchmark names under this refitting protocol.}
 \end{figure}
+
+For 40 random triples we also refit the Rasch prior without the triple's training benchmarks. Table~\ref{tab:rasch-triples} compares it with the Beta-Binomial on the same triples.
+
+\begin{table}[H]
+\centering
+\caption{The fitted prior on 40 random triples of held-out benchmarks. Mean macro $\Delta_{m-\mathrm{J}}$ over the triples, its 5th to 95th percentile, and the share of triples on which the prior hurts. The prior is refit without the triple's training benchmarks.}
+\label{tab:rasch-triples}
+\small
+\input{eandd_rasch_triples}
+\end{table}
 
 \section{Alternative evaluation metrics}\label{app:alternative-metrics}
 \begin{table}[H]
@@ -304,6 +313,33 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 z_j=\operatorname{logit}(\bar p)-\operatorname{logit}\!\big(\operatorname{clip}(\bar p+f(x_j),\,10^{-4},\,1-10^{-4})\big),
 \end{equation*}
 where $\bar p$ is the benchmark-weighted mean pass rate of the sampled training items. Positive difficulty means harder.
+
+\section{Adaptive prior details}\label{app:adaptive}
+Table~\ref{tab:adaptive-bench} gives the gain of each adaptive prior on every benchmark behind Table~\ref{tab:adaptive}. Table~\ref{tab:pilot} reports how well the first labels predict which tasks the fitted prior hurts, and Table~\ref{tab:switch} sweeps the switch threshold $\eta$. The threshold in Table~\ref{tab:adaptive} was chosen on validation, which picked the smallest value on the grid.
+
+\begin{table}[H]
+\centering
+\caption{$\Delta_{m-\mathrm{J}}$ per benchmark. Fitted BB: the fitted Beta-Binomial. Mixture: two components. Avg.\ strength and Avg.\ mean, strength: averaging over the prior's strength, or over its mean and strength. Switch: the switch to Jeffreys after 3 or 7 labels. Training benchmarks are held out in turn.}
+\label{tab:adaptive-bench}
+\scriptsize\setlength{\tabcolsep}{3pt}
+\input{eandd_adaptive_bench}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Can the first labels warn that the fitted prior will hurt a task? The score is the distance of the accuracy so far from the prior's mean, and the AUC separates the tasks the prior hurts from the rest, pooled over benchmarks and as a mean within each benchmark.}
+\label{tab:pilot}
+\small
+\input{eandd_pilot}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Sweep of the switch threshold $\eta$ over the 17 benchmarks. The fitted prior is kept while the accuracy so far lies within $\eta$ of its mean, and $\eta=\infty$ never switches. Columns as in Table~\ref{tab:adaptive}.}
+\label{tab:switch}
+\small
+\input{eandd_switch}
+\end{table}
 
 
 \clearpage

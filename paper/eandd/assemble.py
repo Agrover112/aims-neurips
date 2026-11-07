@@ -221,6 +221,39 @@ for name, m in ad_rows:
         ad_lines.append("\\midrule")
 (OUT / "eandd_adaptive.tex").write_text("\\begin{tabular}{lccc}\n\\toprule\nModel $m$ & Worst benchmark & Mean over 17 benchmarks & OOD test \\\\\n\\midrule\n" + "\n".join(ad_lines) + "\n\\bottomrule\n\\end{tabular}\n")
 
+
+# ---- appendix: adaptive-prior details (R3, R4) and the Rasch split distribution (R6) ----
+pb = pd.read_csv(DATA / "r3-adaptive-per-benchmark.csv")
+pb = pb[~pb.model.isin(["jeffreys", "mix3"])]
+cols = [("bb-eb", "Fitted BB"), ("mix2", "Mixture"), ("bma-s", "Avg.\\ strength"), ("bma-ms", "Avg.\\ mean, strength"), ("switch-3", "Switch, 3"), ("switch-7", "Switch, 7")]
+piv = pb.pivot_table(index=["benchmark", "source"], columns="model", values="gain").reset_index()
+order = {"lobo": 0, "validation": 1, "test": 2}; label = {"lobo": "Training", "validation": "OOD validation", "test": "OOD test"}
+piv["o"] = piv.source.map(order)
+piv = piv.sort_values(["o", "benchmark"])
+rows = []
+for r in piv.to_dict("records"):
+    rows.append(f"\\code{{{r['benchmark'].replace('_', chr(92) + '_')}}} & {label[r['source']]} & " + " & ".join(one(r[m]) for m, _ in cols) + " \\\\")
+(OUT / "eandd_adaptive_bench.tex").write_text("\\begin{tabular}{llcccccc}\n\\toprule\nBenchmark & Split & " + " & ".join(n for _, n in cols) + " \\\\\n\\midrule\n" + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+
+pa = pd.read_csv(DATA / "r4-pilot-auc.csv")
+pl = [f"{int(r.pilot_labels)} & {100*r.share_hurt:.1f}\\% & {r.auc_pooled:.2f} & {r.auc_mean_per_benchmark:.2f} \\\\" for r in pa.itertuples()]
+(OUT / "eandd_pilot.tex").write_text("\\begin{tabular}{cccc}\n\\toprule\nPilot labels & Tasks hurt & AUC, pooled & AUC, within benchmark \\\\\n\\midrule\n" + "\n".join(pl) + "\n\\bottomrule\n\\end{tabular}\n")
+
+sw = pd.read_csv(DATA / "r4-switch-sweep.csv")
+sl = []
+for r in sw.itertuples():
+    eta = "$\\infty$" if r.d >= 9 else f"{r.d:g}"
+    sl.append(f"{int(r.k)} & {eta} & {one(r.macro_17)} & {one(r.worst_17)} & {one(r.test_gain)} \\\\")
+(OUT / "eandd_switch.tex").write_text("\\begin{tabular}{ccccc}\n\\toprule\nPilot labels $k_0$ & Threshold $\\eta$ & Mean over 17 & Worst benchmark & OOD test \\\\\n\\midrule\n" + "\n".join(sl) + "\n\\bottomrule\n\\end{tabular}\n")
+
+tg = pd.read_csv(DATA / "r6-triple-gains.csv")
+tl = []
+for m, nm in (("bb-eb", "Beta-Binomial"), ("rasch-fitted", "Rasch")):
+    v = tg[tg.model == m].gain
+    q05, q95 = v.quantile([.05, .95])
+    tl.append(f"{nm} & {len(v)} & {one(v.mean())} & [{one(q05)}, {one(q95)}] & {100*(v > 0).mean():.1f}\\% \\\\")
+(OUT / "eandd_rasch_triples.tex").write_text("\\begin{tabular}{lcccc}\n\\toprule\nFitted prior & Triples & Mean macro $\\Delta_{m-\\mathrm{J}}$ & 5th--95th percentile & Hurts\\\\\n\\midrule\n" + "\n".join(tl) + "\n\\bottomrule\n\\end{tabular}\n")
+
 split = pd.read_csv(DATA / "wp13-split-sensitivity.csv")
 d = split.refit_macro_delta
 orig = d.loc[split.original_test_triple].item()
