@@ -55,8 +55,8 @@ We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one 
 \begin{itemize}
   \item \textbf{A controlled comparison.} We hold the models, the tasks and the order of revealed labels fixed and change only where the prior comes from. We run it in an online simulation of the competition protocol (Section~\ref{sec:models}).
   \item \textbf{What transfers.} A prior learned from past benchmarks transfers to a new benchmark, but estimates of individual item difficulty do not (Section~\ref{sec:results}). The prior helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. Neural networks that predict item difficulty from item text add almost nothing beyond it (Section~\ref{sec:itemfeat}).
-  \item \textbf{Open materials.} The simulation code, the fixed evaluation samples and every saved score are at \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 \end{itemize}
+The simulation code, the fixed evaluation samples and every saved score are at \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 
 %==============================================================================
 \section{Related work}\label{sec:related}
