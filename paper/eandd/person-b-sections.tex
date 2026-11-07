@@ -18,7 +18,7 @@ Evaluation outcomes are used only to score those predictions. We average Brier s
 \label{sec:probes-text}
 The predictors above ignore what an item says. A probe predicts an item's relative difficulty from its embedding before any response from that benchmark is available. We compare ridge regression on the embeddings, a probe using log character count, and a random score. We add ridge regression and a small neural network (MLP) that fit either the item pass rate or the negative fitted Rasch difficulty (easiness), each centred within its benchmark. The fitted probes use a fixed sample of 8,462 items from the 11 training benchmarks, at most 800 per benchmark, and choose their regularisation by five folds grouped by training benchmark. Appendix~\ref{app:probes} gives the training details.
 
-We score a probe on each benchmark $d$ by two numbers and average each over benchmarks. Let $y_j$ be the observed pass rate of item $j$ across recorded subjects and $\hat y_j$ its predicted easiness, so higher values mean easier items. The \emph{Spearman correlation} $\rho_d=\operatorname{corr}\big(\operatorname{rank}(\hat y_j),\operatorname{rank}(y_j)\big)$ compares the two orderings of the items: it is $1$ if the probe orders them perfectly, $0$ if its order is unrelated to the truth, and $-1$ if it is reversed. The \emph{pairwise accuracy} $A_d=\frac{1}{|P_d|}\sum_{(j,k)\in P_d}s_{jk}$ is the share of item pairs the probe orders correctly, where $P_d$ is the set of pairs with $y_j\neq y_k$ (observed ties are excluded), $s_{jk}=1$ if $\hat y_j-\hat y_k$ has the same sign as $y_j-y_k$, $s_{jk}=\tfrac12$ if the probe predicts a tie, and $s_{jk}=0$ otherwise. A random score has $A_d=0.5$ on average.
+We score a probe on each benchmark by its Spearman correlation and its pairwise accuracy between predicted and observed item difficulty, averaged over benchmarks. Appendix~\ref{app:probes} defines both.
 
 To test whether a probe helps prediction, we give the item deviations of Rasch a prior mean taken from it,
 \begin{equation}\label{eq:probe-prior}
@@ -28,7 +28,7 @@ where $z_j$ is the probe's predicted difficulty of item $j$, centred within its 
 
 \section{Item features}
 \label{sec:itemfeat-text}
-\begin{table}[H]
+\begin{table}[!t]
 \centering
 \caption{Item-difficulty transfer: within-benchmark Spearman correlation and pairwise accuracy between predicted easiness and observed pass rate, averaged across benchmarks. ID: items held out within the 11 training benchmarks; OOD validation and OOD test: three unseen benchmarks each. The additional pass-rate and Rasch-target probes use benchmark-grouped selection and were not evaluated on ID (--).}
 \label{tab:item-difficulty}
@@ -42,7 +42,7 @@ The rank signal yields only a small gain at the validation-selected scale. In Ta
 
 \section{Limitations}
 \label{sec:limitations}
-\paragraph{Evidence.} Our results rest on 17 benchmarks from the competition's public data, with random label acquisition, and three benchmarks serve as test. Intervals resample tasks, so they do not reflect which benchmarks are held out. We therefore also report the gain over all 680 choices of three held-out benchmarks (Appendix~\ref{app:split-sensitivity}), and read them as a measure of sensitivity, since they overlap.
+\paragraph{Evidence.} Our results rest on 17 benchmarks from the competition's public data, with random label acquisition, and three benchmarks serve as test. Intervals resample tasks, so they do not reflect which benchmarks are held out. Section~\ref{sec:results} and Appendix~\ref{app:split-sensitivity} report the sensitivity to that choice, and the choices overlap.
 
 \paragraph{Selection.} All settings were chosen on validation. Test scores were visible during development, so we treat the test split as one of many possible splits and report the others. Our account of when the prior helps was formed after seeing the results and uses observed outcomes, so it explains them and does not select a prior for a new benchmark.
 
