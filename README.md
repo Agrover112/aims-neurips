@@ -31,7 +31,7 @@ We test what carries over with one controlled design: the **same models, tasks a
 |---|---|---|
 | **Beta-Binomial** | posterior mean $(\alpha+k)/(\alpha+\beta+n)$ for a task with $k$ of $n$ labels correct | $(\alpha,\beta)$; Jeffreys is $(\tfrac12,\tfrac12)$ |
 | **Rasch** | $p_{ij}=\sigma(\theta_i-b_j)$, $b_j=\delta_j-\mu_{d(j)}$ (ability, item deviation, benchmark rate) | $m_0$, widths $\sigma_\mu,\sigma_\theta,\sigma_\delta$ |
-| **Kernel Rasch** | Rasch with item deviations correlated by BGE-M3 embedding similarity | adds kernel weight $\rho$ and temperature $T$ |
+| **Kernel Rasch** | Rasch with item deviations correlated by BGE-M3 embedding similarity | adds kernel weight ρ and temperature *T* |
 
 ## Results
 Δ<sub>m−J</sub> (Brier ALC difference to the Jeffreys Beta-Binomial; negative is better), competition-shaped draws.
