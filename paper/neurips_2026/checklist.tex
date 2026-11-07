@@ -67,7 +67,7 @@
 \item {\bf Open access to data and code}
     \item[] Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The linked GitHub repository provides the code, dependency and execution instructions, the fixed evaluation samples, the saved scores and the aggregate result tables, so every table and figure in the paper can be rebuilt from them. The competition's response data cannot be redistributed and is not included, so a full rerun of the simulation needs authorised access to that data, as the repository's data documentation explains.
+    \item[] Justification: The linked GitHub repository provides the code, dependency and execution instructions, the fixed evaluation samples, the saved scores and the aggregate result tables, so every table and figure in the paper can be rebuilt from them. The response data are the public AI Measurement Data Bank (CC BY-SA 4.0, gated access on the Hugging Face Hub). They are not copied into the repository, so a full rerun of the simulation needs access to that dataset at the pinned revision, as the repository's data documentation explains.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that paper does not include experiments requiring code.
@@ -161,8 +161,8 @@
 
 \item {\bf Licenses for existing assets}
     \item[] Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected?
-    \item[] Answer: \answerNo{}
-    \item[] Justification: The paper credits BGE-M3 and the benchmark sources, and the repository identifies its own code license and data-access restrictions. It does not yet provide a complete explicit license-and-terms inventory for every third-party asset, so this requirement is not fully met.
+    \item[] Answer: \answerYes{}
+    \item[] Justification: Appendix~\ref{app:licences} states the licence of each asset: the AI Measurement Data Bank (CC BY-SA 4.0, revision pinned), BGE-M3 (MIT) and our code (MIT). The benchmarks are used only through the data bank and each is credited to its original paper.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the paper does not use existing assets.

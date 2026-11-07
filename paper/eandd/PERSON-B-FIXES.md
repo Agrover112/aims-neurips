@@ -1,6 +1,6 @@
 # Person-A update after Person-B's handoff (2026-11-07)
 
-Everything below is on `submission` and built into `paper/eandd-drafts/eandd-v145.pdf` and `paper/reviewing/reviewing.pdf`.
+Everything below is on `submission` and built into `paper/eandd-drafts/eandd-v146.pdf` and `paper/reviewing/reviewing.pdf`.
 
 - **Data fix:** `paper/eandd/data/wp13-probe-*.csv` and `r5-original-fit-manifest.json` on `submission` were still the provisional files, so Table 2 showed Rasch-target test Spearman 0.104; the confirmed files from `eandd-analysis` are now on `submission` and Table 2 shows 0.059 (test) and 0.146 (validation).
 - **Person-B's changes incorporated:** the figure labels (`2bea768`), the probe facts and Table 2 (original-fit values: Rasch-target test Spearman 0.059, below the random control's 0.076), and the plot-style preview. White stays the default background.
@@ -62,10 +62,6 @@ We are thinking of changing the plot background so the figures read better, for 
 ## 4. Still open (shown red in the reviewing copy)
 Title, abstract, Priors subsection, adaptive-priors method and conclusion (Person-A).
 
-## Request to Person-B: licences for the checklist (question 12)
-The checklist answer for "Licenses for existing assets" can only be Yes once the paper states the licence and terms of use of what it uses. Please verify and record, in the same style as `literature/CITATIONS.md`:
-- the licence or terms of use of each of the 17 benchmark datasets (original release and the response-data release listed in `paper/eandd/BENCHMARK-CITATIONS.md`), or that none is stated;
-- the terms of the competition's response data (we do not redistribute it);
-- BGE-M3 (we believe MIT, please confirm from the model card).
-Person-A will then add a short "Licences and terms" appendix and switch the answer.
-Compute (question 8): confirmed that the probes also ran on CPU only.
+## Licences (checklist question 12): done
+Verified from the Hugging Face cards on 2026-11-07: the AI Measurement Data Bank is CC BY-SA 4.0 (gated, snapshot `54074453da7b9911be0f48e4c560be547bc84d21`) and BGE-M3 is MIT. The paper has an Appendix "Licences and terms" and the checklist answer is Yes. Person-B may still add per-benchmark licence notes to `BENCHMARK-CITATIONS.md` if a reviewer asks.
+Compute (question 8): the probes also ran on CPU only.

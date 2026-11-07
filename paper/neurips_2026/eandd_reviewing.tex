@@ -343,6 +343,11 @@ Kernel Rasch keeps Equation~\eqref{eq:rasch} and changes only the prior on the i
 \end{equation}
 where $x_j$ are the item embeddings of Section~\ref{sec:setting}, $\rho\in[0,1]$ weights the similarity part $S$ and $T$ is its temperature. At $\rho=0$ the two priors coincide; for $\rho>0$, similar items share difficulty, while items of different benchmarks stay independent. After the refit, a labelled item keeps its fitted deviation, and an unlabelled item $j$ receives the posterior mean given the labelled items $L$ of its benchmark, $\hat\delta_j=\rho\,\sigma_\delta^2\,S_{jL}K_{LL}^{-1}\hat{\boldsymbol\delta}_L$, which is $0$ at $\rho=0$ as in Rasch. With one subject per benchmark, as in the competition-shaped draws, no labels are shared across subjects: the joint fit equals independent per-task fits (maximum difference $10^{-14}$ in our check), so Rasch there differs from the Beta-Binomial only in its prior.
 
+\section{Licences and terms}\label{app:licences}
+\paragraph{Data.} The response data come from the AI Measurement Data Bank (\code{aims-foundations/measurement-db} on the Hugging Face Hub, revision \code{54074453da7b9911be0f48e4c560be547bc84d21}), which is released under the Creative Commons Attribution-ShareAlike 4.0 licence with gated access. We use the 17 benchmarks only through this data bank and credit the original paper of each benchmark in the table of Appendix~\ref{app:lobo}. The fixed evaluation samples, saved scores and result tables we release are derived from it and carry the same licence.
+
+\paragraph{Model and code.} The BGE-M3 encoder is released under the MIT licence, and our code is released under the MIT licence.
+
 \section{Additional figures}\label{app:figures}
 \begin{figure}[H]
   \centering

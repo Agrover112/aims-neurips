@@ -4,7 +4,7 @@
 <p align="center">40th Conference on Neural Information Processing Systems (NeurIPS 2026), The Predictive AI Evaluation Competition at NeurIPS 2026</p>
 
 <p align="center">
-<a href="paper/eandd-drafts/eandd-v145.pdf"><b>Paper (PDF)</b></a> ·
+<a href="paper/eandd-drafts/eandd-v146.pdf"><b>Paper (PDF)</b></a> ·
 <a href="paper/neurips_2026/eandd.tex">LaTeX source</a> ·
 <a href="dist/submission.zip">Final Codabench entry <code>1005155</code></a> ·
 <a href="paper/eandd/PROGRESS.md">Results log</a>
@@ -94,9 +94,9 @@ paper/build-eandd.sh        # needs tectonic at .tools/tectonic/tectonic (not in
 Tables and figures are rebuilt from the committed CSVs in `paper/eandd/data/`. Run names are new every time: `save_run` refuses to overwrite.
 
 ## Data
-The competition response data cannot be redistributed and is not in this repository. The experiments read it from local paths
-(`AIMS_RESPONSES`, `AIMS_REPLAY_CACHE`, `AIMS_EMBEDDINGS`, `AIMS_EANDD_DATA`; see `docs/collaboration-setup.md`).
-Included: the frozen draws (`paper/eandd/data/draws.parquet`), the small result tables and the saved checkpoints.
+The response data are the public [AI Measurement Data Bank](https://huggingface.co/datasets/aims-foundations/measurement-db) (CC BY-SA 4.0, gated access, snapshot `54074453da7b9911be0f48e4c560be547bc84d21`) and are not copied into this repository.
+The experiments read them from local paths (`AIMS_RESPONSES`, `AIMS_REPLAY_CACHE`, `AIMS_EMBEDDINGS`, `AIMS_EANDD_DATA`; see `docs/collaboration-setup.md`).
+Included: the frozen draws (`paper/eandd/data/draws.parquet`), the small result tables and the saved checkpoints. These derived files carry the same CC BY-SA 4.0 licence ([`DATA-LICENSE.md`](DATA-LICENSE.md)). Code and model files are MIT-licensed.
 
 ## Contributing and license
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`LICENSE`](LICENSE) (MIT). Do not commit credentials, hidden outcomes or data whose licence does not allow redistribution.
