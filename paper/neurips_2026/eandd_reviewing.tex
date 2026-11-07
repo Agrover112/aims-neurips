@@ -279,6 +279,15 @@ What transfers from offline fitting to an unseen benchmark is a shrinkage prior,
 
 \paragraph{Offline fit.} Our first offline fit stopped at its iteration limit of 400 in three of its four rounds. We refit it with a proper stopping rule. The hyperparameters moved by at most $1.2\%$, the benchmark rates by at most $0.011$ on the logit scale, and no Brier ALC changed by more than $0.0001$. The reported results use the first fit, and the refit leaves them unchanged.
 
+\section{Probe details}\label{app:probes}
+\paragraph{Training.} Inputs are standardised using the fitting items only. The neural network has one hidden layer of 32 units and a limit of 100 epochs. The Rasch targets come from the offline Rasch fit.
+
+\paragraph{From predictions to $z_j$.} For the Rasch-target probe, the difficulty $z_j$ is the negative of the predicted easiness. For the pass-rate probe, the centred prediction $f(x_j)$ is converted to a logit-scale difficulty,
+\begin{equation*}
+z_j=\operatorname{logit}(\bar p)-\operatorname{logit}\!\big(\operatorname{clip}(\bar p+f(x_j),\,10^{-4},\,1-10^{-4})\big),
+\end{equation*}
+where $\bar p$ is the benchmark-weighted mean pass rate of the sampled training items. Positive difficulty means harder.
+
 
 \clearpage
 \section*{What I would change and why}
