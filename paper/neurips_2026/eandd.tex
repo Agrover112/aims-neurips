@@ -53,8 +53,8 @@ Evaluating language models on every item of every benchmark is expensive, so a p
 
 We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one subject (a model under given evaluation settings) answering one benchmark, labels are bought one at a time, and predictions are scored by Brier ALC at 0, 1, 3, 7, 15 and 31 labels. Our contributions:
 \begin{itemize}
-  \item \textbf{A controlled comparison.} Models, tasks and label order are fixed and only the source of the prior changes, in an online simulation of the competition protocol (Section~\ref{sec:models}).
-  \item \textbf{What transfers.} A learned prior transfers to a new benchmark and item-level estimates do not. The prior helps on benchmarks of typical difficulty and hurts on much easier or harder ones, and item text adds almost nothing beyond it (Section~\ref{sec:results}).
+  \item \textbf{A controlled comparison of prior sources.} Models, tasks and label order are fixed and only the source of the prior changes, in an online simulation of the competition protocol (Section~\ref{sec:models}).
+  \item \textbf{A learned prior transfers to new benchmarks, item-level estimates do not.} The prior helps on benchmarks of typical difficulty and hurts on much easier or harder ones, and item text adds almost nothing beyond it (Section~\ref{sec:results}).
 \end{itemize}
 The simulation code, the fixed evaluation samples and every saved score are at \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 

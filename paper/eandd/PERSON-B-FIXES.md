@@ -1,6 +1,6 @@
 # Person-A update after Person-B's handoff (2026-11-07)
 
-Everything below is on `submission` and built into `paper/eandd-drafts/eandd-v99.pdf` and `paper/reviewing/reviewing.pdf`.
+Everything below is on `submission` and built into `paper/eandd-drafts/eandd-v100.pdf` and `paper/reviewing/reviewing.pdf`.
 
 - **Data fix:** `paper/eandd/data/wp13-probe-*.csv` and `r5-original-fit-manifest.json` on `submission` were still the provisional files, so Table 2 showed Rasch-target test Spearman 0.104; the confirmed files from `eandd-analysis` are now on `submission` and Table 2 shows 0.059 (test) and 0.146 (validation).
 - **Person-B's changes incorporated:** the figure labels (`2bea768`), the probe facts and Table 2 (original-fit values: Rasch-target test Spearman 0.059, below the random control's 0.076), and the plot-style preview. White stays the default background.
