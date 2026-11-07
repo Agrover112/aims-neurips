@@ -45,9 +45,6 @@ s = sub(s, "\\maketitle\n", BANNER)
 # ---- planned changes ----
 a1 = "On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation."
 n1 = " Averaged over all 17 benchmarks it gains $0.005$, and over all 680 choices of three held-out benchmarks it gains $0.004$ and hurts in $17.5\\%$ of them, so our test split is a favourable one."
-s = sub(s, "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}",
-        note("9", r"One sentence and a pointer: log loss and calibration error give the same ordering on test and the same reversal on validation (log loss ALC $0.6656$ against $0.7045$ for Jeffreys on test; $0.5404$ against $0.5159$ on validation), and rank metrics are uninformative by construction for a constant prediction.")
-        + "\\begin{figure}[t]\n  \\centering\n  \\includegraphics{\\figdir/figure1-prior-source.pdf}")
 s = sub(s, "Figure~\\ref{fig:benchmarks} shows the test and validation benchmarks separately",
         "\\par\\begin{qnote}{Q1}Section 5.3 and Figure 4: the text reported the 11-benchmark view (Spearman $0.93$, helps on 5 of 11) while the Figure 4 caption already showed 17 benchmarks, and the abstract's Spearman matched the 11-benchmark text. Is the paper now consistent on 17 benchmarks everywhere (abstract, contributions, Section 5.3, Figure 4)?\\end{qnote}\\par\nFigure~\\ref{fig:benchmarks} shows the test and validation benchmarks separately")
 s = sub(s, "Under the fitted priors, the simplest Rasch model is also the best on test",
