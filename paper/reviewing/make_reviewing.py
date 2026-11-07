@@ -37,11 +37,7 @@ PRE = r"""\usepackage{float}
 \newcommand{\newin}[1]{\colorbox{green!14}{#1}}
 """
 s = sub(s, "\\usepackage{float}\n", PRE)
-BANNER = r"""\maketitle
-\begin{tcolorbox}[colback=white,colframe=black,boxrule=0.5pt,arc=0pt,left=3pt,right=3pt,top=2pt,bottom=2pt]
-\small\textbf{REVIEW COPY, not a paper version.} \textbf{Light red} = existing text I would delete or rewrite, or (marked [S1 was] to [S21 was]) the old wording of an edit already made. \textbf{Light green} = text or an analysis I would add, or (marked [S1 now] to [S21 now]) the new wording of an edit already made. Numbers in brackets refer to the list \emph{What I would change and why}; [S1] to [S21] to the list of edits already made. Both lists are at the end.
-\end{tcolorbox}
-"""
+BANNER = "\\maketitle\n"
 s = sub(s, "\\maketitle\n", BANNER)
 
 # ---- edits already made (S1, S2 accepted) ----
