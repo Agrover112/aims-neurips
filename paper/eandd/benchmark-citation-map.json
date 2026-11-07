@@ -1,0 +1,199 @@
+[
+  {
+    "benchmark_id": "afrieval",
+    "name": "MasakhaNER 1.0 and 2.0: released NER predictions",
+    "citation_url": "https://doi.org/10.1162/tacl_a_00416",
+    "response_source_url": "https://github.com/masakhane-io/masakhane-ner",
+    "bibtex_keys": [
+      "adelani-etal-2021-masakhaner",
+      "adelani-etal-2022-masakhaner"
+    ],
+    "note": "MasakhaNER 1.0/2.0 released NER predictions, not a separate benchmark paper named AfriEval.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "afrimedqa",
+    "name": "AfriMed-QA",
+    "citation_url": "https://aclanthology.org/2025.acl-long.96/",
+    "response_source_url": "https://github.com/intron-innovation/AfriMed-QA",
+    "bibtex_keys": [
+      "nimo-etal-2025-afrimed"
+    ],
+    "note": "Use the published ACL record (Nimo et al., 2025); the preprint has a different author ordering.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "agi_elo",
+    "name": "AGI-Elo",
+    "citation_url": "https://arxiv.org/abs/2505.12844",
+    "response_source_url": "https://github.com/SS47816/AGI-Elo",
+    "bibtex_keys": [
+      "sun2025agielofarmasteringtask",
+      "hendrycks2021measuringmassivemultitasklanguage"
+    ],
+    "note": "Cite AGI-Elo for the released MMLU predictions and MMLU for the question bank.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "ai2d_test",
+    "name": "AI2D_TEST",
+    "citation_url": "https://arxiv.org/abs/1603.07396",
+    "response_source_url": "https://huggingface.co/datasets/VLMEval/OpenVLMRecords",
+    "bibtex_keys": [
+      "kembhavi2016diagramworthdozenimages"
+    ],
+    "note": "AI2D diagram questions; the released outputs come from OpenVLMRecords.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "algotune",
+    "name": "AlgoTune",
+    "citation_url": "https://arxiv.org/abs/2507.15887",
+    "response_source_url": "https://github.com/oripress/AlgoTune",
+    "bibtex_keys": [
+      "press2025algotunelanguagemodelsspeed"
+    ],
+    "note": "The author-linked arXiv paper is provided as an accessible alternative to OpenReview.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "alignment_faking",
+    "name": "Alignment Faking (RL)",
+    "citation_url": "https://alignment.anthropic.com/2025/alignment-faking-mitigations/",
+    "response_source_url": "https://huggingface.co/datasets/Anthropic/alignment-faking-rl",
+    "bibtex_keys": [
+      "gasteiger2025alignmentfakingmitigations"
+    ],
+    "note": "This group uses the RL mitigation study and alignment-faking-rl data, not only the earlier Alignment Faking in Large Language Models paper.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "appworld",
+    "name": "AppWorld",
+    "citation_url": "https://arxiv.org/abs/2407.18901",
+    "response_source_url": "https://github.com/StonyBrookNLP/appworld-leaderboard",
+    "bibtex_keys": [
+      "trivedi2024appworldcontrollableworldapps"
+    ],
+    "note": "Retain the specific leaderboard response-release link as well as the AppWorld paper.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "bird_sql",
+    "name": "BIRD (text-to-SQL)",
+    "citation_url": "https://arxiv.org/abs/2305.03111",
+    "response_source_url": "https://github.com/petavue/NL2SQL-Benchmark/tree/0637e2593739f82961d38a14d0d80df2b20e3060",
+    "bibtex_keys": [
+      "li2023llmservedatabaseinterface"
+    ],
+    "note": "BIRD task, with Petavue evaluations on a 360-question development subset.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "brace",
+    "name": "BRACE (CAF-Score decisions)",
+    "citation_url": "https://arxiv.org/abs/2512.10403",
+    "response_source_url": "https://github.com/inseong00/CAF-Score",
+    "bibtex_keys": [
+      "guo2025bracebenchmarkrobustaudio",
+      "lee2026cafscorecalibratingclaplalms"
+    ],
+    "note": "Cite BRACE and CAF-Score: the stored observations are CAF-Score decisions, not solely the original BRACE author evaluation.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "bridging_gap",
+    "name": "Bridging-the-Gap African Languages",
+    "citation_url": "https://arxiv.org/abs/2412.12417",
+    "response_source_url": "https://github.com/InstituteforDiseaseModeling/Bridging-the-Gap-Low-Resource-African-Languages",
+    "bibtex_keys": [
+      "alhanai2024bridginggapenhancingllm",
+      "hendrycks2021measuringmassivemultitasklanguage",
+      "sakaguchi2019winograndeadversarialwinogradschema",
+      "bandarkar2024belebelebenchmarkparallelreading"
+    ],
+    "note": "Translation/evaluation paper; the stored release contains MMLU, WinoGrande and Belebele components.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "cmmlu",
+    "name": "CMMLU",
+    "citation_url": "https://arxiv.org/abs/2306.09212",
+    "response_source_url": "https://huggingface.co/datasets/opencompass/compass_academic_predictions",
+    "bibtex_keys": [
+      "li2024cmmlumeasuringmassivemultitask"
+    ],
+    "note": "The question bank is CMMLU; responses are the OpenCompass academic-predictions release.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "cruxeval",
+    "name": "CRUXEval",
+    "citation_url": "https://arxiv.org/abs/2401.03065",
+    "response_source_url": "https://github.com/facebookresearch/cruxeval",
+    "bibtex_keys": [
+      "gu2024cruxevalbenchmarkcodereasoning"
+    ],
+    "note": "Author-released code reasoning/input-output prediction observations.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "editbench",
+    "name": "EDIT-Bench",
+    "citation_url": "https://arxiv.org/abs/2511.04486",
+    "response_source_url": "https://github.com/waynchi/editbench/tree/b406cc5143feb91e9bda1edd01cbe37d84d185fd",
+    "bibtex_keys": [
+      "chi2025editbenchevaluatingllmabilities"
+    ],
+    "note": "EDIT-Bench for instructed code edits, not the image-inpainting EditBench.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "financebench",
+    "name": "FinanceBench",
+    "citation_url": "https://arxiv.org/abs/2311.11944v1",
+    "response_source_url": "https://github.com/patronus-ai/financebench/tree/22257c455f9f9ca9ca3dc67456d9a32e60c7ef08",
+    "bibtex_keys": [
+      "islam2023financebenchnewbenchmarkfinancial"
+    ],
+    "note": "The 150-question human-evaluated open sample, not all 10,231 questions.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "hallusionbench",
+    "name": "HallusionBench",
+    "citation_url": "https://arxiv.org/abs/2310.14566",
+    "response_source_url": "https://huggingface.co/datasets/VLMEval/OpenVLMRecords",
+    "bibtex_keys": [
+      "guan2024hallusionbenchadvanceddiagnosticsuite"
+    ],
+    "note": "Distinguish the original question bank from the OpenVLMRecords response collection.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "harmbench",
+    "name": "HarmBench",
+    "citation_url": "https://arxiv.org/abs/2402.04249",
+    "response_source_url": "https://github.com/justinphan3110cais/harmbench_website/tree/data/playground_data",
+    "bibtex_keys": [
+      "mazeika2024harmbenchstandardizedevaluationframework"
+    ],
+    "note": "Retain the published playground response source as well as the HarmBench paper.",
+    "status": "verified_source_links"
+  },
+  {
+    "benchmark_id": "helm_afr",
+    "name": "HELM African MMLU + Winogrande",
+    "citation_url": "https://arxiv.org/abs/2412.12417",
+    "response_source_url": "https://crfm.stanford.edu/helm/mmlu-winogrande-afr/latest/",
+    "bibtex_keys": [
+      "alhanai2024bridginggapenhancingllm",
+      "helmAfricanRelease",
+      "liang2023holisticevaluationlanguagemodels",
+      "hendrycks2021measuringmassivemultitasklanguage",
+      "sakaguchi2019winograndeadversarialwinogradschema"
+    ],
+    "note": "No separate paper for this exact HELM suite identified. Cite its shared Bridging-the-Gap translation paper and the official HELM suite. The general HELM paper is supporting framework credit.",
+    "status": "verified_source_links"
+  }
+]
