@@ -1,17 +1,7 @@
 \label{sec:limitations}
-The filtered public data covers only three test benchmarks in the online simulation. Multiple draws
-and acquisition orders measure variation within this population; they do not
-supply independent tests of transfer to new benchmarks. Task bootstrap
-intervals likewise do not capture uncertainty from sampling new benchmarks.
-Results apply to the eligible response data and random label acquisition,
-and need not carry over to other benchmark mixes or selection policies.
-The 17-benchmark sensitivity analysis reuses held-out-subject tasks for
-the 11 original training benchmarks. The test triples overlap, so their
-distribution describes sensitivity within this dataset rather than
-independent estimates of transfer.
-The ID comparison has item response history that is unavailable under
-benchmark cold start. Observed item difficulty also depends on which subjects
-answered the item. The leave-one-benchmark-out association uses realized
-outcomes to explain when the fitted prior helps; it is not a way to select a
-prior before observing a new benchmark.
+\paragraph{Evidence.} Our results rest on 17 benchmarks from the competition's public data, with random label acquisition, and three benchmarks serve as test. Intervals resample tasks, so they do not reflect which benchmarks are held out. We therefore also report the gain over all 680 choices of three held-out benchmarks (Appendix~\ref{app:split-sensitivity}), and read them as a measure of sensitivity, since they overlap.
+
+\paragraph{Selection.} All settings were chosen on validation. Test scores were visible during development, so we treat the test split as one of many possible splits and report the others. Our account of when the prior helps was formed after seeing the results and uses observed outcomes, so it explains them and does not select a prior for a new benchmark.
+
+\paragraph{Not tested.} Sharing labels across subjects, other label-selection policies, priors from subject metadata, reasoning-trace features (unavailable at test time) and stronger difficulty predictors. The conclusions are limited to the models and data above.
 

@@ -151,19 +151,13 @@ Every difference is written $\Delta_{a-b}$, the Brier ALC of model $a$ minus tha
 
 \subsection{Prior source matters, and no source wins on every split}
 
-Table~\ref{tab:prior-source} compares the nine combinations. The validation-tuned Beta-Binomial prior is \emph{worse} than Jeffreys on test ($\D{BB\,tune}{J}=+0.0055$) though it is the best Beta-Binomial on validation. Every comparison between prior sources changes sign between test and validation (Appendix~\ref{app:paired}); fresh draws change no result by more than $0.0007$ (Appendix~\ref{app:robust}). Other metrics tell the same story: log loss and calibration error give the same ordering of the prior sources on test and the same reversal on validation, and rank metrics are uninformative for a constant prediction (Appendix~\ref{app:alternative-metrics}).
+Table~\ref{tab:prior-source} compares the nine combinations. The validation-tuned Beta-Binomial prior is \emph{worse} than Jeffreys on test ($\D{BB\,tune}{J}=+0.0055$) though it is the best Beta-Binomial on validation. Every comparison between prior sources changes sign between test and validation (Appendix~\ref{app:paired}); fresh draws change no result by more than $0.0007$ (Appendix~\ref{app:robust}). The prior's source matters at zero to three labels and has faded by 31 (Figure~\ref{fig:prior-source}, Appendix~\ref{app:figures}). Other metrics tell the same story: log loss and calibration error give the same ordering of the prior sources on test and the same reversal on validation, and rank metrics are uninformative for a constant prediction (Appendix~\ref{app:alternative-metrics}).
 
 \begin{table}[H]
   \caption{\textbf{A prior fitted on training helps on the test benchmarks and hurts on the validation benchmarks; a fixed prior with strong shrinkage does nearly as well on test.} Each cell is $\Delta_{m-\mathrm{J}}$ for the model $m$ in the row, competition-shaped draws. ID: held-out subjects on the 11 training benchmarks, 114 tasks, where the training-fitted Beta-Binomial prior is refit without those subjects. OOD validation: 3 unseen benchmarks, 80 tasks. OOD test: 3 unseen benchmarks, 45 tasks. Bold: best of the nine models in each column; underlined: second best.}\label{tab:prior-source}
   \centering\footnotesize\setlength{\tabcolsep}{0.75pt}
   \input{eandd_table1}
 \end{table}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics{\figdir/figure1-prior-source.pdf}
-  \caption{\textbf{The prior's source matters at zero to three labels and has faded by 31.} Brier score (a) and $\Delta_{m-\mathrm{J}}$ (b) per label budget on the three unseen test benchmarks, competition-shaped draws, for the Beta-Binomial with a fixed (Jeffreys, solid), validation-tuned (dashed) and training-fitted (dotted) prior. Jeffreys jumps to $0.75$ or $0.25$ after one answer, so the gap is largest at one label; at 31 labels the three differ by less than $0.001$.}\label{fig:prior-source}
-\end{figure}
 
 \subsection{Learned priors transfer to unseen benchmarks; item-level estimates do not}
 
@@ -179,17 +173,11 @@ On the ID evaluation set the offline model that keeps its fitted values scores $
 
 \begin{figure}[t]
   \centering
-  \includegraphics{\figdir/figure3-benchmark-breakdown.pdf}
-  \caption{\textbf{The training-fitted prior helps on all three test benchmarks and on one validation benchmark, and hurts on the hardest.} $\D{BB\,fit}{J}$ for each unseen benchmark, with 95\% intervals over tasks. The validation benchmark \code{bird\_sql} has task accuracy $0.12$, far below every training benchmark.}\label{fig:benchmarks}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
   \includegraphics{\figdir/figure4-benchmark-explanation-17.pdf}
   \caption{\textbf{A fitted prior helps when a benchmark's accuracy is near the prior mean.} Each point is one of 17 benchmarks. For each of the 11 training benchmarks, the prior was refit without any of that benchmark's rows and scored on held-out subjects. The six validation and test benchmarks use the original training-only prior. The horizontal axis uses task accuracy on the evaluation items; the vertical axis shows $\D{BB\,fit}{J}$, with 95\% task-bootstrap intervals. This is an explanatory analysis using observed outcomes.}\label{fig:lobo}
 \end{figure}
 
-Figure~\ref{fig:benchmarks} shows the test and validation benchmarks separately: all three test benchmarks agree ($\D{BB\,fit}{J}$ from $-0.013$ to $-0.015$), and on validation \code{ai2d\_test} agrees while \code{bird\_sql} goes the other way ($+0.025$). Over the 17 benchmarks (Figure~\ref{fig:lobo}; each training benchmark is held out in turn, Appendix~\ref{app:lobo}) the fitted prior significantly helps on 9, significantly hurts on 1 (\code{bird\_sql}), and the macro mean $\D{BB\,fit}{J}$ is $-0.0050$. What separates the benchmarks is not whether they lie inside the range of training benchmark rates (\code{alignment\_faking} and \code{harmbench} lose while inside it) but how far their task accuracies sit from the prior mean: the Spearman correlation between the gain and that distance is $0.96$ over the 17 benchmarks ($0.93$ over the 11 training benchmarks), against $0.01$ over the 11 for the benchmark's mean accuracy. The prior is a starting guess that a task is answered correctly about $52\%$ of the time, and with few labels the predictor pulls its estimate toward it. If a benchmark's true accuracy is, say, $55\%$, the pull lands near the truth and the prediction improves; if it is $12\%$, as on \code{bird\_sql}, the pull drags the estimate the wrong way and it gets worse. So the prior helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. The three test benchmarks (mean accuracy $0.54$--$0.68$) sit near the prior mean, which is why test looks good. A random choice of three held-out benchmarks would usually look worse: over all 680 choices, with the prior refit on the other 14 benchmarks, the mean $\D{BB\,fit}{J}$ is $-0.0037$ and the prior hurts in $17.5\%$ of them (Appendix~\ref{app:split-sensitivity}). We found this pattern after seeing the results, so it is an explanation and not a predictor.
+Figure~\ref{fig:benchmarks} (Appendix~\ref{app:figures}) shows the test and validation benchmarks separately: all three test benchmarks agree ($\D{BB\,fit}{J}$ from $-0.013$ to $-0.015$), and on validation \code{ai2d\_test} agrees while \code{bird\_sql} goes the other way ($+0.025$). Over the 17 benchmarks (Figure~\ref{fig:lobo}; each training benchmark is held out in turn, Appendix~\ref{app:lobo}) the fitted prior significantly helps on 9, significantly hurts on 1 (\code{bird\_sql}), and the macro mean $\D{BB\,fit}{J}$ is $-0.0050$. What separates the benchmarks is not whether they lie inside the range of training benchmark rates (\code{alignment\_faking} and \code{harmbench} lose while inside it) but how far their task accuracies sit from the prior mean: the Spearman correlation between the gain and that distance is $0.96$ over the 17 benchmarks ($0.93$ over the 11 training benchmarks), against $0.01$ over the 11 for the benchmark's mean accuracy. The prior is a starting guess that a task is answered correctly about $52\%$ of the time, and with few labels the predictor pulls its estimate toward it. If a benchmark's true accuracy is, say, $55\%$, the pull lands near the truth and the prediction improves; if it is $12\%$, as on \code{bird\_sql}, the pull drags the estimate the wrong way and it gets worse. So the prior helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. The three test benchmarks (mean accuracy $0.54$--$0.68$) sit near the prior mean, which is why test looks good. A random choice of three held-out benchmarks would usually look worse: over all 680 choices, with the prior refit on the other 14 benchmarks, the mean $\D{BB\,fit}{J}$ is $-0.0037$ and the prior hurts in $17.5\%$ of them (Appendix~\ref{app:split-sensitivity}). We found this pattern after seeing the results, so it is an explanation and not a predictor.
 
 Under the fitted priors, the simplest Rasch model is also the best on test and the worst on validation: with benchmark rate only $\Delta_{m-\mathrm{J}}$ is $-0.0172$ on test and $+0.0211$ on validation (Appendix~\ref{app:ladder}). The subject-ability term is what lets a benchmark far from the prior move away from it, at a cost in variance when the benchmark is near it. The kernel adds nothing on test.
 
@@ -197,15 +185,7 @@ Under the fitted priors, the simplest Rasch model is also the best on test and t
 \input{eandd_b_itemfeat}
 
 \subsection{Priors that adapt to the first labels do not remove the harm}\label{sec:adaptive-results}
-Table~\ref{tab:adaptive} compares the adaptive priors of Section~\ref{sec:adaptive} with the fitted Beta-Binomial prior over the 17 benchmarks. They trade gain for safety and none dominates it. The mixtures give the largest average and test gains but leave the worst benchmark as bad as before. Averaging over the mean and strength nearly removes the worst case but halves the gain. The switch rule falls in between. We had fixed three criteria in advance: a worst benchmark of at most $+0.0120$, a mean within $0.0010$ of the fitted prior's $-0.0050$, and a test gain within $0.0020$ of its $-0.0138$. No adaptive prior meets all three.
-
-\begin{table}[H]
-\centering
-\caption{$\Delta_{m-\mathrm{J}}$ for adaptive priors. Worst benchmark: the largest gain (a loss) over the 17 benchmarks. Mean: over the 17 benchmarks. The training benchmarks are held out one at a time, and the switch threshold is chosen on validation. Mixtures with 2 and 3 components differ by at most $0.0001$ (the table shows 2). Bold: best of the adaptive priors in each column.}
-\label{tab:adaptive}
-\small
-\input{eandd_adaptive}
-\end{table}
+Table~\ref{tab:adaptive} (Appendix~\ref{app:adaptive}) compares the adaptive priors of Section~\ref{sec:adaptive} with the fitted Beta-Binomial prior over the 17 benchmarks. They trade gain for safety and none dominates it. The mixtures give the largest average and test gains but leave the worst benchmark as bad as before. Averaging over the mean and strength nearly removes the worst case but halves the gain. The switch rule falls in between. We had fixed three criteria in advance: a worst benchmark of at most $+0.0120$, a mean within $0.0010$ of the fitted prior's $-0.0050$, and a test gain within $0.0020$ of its $-0.0138$. No adaptive prior meets all three.
 
 Can the first labels warn that the prior will hurt? The distance of the accuracy so far from the prior's mean separates the tasks the prior hurts from the rest, with an area under the ROC curve (AUC) of $0.73$ from seven labels, but only $0.64$ within a benchmark, so most of the signal is between benchmarks. The harm sits at zero to three labels, which carry half of the ALC weight, before any such warning exists.
 
@@ -303,8 +283,25 @@ z_j=\operatorname{logit}(\bar p)-\operatorname{logit}\!\big(\operatorname{clip}(
 \end{equation*}
 where $\bar p$ is the benchmark-weighted mean pass rate of the sampled training items. Positive difficulty means harder.
 
+\paragraph{Probe prior mean.} Table~\ref{tab:probe-prior} gives the effect of the scale $\gamma$ in Equation~\eqref{eq:probe-prior}.
+
+\begin{table}[H]
+\centering
+\caption{Predicted item difficulty as the prior mean of the Rasch item deviation, Equation~\eqref{eq:probe-prior}. Cells are $\Delta_{m-\mathrm{J}}$ of the fitted Rasch with scale $\gamma$, competition-shaped draws; $\gamma=0$ is the fitted Rasch without a prior mean. Bold: lowest in each column.}
+\label{tab:probe-prior}
+\input{eandd_r5}
+\end{table}
+
 \section{Adaptive prior details}\label{app:adaptive}
 Table~\ref{tab:adaptive-bench} gives the gain of each adaptive prior on every benchmark behind Table~\ref{tab:adaptive}. Table~\ref{tab:pilot} reports how well the first labels predict which tasks the fitted prior hurts, and Table~\ref{tab:switch} sweeps the switch threshold $\eta$. The threshold in Table~\ref{tab:adaptive} was chosen on validation, which picked the smallest value on the grid.
+
+\begin{table}[H]
+\centering
+\caption{$\Delta_{m-\mathrm{J}}$ for adaptive priors. Worst benchmark: the largest gain (a loss) over the 17 benchmarks. Mean: over the 17 benchmarks. The training benchmarks are held out one at a time, and the switch threshold is chosen on validation. Mixtures with 2 and 3 components differ by at most $0.0001$ (the table shows 2). Bold: best of the adaptive priors in each column.}
+\label{tab:adaptive}
+\small
+\input{eandd_adaptive}
+\end{table}
 
 \begin{table}[H]
 \centering
@@ -329,6 +326,19 @@ Table~\ref{tab:adaptive-bench} gives the gain of each adaptive prior on every be
 \small
 \input{eandd_switch}
 \end{table}
+
+\section{Additional figures}\label{app:figures}
+\begin{figure}[H]
+  \centering
+  \includegraphics{\figdir/figure1-prior-source.pdf}
+  \caption{\textbf{The prior's source matters at zero to three labels and has faded by 31.} Brier score (a) and $\Delta_{m-\mathrm{J}}$ (b) per label budget on the three unseen test benchmarks, competition-shaped draws, for the Beta-Binomial with a fixed (Jeffreys, solid), validation-tuned (dashed) and training-fitted (dotted) prior. Jeffreys jumps to $0.75$ or $0.25$ after one answer, so the gap is largest at one label; at 31 labels the three differ by less than $0.001$.}\label{fig:prior-source}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics{\figdir/figure3-benchmark-breakdown.pdf}
+  \caption{\textbf{The training-fitted prior helps on all three test benchmarks and on one validation benchmark, and hurts on the hardest.} $\D{BB\,fit}{J}$ for each unseen benchmark, with 95\% intervals over tasks. The validation benchmark \code{bird\_sql} has task accuracy $0.12$, far below every training benchmark.}\label{fig:benchmarks}
+\end{figure}
 
 \clearpage
 \input{checklist}

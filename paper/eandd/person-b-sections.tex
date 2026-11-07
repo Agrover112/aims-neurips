@@ -38,14 +38,7 @@ where $z_j$ is the probe's predicted difficulty of item $j$, centred within its 
 
 Embeddings show a clear signal on known benchmarks. On the six unseen benchmarks the two MLP probes pass the criterion we fixed in advance, with benchmark-macro Spearman $0.090$ and $0.103$ against $0.026$ for a random baseline and a positive correlation on 5 of 6 benchmarks; the ridge probes do not ($0.065$ and $0.047$). On the three test benchmarks alone, the pass-rate MLP reaches $0.109$, while the Rasch-target MLP reaches $0.059$, below the sampled random control's $0.076$. The aggregate rank criterion therefore does not establish a consistent test-only advantage.
 
-The rank signal yields only a small gain at the validation-selected scale. In Table~\ref{tab:probe-prior}, every $\gamma\ge0.25$ is worse than $\gamma=0$ on both splits. The scale selected on validation ($\gamma=0.05$, Rasch-target MLP) improves Brier ALC by about $0.0004$ on each split in its matched replay; this comparison alone does not establish a reliable improvement. This tests these two probes only; a stronger difficulty predictor, for instance one trained through an item response likelihood on more items, could do better.
-
-\begin{table}[H]
-\centering
-\caption{Predicted item difficulty as the prior mean of the Rasch item deviation, Equation~\eqref{eq:probe-prior}. Cells are $\Delta_{m-\mathrm{J}}$ of the fitted Rasch with scale $\gamma$, competition-shaped draws; $\gamma=0$ is the fitted Rasch without a prior mean. Bold: lowest in each column.}
-\label{tab:probe-prior}
-\input{eandd_r5}
-\end{table}
+The rank signal yields only a small gain at the validation-selected scale. In Table~\ref{tab:probe-prior} (Appendix~\ref{app:probes}), every $\gamma\ge0.25$ is worse than $\gamma=0$ on both splits. The scale selected on validation ($\gamma=0.05$, Rasch-target MLP) improves Brier ALC by about $0.0004$ on each split in its matched replay; this comparison alone does not establish a reliable improvement. This tests these two probes only; a stronger difficulty predictor, for instance one trained through an item response likelihood on more items, could do better.
 
 \section{Limitations}
 \label{sec:limitations}
