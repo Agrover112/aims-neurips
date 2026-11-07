@@ -120,7 +120,6 @@ for key, tag, txt, where in imp:
     s = s.replace(key, (box + key) if where == "before" else (key + box), 1)
 open("eandd_reviewing.tex", "w").write(s)
 
-idf = sub(idf, "Embeddings show a clear signal on known benchmarks.", "\\begin{qnote}{Q2}Section 5.4: the probe table and the prior-mean table now sit in Results, with the probes defined in Section 4.2. Does the abstract say no more than these two tables show?\\end{qnote}\n" + "Embeddings show a clear signal on known benchmarks.")
 open("eandd_rv_itemfeat.tex", "w").write(idf)
 open("eandd_rv_limits.tex", "w").write(lim)
 print("written")
