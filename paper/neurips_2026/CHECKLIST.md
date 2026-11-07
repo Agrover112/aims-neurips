@@ -1,6 +1,6 @@
 # NeurIPS 2026 paper checklist
 
-`checklist.tex` is the unmodified checklist from the official NeurIPS 2026 formatting archive, downloaded on 2026-11-07. It contains 16 questions. Answers and justifications are still TODO; this is a template, not a completed assessment of our paper.
+`checklist.tex` contains the 16 official NeurIPS 2026 questions with completed answers and justifications for this paper. The instruction block has been removed, while the questions and guidelines are retained. Both `eandd.tex` and `eandd_reviewing.tex` include it after their appendices.
 
 ## Official sources
 
@@ -9,13 +9,13 @@
 - [2026 main-track handbook](https://neurips.cc/Conferences/2026/MainTrackHandbook)
 - [2026 Evaluations & Datasets FAQ](https://neurips.cc/Conferences/2026/EvaluationsDatasetsFAQ)
 
-SHA-256 of the downloaded `checklist.tex`: `780ba13c480f652dcc42e69ed61a752ce0ea270f15d332d4a45b059dabad84f6`.
+SHA-256 of the original blank `checklist.tex` downloaded on 2026-11-07, before answers were added: `780ba13c480f652dcc42e69ed61a752ce0ea270f15d332d4a45b059dabad84f6`.
 
-## Completing and including it
+## Maintaining the answers
 
-1. Review each question against the actual manuscript and released artifacts. Replace `\answerTODO{}` with `\answerYes{}`, `\answerNo{}`, or `\answerNA{}`, and replace each `\justificationTODO{}` with a short justification and relevant section references.
-2. Remove the block between `%%% BEGIN INSTRUCTIONS %%%` and `%%% END INSTRUCTIONS %%%`. Keep the section heading, questions, and guidelines as directed by the template.
-3. Add the following after all appendices and before `\end{document}` in the manuscript:
+1. Recheck each answer when the manuscript or released artifacts change. Answers use `\answerYes{}`, `\answerNo{}`, or `\answerNA{}`, followed by a short evidence-based justification.
+2. Keep the official section heading, questions, and guidelines unchanged.
+3. Both manuscripts now contain the following after their appendices and before `\end{document}`:
 
    ```latex
    \clearpage
@@ -24,7 +24,18 @@ SHA-256 of the downloaded `checklist.tex`: `780ba13c480f652dcc42e69ed61a752ce0ea
 
 4. Rebuild the PDF and check that no TODO answers remain. The existing `neurips_2026.sty` already defines the answer macros.
 
-The checklist has not been inserted into our manuscript automatically, so unfinished answers do not appear in the current paper PDF. Check any competition-specific submission instructions in addition to the general NeurIPS guidance.
+Check any competition-specific submission instructions in addition to the general NeurIPS guidance.
+
+## Current reporting gaps
+
+The checklist answers **No** to questions 5, 8, 10, and 12:
+
+- **Open access:** code and derived artifacts are released, but full reruns require separate authorised access to restricted competition inputs.
+- **Compute reporting:** a complete per-experiment hardware, memory, runtime, and total-development-compute inventory is not reported.
+- **Broader impacts:** the paper discusses transfer limitations but does not explicitly analyse both positive and negative societal impacts.
+- **Asset licenses:** credits and data restrictions are documented, but a complete explicit third-party license-and-terms inventory is not provided.
+
+These are reporting limitations, not claims that these requirements have already been satisfied. The LLM-usage answer refers to the existing Disclosure and author responsibility; it does not add an account of text editing.
 
 ## Questions
 
