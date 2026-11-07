@@ -83,7 +83,7 @@ def prior_source_plot(summary, out):
                     ms=3.5, color=CYCLE[j], label=name, lw=1.25)
     axes[0].set_ylabel("Brier score")
     axes[0].set_ylim(0, .30)
-    axes[1].set_ylabel("Brier difference to Jeffreys")
+    axes[1].set_ylabel(r"$\Delta_{\mathrm{m}-\mathrm{J}}$")
     axes[1].set_yticks([-.04, -.02, 0, .02, .04])
     for ax in axes:
         ax.set_xticks(range(len(budgets)), budgets)
@@ -103,11 +103,11 @@ def per_benchmark_plot(table, out):
     fig, ax = plt.subplots(figsize=(TEXTWIDTH, 2.5))
     for j, (role, group) in enumerate(t.groupby("role", sort=True)):
         ax.errorbar(group.delta, group.index, xerr=[group.delta-group.ci_low, group.ci_high-group.delta],
-                    fmt="o", color=CYCLE[j], capsize=2, label=role.title())
+                    fmt="o", color=CYCLE[j], capsize=2, label="OOD " + role)
     ax.axvline(0, color=".55", lw=.8)
     ax.set_yticks(t.index, t.benchmark)
     ax.invert_yaxis()
-    ax.set_xlabel("Training-fitted Beta–Binomial minus Jeffreys (Brier ALC)")
+    ax.set_xlabel(r"$\Delta_{\mathrm{BB\,fit}-\mathrm{J}}$")
     style(ax)
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
