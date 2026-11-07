@@ -24,12 +24,22 @@ exact result. Macro means first give equal weight to tasks within a benchmark,
 then equal weight to benchmarks. A task-weighted result is also in the CSV.
 The 17-point explanation plot uses saved per-benchmark gains and a common
 query-rate distance, so it is distinct from the split refits and from the
-original 11-point figure. The R6 fit-score CSV and sampled-triples JSON
-were not in the R2 handoff. Once available, `reviewer_r6.py <scores>
-<triples> <output>` aggregates the matched 40 triples and marks the
-original test benchmark names. R6 fits only on the remaining original
-training benchmarks, so its Beta comparator is not the 14-benchmark
-refit above.
+original 11-point figure. The R6 handoff has now been analyzed:
+`data/r8-r6-split-sensitivity.csv` and
+`data/figure-r8-r6-split-sensitivity.pdf`. R6 fits only on the remaining
+original training benchmarks, so its Beta comparator is not the
+14-benchmark refit above.
+
+| R6 model, 40 triples | Mean macro difference | 5th--95th percentile | Harmful splits | Original trio |
+|---|---:|---:|---:|---:|
+| Beta-Binomial | -0.00514 | [-0.01282, +0.00667] | 20.0% | -0.01362 |
+| Rasch | -0.00407 | [-0.00947, +0.00369] | 22.5% | -0.01186 |
+
+The original trio is marked separately and is not added to the random sample.
+R6 scores all available frozen orders rather than the original WP5 competition
+draw frequencies, which accounts for the small difference in its original-trio
+Beta result. These numbers reproduce Person A's supplied triple-gain CSV
+to its five-decimal rounding.
 
 ## R9--R14
 
@@ -43,8 +53,8 @@ refit above.
   These are rank metrics, not downstream Brier gains. The Rasch results
   are provisional: the local refit matched the original response and
   item counts but used an item scale of 1.507 versus 1.491 in the stored
-  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`. R5 should
-  wait for the original item fit and the replay panel keys. Rerun
+  WP4b fit. Aggregate outputs are in `data/wp13-probe-*`. The original
+  item fit and replay panel are now available in `person-a-v3`. Rerun
   `reviewer_probes.py --rasch-fit <original-fit> --export --panel
   <panel/items.parquet>` with the canonical responses and BGE cache
   to write one `benchmark_id,content_hash,difficulty` parquet per

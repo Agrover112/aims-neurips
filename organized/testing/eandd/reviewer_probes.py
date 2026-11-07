@@ -1,6 +1,7 @@
 """R9: benchmark-grouped text probes on the matched WP7 OOD items."""
 import argparse
 import copy
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -8,6 +9,7 @@ import sys
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
+from scipy.special import logit
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupKFold
 from sklearn.neural_network import MLPRegressor
@@ -123,6 +125,10 @@ def fetch_matched_embeddings(responses, embeddings, volume, remote_file, export,
 
 
 def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
+    if output.exists():
+        raise FileExistsError(output)
+    if export and (not panel or not rasch_fit):
+        raise ValueError("Final R5 exports require the supplied original fit and panel")
     t = population(responses)
     fit, rng = wp7_sample(t)
     unseen = t.loc[t.benchmark_split.ne("train")].copy()
@@ -149,6 +155,10 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
     }
     selected, scores = {}, [score(unseen, "random", copy.deepcopy(rng)).assign(arm="random")]
     export_models = {}
+    baseline = t.loc[fit].groupby("benchmark_id")["observed"].mean().mean()
+    train_items = t.loc[fit, ["benchmark_id", "item_uid"]].copy()
+    if not t.loc[fit, "benchmark_split"].eq("train").all():
+        raise ValueError("Non-training item in the probe fit")
     for target, raw in targets.items():
         valid = np.isfinite(raw)
         tx, yy, gg = x[valid], raw[valid], groups[valid]
@@ -161,10 +171,13 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
             best = choose(tx, centered, gg, make, options)
             model = make(best).fit(scaler.transform(tx), centered)
             unseen[arm] = model.predict(scaler.transform(z))
-            if export and target == "rasch_easiness":
+            if export:
                 export_models[arm] = (scaler, model)
             scores.append(score(unseen, arm, copy.deepcopy(rng)).assign(arm=arm))
             selected[arm] = {"alpha": best, "fit_items": int(valid.sum()), "wp7_sample": len(fit)}
+            if name == "mlp":
+                selected[arm].update(epochs=int(model.n_iter_), training_loss=float(model.loss_),
+                                     hit_epoch_limit=bool(model.n_iter_ == model.max_iter))
             print(arm, selected[arm], flush=True)
     by = pd.concat(scores, ignore_index=True)
     by["role"] = by.benchmark_id.map(unseen.groupby("benchmark_id").benchmark_split.first())
@@ -179,7 +192,14 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
     output.mkdir(parents=True, exist_ok=False)
     by.to_csv(output / "wp13-probe-per-benchmark.csv", index=False)
     summary.to_csv(output / "wp13-probe-summary.csv", index=False)
-    (output / "wp13-probe-criterion.json").write_text(json.dumps(dict(selection=selected, criterion=criterion), indent=2))
+    provenance = {"rasch_fit": str(rasch_fit),
+                  "rasch_fit_sha256": hashlib.sha256(rasch_fit.read_bytes()).hexdigest() if rasch_fit else None,
+                  "panel": str(panel),
+                  "selection": "Five GroupKFold splits over the 11 training benchmarks only; no validation/test selection"}
+    (output / "wp13-probe-criterion.json").write_text(json.dumps(
+        dict(selection=selected, criterion=criterion, provenance=provenance), indent=2))
+    train_items.to_parquet(output / "probe-training-items.parquet", index=False)
+    exported = {}
     for row in criterion:
         arm = row["arm"]
         if not row["passes"] or arm not in export_models:
@@ -189,15 +209,39 @@ def run(responses, embeddings, rasch_fit, output, export=False, panel=None):
         indices = lookup.get_indexer(keys.item_uid.astype(str))
         if (indices < 0).any():
             raise ValueError("Embedding cache is missing export keys; fetch with --export")
-        # Training predicts negative b (easiness) for ranking; R5 consumes b.
-        keys["difficulty"] = np.concatenate([
-            -model.predict(scaler.transform(np.asarray(vec[indices[i:i+2048]], np.float32)))
+        raw = np.concatenate([
+            model.predict(scaler.transform(np.asarray(vec[indices[i:i+2048]], np.float32)))
             for i in range(0, len(indices), 2048)])
+        if arm.startswith("rasch_easiness"):
+            # Training predicts negative benchmark-centered b; R5 consumes b.
+            keys["difficulty"] = -raw
+            transform = "difficulty = - predicted benchmark-centered Rasch easiness"
+        else:
+            # The pass-rate target is a centered probability, not a logit.
+            # Anchor zero correction at the benchmark-weighted training mean.
+            keys["difficulty"] = logit(baseline) - logit(np.clip(baseline + raw, 1e-4, 1-1e-4))
+            transform = ("difficulty = logit(training baseline) - "
+                         "logit(clip(training baseline + centered pass-rate prediction, 0.0001, 0.9999))")
         table = keys.groupby(["benchmark_id", "content_hash"], as_index=False).difficulty.mean()
         if not np.isfinite(table.difficulty).all() or table.empty:
             raise ValueError("Invalid exported difficulties")
-        table.to_parquet(output / f"r5-{arm}-item-difficulties.parquet", index=False)
+        panel_keys = pd.read_parquet(panel, columns=["benchmark_id", "content_hash"]).drop_duplicates()
+        if set(map(tuple, panel_keys.to_numpy())) != set(map(tuple, table[["benchmark_id", "content_hash"]].to_numpy())):
+            raise ValueError("Export does not match every panel key")
+        filename = f"r5-{arm.replace('easiness', 'difficulty')}-item-difficulties.parquet"
+        table.to_parquet(output / filename, index=False)
+        exported[arm] = dict(file=filename, rows=len(table), transform=transform,
+                             sha256=hashlib.sha256((output / filename).read_bytes()).hexdigest())
         print(f"{arm}: exported {len(table):,} unique benchmark/hash pairs", flush=True)
+    if export:
+        manifest = {"sign": "Rasch difficulty: positive means harder; enters logit as minus difficulty.",
+                    "training": f"Both probes used {len(fit)} deterministic WP7 sampled items (at most 800 per benchmark) "
+                                "from the 11 training benchmarks only; no validation or test items or outcomes "
+                                "were used for fitting, scaling, or hyperparameter selection.",
+                    "training_item_list": "probe-training-items.parquet",
+                    "pass_rate_baseline": float(baseline),
+                    "exports": exported, "provenance": provenance}
+        (output / "MANIFEST.json").write_text(json.dumps(manifest, indent=2))
     print(pd.DataFrame(criterion).to_string(index=False))
 
 
