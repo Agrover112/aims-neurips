@@ -45,8 +45,6 @@ s = sub(s, "\\maketitle\n", BANNER)
 # ---- planned changes ----
 a1 = "On unseen benchmarks that gain disappears, and only a shrinkage prior transfers: fitted on training it gains $0.014$ on test but loses $0.008$ on validation."
 n1 = " Averaged over all 17 benchmarks it gains $0.005$, and over all 680 choices of three held-out benchmarks it gains $0.004$ and hurts in $17.5\\%$ of them, so our test split is a favourable one."
-s = sub(s, "  \\item \\textbf{Open materials.}",
-        "  \\item \\par\\begin{addnote}{5}A bullet for the negative results the reviewer asked about: adaptive priors (mixtures, strength averaging, a pilot switch rule) did not remove the harm without losing the gain, and the first labels warn only weakly (pooled AUC 0.73, within-benchmark 0.64).\\end{addnote}\n  \\item \\textbf{Open materials.}")
 s = sub(s, "\\paragraph{Offline model that keeps its fitted values.}",
         note("5", r"A short subsection on adaptive priors, all closed form: Beta mixtures fitted by EM whose weights update by marginal likelihood on the revealed labels; averaging over the prior parameters $(\alpha,\beta)$; and a switch to Jeffreys when the first $k$ labels sit far from the prior mean, with the threshold chosen on validation only.")
         + note("7", r"Convergence paragraph: the online Newton solver converged in all 6,000 audited fits (at most 7 steps); the offline fit first stopped at an iteration limit, and a tight refit moved the hyperparameters by at most $1.2\%$ and no result by more than $0.0001$.")
@@ -128,7 +126,6 @@ s = sub(s, "\\input{eandd_b_setting}", "\\input{eandd_rv_setting}")
 s = sub(s, "\\input{eandd_b_itemfeat}", "\\input{eandd_rv_itemfeat}")
 s = sub(s, "\\input{eandd_b_limits}", "\\input{eandd_rv_limits}")
 imp = [
- ("\\begin{abstract}\n", "A-abstract", "Abstract: still long and number-heavy. Tighten it to one claim per sentence, check every number against the tables, and settle the headline (the average over splits) before finalising.", "after"),
  ("\\subsection{Priors}", "A-priors", "Priors (Section 4.3): the bullets are dense. Separate prior parameters from prior sources more clearly, consider a small table of the settings per model and source, and state plainly that the fitted kernel Rasch keeps $\\rho$ and $T$ from validation.", "after"),
  ("\\subsection{Priors}", "A-adaptive", "Methodology: adaptive priors are missing. Add the mixture prior, strength averaging and the pilot switch rule as models, with their equations (see NEW [5] above), before the results on them can be reported.", "before"),
  ("\\section{Conclusion}\n", "A-conclusion", "Conclusion: still to improve. The adaptive-priors sentence is unsupported until the body reports it; rewrite after the headline and the adaptive-priors result are settled, and keep it ranked and short.", "after"),

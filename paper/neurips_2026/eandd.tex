@@ -42,7 +42,7 @@
 \maketitle
 
 \begin{abstract}
-Evaluating an LLM on every item of every benchmark is expensive, so predicting item outcomes from a few revealed answers is attractive, but only if what is learned from past benchmarks carries over to new ones. We ask what does, in a controlled comparison where the models, the evaluation tasks and the order in which answers are revealed are held fixed and only the source of the prior changes. A prior learned from past benchmarks transfers to a new benchmark. Estimates of individual item difficulty do not. The prior's benefit is small on average and depends on the benchmark: it helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. A neural network that predicts item difficulty from item text adds little beyond the prior. Whether pooling answers across LLMs helps remains open, because our evaluation reveals answers from one LLM per benchmark. Our entry to the Predictive AI Evaluation Competition (Codabench submission 1005155) is a Beta-Binomial predictor. We release the simulation code, the fixed evaluation samples and every saved score.
+Evaluating an LLM on every item of every benchmark is expensive, so predicting item outcomes from a few revealed answers is attractive, but only if what is learned from past benchmarks carries over to new ones. We ask what does, in a controlled comparison where the models, the evaluation tasks and the order in which answers are revealed are held fixed and only the source of the prior changes. A prior learned from past benchmarks transfers to a new benchmark. Estimates of individual item difficulty do not. The prior's benefit is small on average and depends on the benchmark: it helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. A neural network that predicts item difficulty from item text adds little beyond the prior. Whether pooling answers across LLMs helps remains open, because our evaluation reveals answers from one LLM per benchmark. Our entry to the Predictive AI Evaluation Competition (Codabench submission 1005155) is a Beta-Binomial predictor. We release the simulation code, the fixed evaluation samples and every saved score at \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 \end{abstract}
 
 %==============================================================================
@@ -53,12 +53,10 @@ Evaluating language models on every item of every benchmark is expensive, so a p
 
 We use the Predictive AI Evaluation Competition's setting: a \emph{task} is one subject (a model under given evaluation settings) answering one benchmark, labels are bought one at a time, and predictions are scored by Brier ALC at 0, 1, 3, 7, 15 and 31 labels. Our contributions:
 \begin{itemize}
-  \item \textbf{A controlled comparison.} Beta-Binomial, Rasch and kernel Rasch predictors share tasks, labels and order; only the \emph{prior source} changes (Section~\ref{sec:models}).
-  \item \textbf{A seen-benchmark check.} Offline fitting must win on benchmarks it has seen; it does, by a wide margin, and the margin vanishes on unseen benchmarks (Section~\ref{sec:results}).
-  \item \textbf{When a transferred prior helps.} A prior fitted on training benchmarks helps on benchmarks whose accuracy is near the prior mean and hurts far from it, shown on 17 benchmarks, the 11 training ones by leave-one-benchmark-out.
-  \item \textbf{Item features.} Neural probes on item embeddings carry a small rank signal for difficulty on unseen benchmarks that improves prediction by only about $0.0004$ Brier ALC as a prior mean (Section~\ref{sec:itemfeat}).
-  \item \textbf{Open materials.} The frozen draws, saved scores and code to rerun every table and figure.
+  \item \textbf{A controlled comparison.} We hold the models, the tasks and the order of revealed labels fixed and change only where the prior comes from. We run it in an online simulation of the competition protocol (Section~\ref{sec:models}).
+  \item \textbf{What transfers.} A prior learned from past benchmarks transfers to a new benchmark, but estimates of individual item difficulty do not (Section~\ref{sec:results}). The prior helps on benchmarks of typical difficulty and hurts on much easier or much harder ones. Neural networks that predict item difficulty from item text add almost nothing beyond it (Section~\ref{sec:itemfeat}).
 \end{itemize}
+The simulation code, the fixed evaluation samples and every saved score are at \url{https://github.com/Agrover112/aims-neurips/tree/submission}.
 
 %==============================================================================
 \section{Related work}\label{sec:related}
