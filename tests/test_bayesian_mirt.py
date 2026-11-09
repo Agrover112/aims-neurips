@@ -20,7 +20,7 @@ import numpy as np
 try:
     import torch
 
-    import modal_bayesian_mirt as mirt
+    from organized.training import modal_bayesian_mirt as mirt
 except ModuleNotFoundError:  # torch and modal are experiment-only dependencies
     torch = None
     mirt = None
